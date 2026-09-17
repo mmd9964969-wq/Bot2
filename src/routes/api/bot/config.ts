@@ -1,8 +1,14 @@
-import { json } from "@tanstack/react-start";
+import { createFileRoute } from "@tanstack/react-router";
 
-export async function GET() {
-  return json({
-    ok: true,
-    message: "Bot config API is working",
-  });
-}
+export const Route = createFileRoute("/api/bot/config")({
+  server: {
+    handlers: {
+      GET: async () => {
+        return Response.json({
+          ok: true,
+          message: "Bot config API is working",
+        });
+      },
+    },
+  },
+});
