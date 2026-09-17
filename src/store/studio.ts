@@ -6,7 +6,12 @@ import { handleCommand } from "@/lib/bot/engine";
 import { runPanelAction } from "@/lib/telegram/panel";
 import type { Lang, Rank } from "@/lib/bot/registry";
 
-export type ViewId = "overview" | "config" | "commands" | "sim" | "deploy";
+export type ViewId =
+  | "overview"
+  | "config"
+  | "commands"
+  | "sim"
+  | "deploy";
 
 export type SimMessage = {
   id: string;
@@ -25,13 +30,21 @@ export type StudioState = {
   simRank: Rank;
   simLang: Lang;
   messages: SimMessage[];
+
   setUiLang: (lang: Lang) => void;
   setView: (view: ViewId) => void;
   patchConfig: (patch: Partial<BotConfig>) => void;
-  setAliases: (id: string, side: "en" | "fa", aliases: string[]) => void;
+  setAliases: (
+    id: string,
+    side: "en" | "fa",
+    aliases: string[],
+  ) => void;
   setSimMode: (mode: "group" | "private") => void;
   setSimRank: (rank: Rank) => void;
+
   sendSim: (text: string) => void;
+  sendReal: (text: string, chatId: number) => Promise<void>;
+
   resetSim: () => void;
   resetAll: () => void;
 };
@@ -55,6 +68,7 @@ export const useStudio = create<StudioState>()(
       simMode: "group",
       simRank: "owner",
       simLang: "fa",
+
       messages: [
         {
           id: "w1",
@@ -64,24 +78,41 @@ export const useStudio = create<StudioState>()(
           ts: Date.now(),
         },
       ],
+
       setUiLang: (uiLang) => set({ uiLang }),
+
       setView: (view) => set({ view }),
+
       patchConfig: (patch) =>
-        set((s) => ({ config: { ...s.config, ...patch } })),
+        set((s) => ({
+          config: {
+            ...s.config,
+            ...patch,
+          },
+        })),
+
       setAliases: (id, side, aliases) =>
         set((s) => {
           const prev = s.aliasOverrides[id] ?? {};
+
           return {
             aliasOverrides: {
               ...s.aliasOverrides,
-              [id]: { ...prev, [side]: aliases },
+              [id]: {
+                ...prev,
+                [side]: aliases,
+              },
             },
           };
         }),
+
       setSimMode: (simMode) => set({ simMode }),
+
       setSimRank: (simRank) => set({ simRank }),
+
       sendSim: (text) => {
         const trimmed = text.trim();
+
         if (!trimmed) return;
 
         const s = get();
@@ -97,13 +128,17 @@ export const useStudio = create<StudioState>()(
         const ctx: BotContext = {
           text: trimmed,
           chatType:
-            s.simMode === "private" ? "private" : "supergroup",
+            s.simMode === "private"
+              ? "private"
+              : "supergroup",
+
           chatId:
             s.simMode === "private"
               ? s.config.ownerIds[0]
                 ? Number(s.config.ownerIds[0]) || 1001
                 : 1001
               : -100123456,
+
           chatTitle: "گروه آزمایش",
           membersCount: 128,
           userId: 1001,
@@ -115,8 +150,16 @@ export const useStudio = create<StudioState>()(
           staff: STAFF,
         };
 
-        const reply = handleCommand(ctx, s.aliasOverrides);
-        const next: SimMessage[] = [...s.messages, userMsg];
+        const reply = handleCommand(
+          ctx,
+          s.aliasOverrides,
+        );
+
+        const next: SimMessage[] = [
+          ...s.messages,
+          userMsg,
+        ];
+
         const patch: Partial<StudioState> = {};
 
         if (reply.lang) {
@@ -149,6 +192,25 @@ export const useStudio = create<StudioState>()(
           ...patch,
         });
       },
+
+      sendReal: async (text, chatId) => {
+        const trimmed = text.trim();
+
+        if (!trimmed) return;
+
+        if (!chatId) {
+          throw new Error("chatId is required");
+        }
+
+        await runPanelAction({
+          method: "sendMessage",
+          data: {
+            chat_id: chatId,
+            text: trimmed,
+          },
+        });
+      },
+
       resetSim: () =>
         set({
           messages: [
@@ -161,6 +223,7 @@ export const useStudio = create<StudioState>()(
             },
           ],
         }),
+
       resetAll: () =>
         set({
           config: DEFAULT_CONFIG,
@@ -168,9 +231,11 @@ export const useStudio = create<StudioState>()(
           simLang: DEFAULT_CONFIG.defaultLang,
         }),
     }),
+
     {
       name: "nizam-studio",
       skipHydration: true,
+
       partialize: (s) => ({
         uiLang: s.uiLang,
         config: s.config,
