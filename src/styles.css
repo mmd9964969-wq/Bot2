@@ -1,0 +1,74 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@theme {
+  --font-sans: "Vazirmatn", "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "ui-monospace", monospace;
+
+  --color-bg: #0b0c0e;
+  --color-surface: #131416;
+  --color-surface-2: #1b1d20;
+  --color-fg: #ecece6;
+  --color-muted: #9a9b96;
+  --color-subtle: #6e6f6a;
+  --color-accent: #7d9b8e;
+  --color-accent-fg: #0b0c0e;
+  --color-danger: #c45c4a;
+  --color-warn: #c4a15a;
+  --color-ok: #6a9a78;
+  --color-line: #ecece617;
+  --color-line-strong: #ecece629;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+
+  --shadow-border: 0 0 0 1px #ecece614;
+  --shadow-border-hover: 0 0 0 1px #ecece624;
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --motion-quick: 150ms;
+  --motion-fast: 250ms;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  html,
+  body,
+  #app {
+    min-height: 100%;
+    background: var(--color-bg);
+    color: var(--color-fg);
+  }
+  body {
+    font-family: var(--font-sans);
+    line-height: 1.35;
+    letter-spacing: -0.01em;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+    line-height: 1.2;
+  }
+  p {
+    text-wrap: pretty;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
