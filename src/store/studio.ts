@@ -3,6 +3,7 @@ import { persist } from "zustand/middleware";
 import { DEFAULT_CONFIG, type BotConfig } from "@/lib/bot/defaults";
 import type { AliasOverrides, BotContext } from "@/lib/bot/engine";
 import { handleCommand } from "@/lib/bot/engine";
+import { runPanelAction } from "@/lib/telegram/panel";
 import type { Lang, Rank } from "@/lib/bot/registry";
 
 export type ViewId = "overview" | "config" | "commands" | "sim" | "deploy";
@@ -82,7 +83,9 @@ export const useStudio = create<StudioState>()(
       sendSim: (text) => {
         const trimmed = text.trim();
         if (!trimmed) return;
+
         const s = get();
+
         const userMsg: SimMessage = {
           id: nid(),
           from: "user",
@@ -90,10 +93,17 @@ export const useStudio = create<StudioState>()(
           text: trimmed,
           ts: Date.now(),
         };
+
         const ctx: BotContext = {
           text: trimmed,
-          chatType: s.simMode === "private" ? "private" : "supergroup",
-          chatId: s.simMode === "private" ? s.config.ownerIds[0] ? Number(s.config.ownerIds[0]) || 1001 : 1001 : -100123456,
+          chatType:
+            s.simMode === "private" ? "private" : "supergroup",
+          chatId:
+            s.simMode === "private"
+              ? s.config.ownerIds[0]
+                ? Number(s.config.ownerIds[0]) || 1001
+                : 1001
+              : -100123456,
           chatTitle: "گروه آزمایش",
           membersCount: 128,
           userId: 1001,
@@ -104,10 +114,15 @@ export const useStudio = create<StudioState>()(
           now: Date.now(),
           staff: STAFF,
         };
+
         const reply = handleCommand(ctx, s.aliasOverrides);
         const next: SimMessage[] = [...s.messages, userMsg];
         const patch: Partial<StudioState> = {};
-        if (reply.lang) patch.simLang = reply.lang;
+
+        if (reply.lang) {
+          patch.simLang = reply.lang;
+        }
+
         if (!reply.silent && reply.text) {
           next.push({
             id: nid(),
@@ -121,11 +136,18 @@ export const useStudio = create<StudioState>()(
             id: nid(),
             from: "system",
             name: "",
-            text: s.uiLang === "fa" ? "بدون پاسخ · دستور ناشناس در گروه" : "silent · unknown in group",
+            text:
+              s.uiLang === "fa"
+                ? "بدون پاسخ · دستور ناشناس در گروه"
+                : "silent · unknown in group",
             ts: Date.now() + 1,
           });
         }
-        set({ messages: next.slice(-80), ...patch });
+
+        set({
+          messages: next.slice(-80),
+          ...patch,
+        });
       },
       resetSim: () =>
         set({
@@ -146,13 +168,17 @@ export const useStudio = create<StudioState>()(
           simLang: DEFAULT_CONFIG.defaultLang,
         }),
     }),
-    { name: "nizam-studio", skipHydration: true, partialize: (s) => ({
-      uiLang: s.uiLang,
-      config: s.config,
-      aliasOverrides: s.aliasOverrides,
-      simMode: s.simMode,
-      simRank: s.simRank,
-      simLang: s.simLang,
-    }) },
+    {
+      name: "nizam-studio",
+      skipHydration: true,
+      partialize: (s) => ({
+        uiLang: s.uiLang,
+        config: s.config,
+        aliasOverrides: s.aliasOverrides,
+        simMode: s.simMode,
+        simRank: s.simRank,
+        simLang: s.simLang,
+      }),
+    },
   ),
 );
