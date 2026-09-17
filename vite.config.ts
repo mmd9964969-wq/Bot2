@@ -173,6 +173,7 @@ export default defineConfig(({ command, isPreview }) => ({
     host: "0.0.0.0",
     port: Number(process.env.PORT || 8081),
     strictPort: true,
+    allowedHosts: ["bot2-bot.up.railway.app"],
   },
 
   resolve: {
