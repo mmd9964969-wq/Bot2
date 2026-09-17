@@ -1,38 +1,44 @@
-import { json } from "@tanstack/react-start";
+import { createFileRoute } from "@tanstack/react-router";
 import { telegramApi } from "../../../../lib/telegram/api.ts";
 
-export async function POST({ request }: { request: Request }) {
-  try {
-    const body = (await request.json()) as {
-      method?: string;
-      data?: Record<string, unknown>;
-    };
+export const Route = createFileRoute("/api/bot/action")({
+  server: {
+    handlers: {
+      POST: async ({ request }) => {
+        try {
+          const body = (await request.json()) as {
+            method?: string;
+            data?: Record<string, unknown>;
+          };
 
-    if (!body.method) {
-      return json(
-        {
-          ok: false,
-          error: "method is required",
-        },
-        { status: 400 },
-      );
-    }
+          if (!body.method) {
+            return Response.json(
+              {
+                ok: false,
+                error: "method is required",
+              },
+              { status: 400 },
+            );
+          }
 
-    const result = await telegramApi(
-      body.method,
-      body.data ?? {},
-    );
+          const result = await telegramApi(
+            body.method,
+            body.data ?? {},
+          );
 
-    return json(result);
-  } catch (error) {
-    console.error(error);
+          return Response.json(result);
+        } catch (error) {
+          console.error(error);
 
-    return json(
-      {
-        ok: false,
-        error: "Telegram API request failed",
+          return Response.json(
+            {
+              ok: false,
+              error: "Telegram API request failed",
+            },
+            { status: 500 },
+          );
+        }
       },
-      { status: 500 },
-    );
-  }
-}
+    },
+  },
+});
