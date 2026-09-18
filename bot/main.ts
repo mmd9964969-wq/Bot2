@@ -179,15 +179,11 @@ async function handleMessage(msg: TgMessage) {
   };
 
   const panelReply = studioReply(ctx);
-  if (studio.settings.bareCommands && !panelReply) return;
-  const reply = { text: panelReply, silent: false };
-
-  if (reply.lang) chatLang.set(chat.id, reply.lang);
-  if (reply.silent || !reply.text) return;
+  if (!panelReply) return;
 
   await telegramApi("sendMessage", {
     chat_id: chat.id,
-    text: reply.text,
+    text: panelReply,
     reply_to_message_id: msg.message_id,
   });
 }
