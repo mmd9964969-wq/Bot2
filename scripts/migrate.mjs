@@ -1,25 +1,26 @@
 #!/usr/bin/env node
+
 /**
- * Deploy-time database migrator (node-postgres, `pg`).
+ * Deploy-time database migrator.
  *
- * Applies all pending SQL migrations from `../migrations`, including
- * migrations inside subdirectories such as `migrations/auth/`.
+ * Finds all SQL migrations recursively under ../migrations.
  *
- * Migration files are sorted by filename, so:
+ * Example:
  *
- *   auth/0001_auth.sql
- *   0002_bot_config.sql
- *   0003_subscriptions_and_telegram_groups.sql
- *   0004_telegram_accounts.sql
- *   0005_telegram_link_tokens.sql
+ *   migrations/
+ *   ├── auth/
+ *   │   └── 0001_auth.sql
+ *   ├── 0002_bot_config.sql
+ *   ├── 0003_subscriptions_and_telegram_groups.sql
+ *   ├── 0004_telegram_accounts.sql
+ *   └── 0005_telegram_link_tokens.sql
  *
- * are applied in the correct order.
+ * Migration ordering is handled by migration-plan.mjs:
  *
- * Each migration runs inside its own transaction and is recorded in
- * `_migrations`, so an already-applied migration will not run again.
+ *   0001 -> 0002 -> 0003 -> 0004 -> 0005
  *
- * If DATABASE_URL is missing, the deploy-time migrator skips execution.
- * The local/PGLite fallback handles migrations separately.
+ * Each migration runs inside its own transaction and is recorded
+ * in _migrations so it is never applied twice.
  */
 
 import { readdir, readFile } from "node:fs/promises";
@@ -47,15 +48,12 @@ const migrationsDir = join(
 /**
  * Recursively find all SQL migration files.
  *
+ * Returned paths are relative to migrations/.
+ *
  * Example:
  *
- * migrations/0002_bot_config.sql
- * migrations/auth/0001_auth.sql
- *
- * becomes:
- *
- * 0002_bot_config.sql
- * auth/0001_auth.sql
+ *   auth/0001_auth.sql
+ *   0002_bot_config.sql
  */
 async function findMigrationFiles(directory) {
   const entries = await readdir(directory, {
@@ -65,22 +63,29 @@ async function findMigrationFiles(directory) {
   const files = [];
 
   for (const entry of entries) {
-    const fullPath = join(directory, entry.name);
+    const fullPath = join(
+      directory,
+      entry.name,
+    );
 
     if (entry.isDirectory()) {
-      const nested = await findMigrationFiles(fullPath);
-
       files.push(
-        ...nested.map((file) =>
-          relative(migrationsDir, file),
-        ),
+        ...(await findMigrationFiles(fullPath)),
       );
 
       continue;
     }
 
-    if (entry.isFile() && entry.name.endsWith(".sql")) {
-      files.push(relative(migrationsDir, fullPath));
+    if (
+      entry.isFile() &&
+      entry.name.endsWith(".sql")
+    ) {
+      files.push(
+        relative(
+          migrationsDir,
+          fullPath,
+        ),
+      );
     }
   }
 
@@ -91,7 +96,9 @@ async function main() {
   let entries;
 
   try {
-    entries = await findMigrationFiles(migrationsDir);
+    entries = await findMigrationFiles(
+      migrationsDir,
+    );
   } catch {
     console.log(
       "[migrate] no migrations/ directory — nothing to do.",
@@ -107,6 +114,10 @@ async function main() {
 
     return;
   }
+
+  console.log(
+    `[migrate] found ${entries.length} migration file(s).`,
+  );
 
   const pool = new pg.Pool({
     connectionString: databaseUrl,
@@ -136,6 +147,24 @@ async function main() {
       applied,
     );
 
+    if (migrations.length === 0) {
+      console.log(
+        "[migrate] up to date.",
+      );
+
+      return;
+    }
+
+    console.log(
+      "[migrate] pending migrations:",
+    );
+
+    for (const migration of migrations) {
+      console.log(
+        `[migrate]   ${migration.path}`,
+      );
+    }
+
     let count = 0;
 
     for (const migration of migrations) {
@@ -146,7 +175,7 @@ async function main() {
         path,
       );
 
-      const text = await readFile(
+      const sql = await readFile(
         migrationPath,
         "utf8",
       );
@@ -158,8 +187,7 @@ async function main() {
       try {
         await client.query("BEGIN");
 
-        // PostgreSQL executes the complete SQL migration.
-        await client.query(text);
+        await client.query(sql);
 
         await client.query(
           "INSERT INTO _migrations (name) VALUES ($1)",
@@ -173,7 +201,7 @@ async function main() {
         );
 
         count += 1;
-      } catch (err) {
+      } catch (error) {
         console.error(
           `[migrate] error applying ${path}`,
         );
@@ -184,29 +212,23 @@ async function main() {
           // Keep the original migration error.
         }
 
-        throw err;
+        throw error;
       }
     }
 
-    if (count > 0) {
-      console.log(
-        `[migrate] done — ${count} migration(s) applied.`,
-      );
-    } else {
-      console.log(
-        "[migrate] up to date.",
-      );
-    }
+    console.log(
+      `[migrate] done — ${count} migration(s) applied.`,
+    );
   } finally {
     client.release();
     await pool.end();
   }
 }
 
-main().catch((err) => {
+main().catch((error) => {
   console.error(
     "[migrate] failed:",
-    err?.message || err,
+    error?.message || error,
   );
 
   for (const key of [
@@ -216,9 +238,9 @@ main().catch((err) => {
     "position",
     "where",
   ]) {
-    if (err?.[key] != null) {
+    if (error?.[key] != null) {
       console.error(
-        `[migrate]   ${key}: ${err[key]}`,
+        `[migrate]   ${key}: ${error[key]}`,
       );
     }
   }
