@@ -179,7 +179,8 @@ async function handleMessage(msg: TgMessage) {
   };
 
   const panelReply = studioReply(ctx);
-  const reply = panelReply ? { text: panelReply, silent: false } : handleCommand(ctx);
+  if (studio.settings.bareCommands && !panelReply) return;
+  const reply = { text: panelReply, silent: false };
 
   if (reply.lang) chatLang.set(chat.id, reply.lang);
   if (reply.silent || !reply.text) return;
