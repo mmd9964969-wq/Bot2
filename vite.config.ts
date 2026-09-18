@@ -173,7 +173,7 @@ export default defineConfig(({ command, isPreview }) => ({
     host: "0.0.0.0",
     port: Number(process.env.PORT || 8081),
     strictPort: true,
-    allowedHosts: ["bot2-bot.up.railway.app"],
+    allowedHosts: [\n      "bot2-bot.up.railway.app",\n      "bot2-production-2b70.up.railway.app",\n    ],
   },
 
   resolve: {
