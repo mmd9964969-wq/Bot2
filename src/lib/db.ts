@@ -165,11 +165,8 @@ async function createPgliteSql(): Promise<Sql> {
   /**
    * Recursively import all SQL migrations.
    *
-   * This includes:
-   *
-   * migrations/*.sql
-   * migrations/auth/*.sql
-   * migrations/**/.../*.sql
+   * This includes SQL files directly inside migrations/
+   * and SQL files inside nested migration directories.
    */
   const migrations = import.meta.glob(
     "/migrations/**/*.sql",
@@ -360,4 +357,4 @@ if (
 
       throw error;
     });
-}
+  }
