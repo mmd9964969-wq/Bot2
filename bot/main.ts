@@ -54,9 +54,19 @@ type TgMessage = {
   };
 };
 
+type TgChatMemberUpdate = {
+  chat: TgChat;
+  from?: TgUser;
+  new_chat_member?: {
+    status?: string;
+    user?: TgUser;
+  };
+};
+
 type TgUpdate = {
   update_id: number;
   message?: TgMessage;
+  my_chat_member?: TgChatMemberUpdate;
 };
 
 function splitIds(raw: string | undefined): string[] {
@@ -192,6 +202,17 @@ async function handleMessage(msg: TgMessage) {
   });
 }
 
+async function handleMyChatMember(update: TgChatMemberUpdate) {
+  const chat = update.chat;
+  const status = update.new_chat_member?.status;
+
+  if (!status) return;
+
+  console.log(
+    `my_chat_member: chat=${chat.id} title=${chat.title ?? "unknown"} status=${status}`,
+  );
+}
+
 async function poll() {
   let offset = 0;
 
@@ -204,7 +225,10 @@ async function poll() {
       const data = await telegramApi("getUpdates", {
         offset,
         timeout: 30,
-        allowed_updates: ["message"],
+        allowed_updates: [
+          "message",
+          "my_chat_member",
+        ],
       });
 
       if (!data.ok || !Array.isArray(data.result)) {
@@ -221,6 +245,12 @@ async function poll() {
 
         if (upd.message) {
           await handleMessage(upd.message);
+        }
+
+        if (upd.my_chat_member) {
+          await handleMyChatMember(
+            upd.my_chat_member,
+          );
         }
       }
     } catch (err) {
