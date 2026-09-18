@@ -1,27 +1,36 @@
 // @ts-check
+
 /**
- * Migration bookkeeping shared by the two appliers — `scripts/migrate.mjs`
- * (deploy, `readdir`) and `src/lib/db.ts` (PGLite preview, `import.meta.glob`).
+ * Shared migration bookkeeping for:
  *
- * Applied files are keyed by BASENAME, so the same file applies once no matter
- * which directory it is globbed from. That is what makes the auth schema safe to
- * copy from `migrations/auth/` into `migrations/` when an app turns sign-in on:
- * a database that already has `0001_auth.sql` will not re-run it.
+ *   scripts/migrate.mjs
+ *   src/lib/db.ts
  *
- * Neither applier descends into subdirectories, so `migrations/auth/*.sql` is
- * out of scope for both until it is copied up.
+ * Migration IDs are based on their path relative to `migrations/`.
+ *
+ * Examples:
+ *
+ *   0002_bot_config.sql
+ *   auth/0001_auth.sql
+ *
+ * are stored separately in `_migrations`.
  */
 
 /**
- * The `_migrations` key for a migration path (or bare filename).
+ * Normalize a migration path.
+ *
  * @param {string} path
  * @returns {string}
  */
 export function migrationName(path) {
-  return path.split("/").pop() ?? path;
+  return path
+    .replaceAll("\\", "/")
+    .replace(/^\.\/+/, "");
 }
 
 /**
+ * Check whether a path is a SQL migration file.
+ *
  * @param {string} path
  * @returns {boolean}
  */
@@ -30,17 +39,30 @@ export function isMigrationFile(path) {
 }
 
 /**
- * Migrations in `paths` that are not yet in `applied`, in apply order.
- * Non-`.sql` entries (a `readdir` also yields `migrations/auth/`) are dropped.
+ * Return pending migrations in deterministic order.
+ *
+ * Each migration keeps its relative path so migrations in different
+ * directories cannot collide just because they have the same filename.
+ *
  * @param {Iterable<string>} paths
  * @param {Iterable<string>} applied
  * @returns {Array<{ name: string, path: string }>}
  */
 export function pendingMigrations(paths, applied) {
-  const done = new Set(applied);
+  const done = new Set(
+    [...applied].map((name) => migrationName(name)),
+  );
+
   return [...paths]
     .filter(isMigrationFile)
-    .map((path) => ({ name: migrationName(path), path }))
+    .map((path) => {
+      const normalizedPath = migrationName(path);
+
+      return {
+        name: normalizedPath,
+        path: normalizedPath,
+      };
+    })
     .sort((a, b) => a.name.localeCompare(b.name))
     .filter(({ name }) => !done.has(name));
 }
