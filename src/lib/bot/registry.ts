@@ -454,3 +454,11 @@ export function parseDuration(value: string): number | null {
   const seconds = n * mult;
   return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
 }
+
+
+export function resolveCommand(token: string): CommandDef | null {
+  const key = normalizeToken(token);
+  return COMMANDS.find((command) =>
+    [...command.aliasesEn, ...command.aliasesFa].some((alias) => normalizeToken(alias) === key)
+  ) ?? null;
+}
