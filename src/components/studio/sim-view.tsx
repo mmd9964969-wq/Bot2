@@ -58,7 +58,7 @@ export function SimView() {
     <Panel className="h-fit">
       <PanelTitle title={fa?"سناریوی تست":"Test context"} />
       <div className="grid gap-2">
-        {(["member","admin","owner"] as const).map((r)=><button key={r} type="button" onClick={()=>setRank(r)} className={rank===r?"h-9 rounded-lg bg-fg text-xs text-bg":"h-9 rounded-lg text-xs text-muted shadow-[var(--shadow-border)]"}>{fa?(r==="member"?"عضو":r==="admin"?"ادمین":"مالک"):r}</button>)}
+        {(["member","admin","sudo","owner"] as const).map((r)=><button key={r} type="button" onClick={()=>setRank(r)} className={rank===r?"h-9 rounded-lg bg-fg text-xs text-bg":"h-9 rounded-lg text-xs text-muted shadow-[var(--shadow-border)]"}>{fa?(r==="member"?"عضو":r==="admin"?"ادمین":"مالک"):r}</button>)}
       </div>
       <p className="mt-3 text-[11px] leading-5 text-muted">{fa?"دستورها بدون / هم در شبیه‌ساز قابل تست‌اند و پاسخ دقیقاً از سند پنل خوانده می‌شود.":"Commands can be tested without / and replies are read from the panel document."}</p>
     </Panel>
