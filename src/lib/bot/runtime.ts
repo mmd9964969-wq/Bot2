@@ -24,50 +24,284 @@ async function targetMember(chatId:number,userId:number){return api("getChatMemb
 async function canModerateTarget(ctx:LiveContext,userId:number){const m=await targetMember(ctx.chatId,userId);if(m.status==="creator")return false;if(m.status==="administrator" && ctx.userRank!=="owner")return false;return true}
 function needTarget(id:string){return ["ban","unban","mute","unmute","kick","warn","unwarn","warns","tmute","tban","promote","demote"].includes(id)}
 
-export async function runLiveCommand(ctx:LiveContext,token:string,args:string[]):Promise<string>{
-  const c=resolveCommand(token);if(!c)return fa(ctx.lang,"✗ دستور ناشناخته است.","✗ Unknown command.");
-  const s=state(ctx.chatId),tg=target(ctx,args),d=duration(args),why=reason(args),who=tg?String(tg):ctx.replyToName||"—";
-  if(needTarget(c.id)&&!tg)return fa(ctx.lang,"✗ هدف را با ریپلای یا آیدی عددی مشخص کن.","✗ Reply to a user or provide a numeric user id.");
-  if(["ban","unban","mute","unmute","kick","tmute","tban","promote","demote","pin","unpin","purge"].includes(c.id)&&ctx.chatType==="private")return fa(ctx.lang,"این دستور فقط در گروه قابل اجراست.","This command works in groups only.");
+export async function runLiveCommand(ctx: LiveContext, token: string, args: string[]): Promise<string> {
+  const command = resolveCommand(token);
+  if (!command) return fa(ctx.lang, "✗ دستور ناشناخته است.", "✗ Unknown command.");
+  const rank = await realRank(ctx, ctx.userId);
+  const targetId = target(ctx, args);
+  const s = stats(ctx.chatId);
+  switch (command.id) {
+    case "robot": {
+      const lines = ctx.lang === "fa" ? robotLinesFa : robotLinesEn;
+      return lines[Math.floor(Math.random() * lines.length)];
+    }
+    case "id":
+      return ctx.lang === "fa"
+        ? \`◈ اطلاعات کاربر
 
-  switch(c.id){
-    case "start":return fa(ctx.lang,"〽️ سلام "+ctx.userName+"\n\nمن "+ctx.config.botName+" هستم؛ ۳۶ دستور مدیریت گروه در ۵ فاز.\n\n/راهنما برای فهرست کامل.","〽️ Hello "+ctx.userName+"\n\nI am "+ctx.config.botName+" with 36 group-management commands in 5 phases.\n\n/help for the full list.");
-    case "help":return "۳۶ دستور در ۵ فاز فعال هستند.\n\nفاز ۱: /استارت /راهنما /پینگ /آیدی /اطلاعات /زبان /مدیران /تنظیمات\nفاز ۲: /بن /آنبن /میوت /آنمیوت /کیک /اخطار /حذفاخطار /اخطارها /تی‌میوت /تی‌بن\nفاز ۳: /قفل /آنلاک /قفلها /ضدفلود /ضداسپم /نایت\nفاز ۴: /خوشامد /خدافظی /قوانین /تنظیم‌قوانین /فیلتر /نوت\nفاز ۵: /پین /آنپین /پاکسازی /ارتقا /عزل /گزارش";
-    case "ping":return "◈ وضعیت سیستم\n⛂ ربات: آنلاین\n⛂ دیتابیس: "+(process.env.DATABASE_URL?"متصل":"محلی")+"\n⛂ نسخه: "+ctx.config.botName;
-    case "id":return "◈ شناسه‌ها\n⛂ شما: "+ctx.userId+"\n⛂ گروه: "+ctx.chatId+(tg?"\n⛂ هدف: "+tg:"");
-    case "info":{const x=await api("getChat",{chat_id:ctx.chatId});const m=await api("getChatMemberCount",{chat_id:ctx.chatId});return "◈ اطلاعات گروه\n⛂ نام: "+(x.title||ctx.chatTitle)+"\n⛂ شناسه: "+ctx.chatId+"\n⛂ نوع: "+x.type+"\n⛂ اعضا: "+m}
-    case "lang":{const v=norm(args[0]||"");return v==="en"||v==="english"?"Group language: English":v==="fa"||v==="فارسی"?"زبان گروه: فارسی":"زبان فعلی: "+ctx.lang}
-    case "staff":{const x=await api("getChatAdministrators",{chat_id:ctx.chatId});return "◈ مدیران\n"+x.map((z:any)=>"⛂ "+z.user.id+" · "+z.status).join("\n")}
-    case "settings":return "◈ تنظیمات\n⛂ دستورات: ۳۶\n⛂ فازها: ۵\n⛂ زبان: "+ctx.lang+"\n⛂ پیشوندها: "+ctx.config.prefixes.join(" ");
-    case "ban":
-    case "tban":{if(!await canModerateTarget(ctx,tg!))return "✗ این کاربر قابل مدیریت نیست.";if(!await botPerm(ctx.chatId,"can_restrict_members"))return "✗ Bot lacks ban permission.";const body:any={chat_id:ctx.chatId,user_id:tg,revoke_messages:true};if(c.id==="tban"&&d)body.until_date=Math.floor(Date.now()/1000)+d;await api("banChatMember",body);return "✓ "+who+" "+(c.id==="tban"?"بن موقت شد.":"بن شد.")+"\nدلیل: "+why}
-    case "unban":if(!await botPerm(ctx.chatId,"can_restrict_members"))return "✗ Bot lacks restrict permission.";await api("unbanChatMember",{chat_id:ctx.chatId,user_id:tg,only_if_banned:true});return "✓ بن "+who+" برداشته شد.";
-    case "mute":
-    case "tmute":{if(!await canModerateTarget(ctx,tg!))return "✗ این کاربر قابل مدیریت نیست.";if(!await botPerm(ctx.chatId,"can_restrict_members"))return "✗ Bot lacks restrict permission.";const body:any={chat_id:ctx.chatId,user_id:tg,permissions:{can_send_messages:false}};if(c.id==="tmute"&&d)body.until_date=Math.floor(Date.now()/1000)+d;await api("restrictChatMember",body);return "✓ "+who+" "+(d?"به مدت "+d+" ثانیه ":"")+"میوت شد."}
-    case "unmute":if(!await botPerm(ctx.chatId,"can_restrict_members"))return "✗ Bot lacks restrict permission.";if(!await canModerateTarget(ctx,tg!))return "✗ این کاربر قابل مدیریت نیست.";await api("restrictChatMember",{chat_id:ctx.chatId,user_id:tg,permissions:{can_send_messages:true,can_send_audios:true,can_send_documents:true,can_send_photos:true,can_send_videos:true,can_send_video_notes:true,can_send_voice_notes:true,can_send_polls:true,can_send_other_messages:true,can_add_web_page_previews:true}});return "✓ میوت "+who+" برداشته شد.";
-    case "kick":if(!await canModerateTarget(ctx,tg!))return "✗ این کاربر قابل مدیریت نیست.";if(!await botPerm(ctx.chatId,"can_restrict_members"))return "✗ Bot lacks restrict permission.";await api("banChatMember",{chat_id:ctx.chatId,user_id:tg,until_date:Math.floor(Date.now()/1000)+60});await api("unbanChatMember",{chat_id:ctx.chatId,user_id:tg,only_if_banned:true});return "✓ "+who+" اخراج شد.";
-    case "warn":{if(!await canModerateTarget(ctx,tg!))return "✗ این کاربر قابل اخطار نیست.";const w=s.warnings.get(tg!)||{count:0,reasons:[]};w.count+=1;w.reasons.push(why);s.warnings.set(tg!,w);return "⚠️ اخطار #"+w.count+" برای "+who+" ثبت شد.\nدلیل: "+why;}
-    case "unwarn":return "✓ آخرین اخطار "+who+" حذف شد.";
-    case "warns":return "◈ سوابق اخطار\n⛂ کاربر: "+who+"\n⛂ وضعیت: فعال";
-    case "lock":{const v=norm(args[0]||"all");if(v==="all")["links","media","forward","stickers","files"].forEach(x=>s.locks.add(x));else s.locks.add(v);return "✓ قفل شد: "+v}
-    case "unlock":{const v=norm(args[0]||"all");if(v==="all")s.locks.clear();else s.locks.delete(v);return "✓ باز شد: "+v}
-    case "locks":return "◈ قفل‌ها\n"+([...s.locks].map(x=>"⛂ "+x+" : ON").join("\n")||"⛂ همه : OFF");
-    case "antiflood":s.floodOn=norm(args[0]||"off")!=="off";if(Number(args[1])>=2)s.floodMax=Math.min(Number(args[1]),30);return "✓ ضدفلود "+(s.floodOn?"فعال":"خاموش");
-    case "antispam":s.spam=norm(args[0]||"on")!=="off";return "✓ ضداسپم "+(s.spam?"فعال":"خاموش");
-    case "night":s.night=norm(args[0]||"on")!=="off";return "✓ حالت شب "+(s.night?"فعال":"خاموش");
-    case "welcome":s.welcome=args.join(" ")||"خوش آمدی {{user_name}} 🌹";return "✓ خوشامد ذخیره شد.";
-    case "goodbye":s.goodbye=args.join(" ")||"خدانگهدار {{user_name}}";return "✓ پیام خروج ذخیره شد.";
-    case "rules":return s.rules||"هنوز قانونی ثبت نشده است.";
-    case "setrules":s.rules=args.join(" ")||"قوانین گروه";return "✓ قوانین ذخیره شد.";
-    case "filter":{const w=norm(args[0]||"");if(!w)return "استفاده: /فیلتر کلمه پاسخ";s.filters.set(w,args.slice(1).join(" ")||"پیام حذف شد.");return "✓ فیلتر ثبت شد: "+w}
-    case "notes":{const k=norm(args[0]||"");if(!k)return "استفاده: /نوت نام متن";if(args.length>1){s.notes.set(k,args.slice(1).join(" "));return "✓ نوت ذخیره شد."}return s.notes.get(k)||"نوت پیدا نشد."}
-    case "pin":if(!await botPerm(ctx.chatId,"can_pin_messages"))return "✗ Bot lacks pin permission.";await api("pinChatMessage",{chat_id:ctx.chatId,message_id:ctx.replyToMessageId||ctx.messageId,disable_notification:true});return "✓ پیام پین شد.";
-    case "unpin":if(!await botPerm(ctx.chatId,"can_pin_messages"))return "✗ Bot lacks pin permission.";await api("unpinChatMessage",{chat_id:ctx.chatId,message_id:ctx.replyToMessageId||ctx.messageId});return "✓ پین برداشته شد.";
-    case "purge":{if(!await botPerm(ctx.chatId,"can_delete_messages"))return "✗ Bot lacks delete permission.";const from=ctx.replyToMessageId??ctx.messageId;const to=ctx.messageId;let deleted=0;for(let id=from;id<=to&&deleted<100;id++){try{await api("deleteMessage",{chat_id:ctx.chatId,message_id:id});deleted++;}catch{}}return "✓ "+deleted+" پیام پاکسازی شد.";}
-    case "promote":if(!await canModerateTarget(ctx,tg!))return "✗ این کاربر قابل ارتقا نیست.";if(!await botPerm(ctx.chatId,"can_promote_members"))return "✗ Bot lacks promote permission.";await api("promoteChatMember",{chat_id:ctx.chatId,user_id:tg,can_manage_chat:true,can_delete_messages:true,can_restrict_members:true,can_invite_users:true,can_pin_messages:true});return "✓ "+who+" ارتقا یافت.";
-    case "demote":if(!await botPerm(ctx.chatId,"can_promote_members"))return "✗ Bot lacks promote permission.";await api("promoteChatMember",{chat_id:ctx.chatId,user_id:tg,can_manage_chat:false,can_delete_messages:false,can_restrict_members:false,can_invite_users:false,can_pin_messages:false});return "✓ دسترسی مدیریتی "+who+" حذف شد.";
-    case "report":return "✓ گزارش ثبت شد.\n⛂ هدف: "+who+"\n⛂ دلیل: "+why;
-    default:return "✓ دستور اجرا شد.";
+⛂ - نام : \${ctx.userName}
+⛂ - شناسه : \${ctx.userId}
+⛂ - نام کاربری : \${ctx.userName.startsWith("@") ? ctx.userName : "@" + ctx.userName}
+⛂ - مقام : \${rankLabel(ctx.lang, rank)}
+
+─────━━───── ◈ ─────━━─────
+
+⛂ - تعداد پیام امروز : \${s.today}
+⛂ - تعداد عضویت امروز : —
+⛂ - تعداد پیام کل : \${s.total}
+⛂ - تعداد عضویت کل : —\`
+        : \`◈ User information
+
+⛂ - Name : \${ctx.userName}
+⛂ - ID : \${ctx.userId}
+⛂ - Username : \${ctx.userName.startsWith("@") ? ctx.userName : "@" + ctx.userName}
+⛂ - Rank : \${rankLabel(ctx.lang, rank)}
+
+─────━━───── ◈ ─────━━─────
+
+⛂ - Messages today : \${s.today}
+⛂ - Joins today : —
+⛂ - Total messages : \${s.total}
+⛂ - Total joins : —\`;
+    case "admin":
+      return rank === "owner" || rank === "sudo" || rank === "admin"
+        ? "✓ دسترسی تأیید شد شما ادمین این گروه هستید."
+        : "✗ دسترسی رد شد شما ادمین این گروه نیستید.";
+    case "info": {
+      if (ctx.chatType === "private") return fa(ctx.lang, "این دستور فقط در گروه قابل اجراست.", "This command works in groups only.");
+      const chat = await api<any>("getChat", { chat_id: ctx.chatId });
+      const members = await api<number>("getChatMemberCount", { chat_id: ctx.chatId });
+      const admins = await adminCount(ctx.chatId);
+      return ctx.lang === "fa"
+        ? \`◈ اطلاعات گروه
+
+⛂ - نام گروه : \${chat.title ?? ctx.chatTitle}
+⛂ - شناسه گروه : \${ctx.chatId}
+⛂ - نام کاربری گروه : \${chat.username ? "@" + chat.username : "ندارد"}
+⛂ - نوع گروه : \${chat.type}
+⛂ - تعداد اعضا : \${members}
+⛂ - تعداد مدیران : \${admins}
+⛂ - مالک گروه : —
+
+─────━━───── ◈ ─────━━─────
+
+⛂ - پیام‌های امروز : \${s.today}
+⛂ - اعضای جدید امروز : —
+⛂ - پیام‌های کل : \${s.total}
+⛂ - اعضای فعلی : \${members}
+⛂ - تعداد افراد در لیست سکوت : —
+⛂ - تعداد افراد در لیست ویژه : —
+⛂ - تعداد اخطار های فعال : —
+
+★ - تاریخ ساخت گروه : —
+★ - لینک دعوت : —
+★ - وضعیت لینک دعوت : —\`
+        : \`◈ Group information
+
+⛂ - Group name : \${chat.title ?? ctx.chatTitle}
+⛂ - Group ID : \${ctx.chatId}
+⛂ - Group username : \${chat.username ? "@" + chat.username : "None"}
+⛂ - Group type : \${chat.type}
+⛂ - Members : \${members}
+⛂ - Admins : \${admins}
+⛂ - Owner : —
+
+─────━━───── ◈ ─────━━─────
+
+⛂ - Messages today : \${s.today}
+⛂ - New members today : —
+⛂ - Total messages : \${s.total}
+⛂ - Current members : \${members}
+⛂ - Muted users : —
+⛂ - Special users : —
+⛂ - Active warnings : —
+
+★ - Group creation date : —
+★ - Invite link : —
+★ - Invite status : —\`;
+    }
+    case "rank": {
+      if (ctx.chatType === "private") return fa(ctx.lang, "این دستور فقط در گروه قابل اجراست.", "This command works in groups only.");
+      if (rank === "member") return fa(ctx.lang, "✗ این دستور فقط برای مدیران قابل استفاده است.", "✗ This command is available to administrators.");
+      if (!ctx.replyToUserId) return fa(ctx.lang, "✗ برای مشاهده مقام، روی پیام کاربر موردنظر ریپلای کن.", "✗ Reply to the target user's message.");
+      const r = await realRank(ctx, ctx.replyToUserId);
+      const special = envIds("SPECIAL_IDS").has(String(ctx.replyToUserId));
+      const access = r === "owner" ? (ctx.lang === "fa" ? "کامل و غیرقابل محدود شدن" : "Full and unrestricted") : r === "admin" ? (ctx.lang === "fa" ? "مدیریتی" : "Management") : special ? (ctx.lang === "fa" ? "دور از قفل‌ها" : "Lock-exempt") : (ctx.lang === "fa" ? "عادی" : "Standard");
+      return ctx.lang === "fa"
+        ? \`◈ سیستم پیشرفته مدیران گروه
+
+★ - \${rankLabel(ctx.lang, r)}
+
+⛂ - نام : \${ctx.replyToName ?? "—"}
+⛂ - نام کاربری : \${ctx.replyToName ? "@" + ctx.replyToName.replace(/^@/, "") : "—"}
+⛂ - شناسه : \${ctx.replyToUserId}
+⛂ - مقام : \${rankLabel(ctx.lang, r)}
+⛂ - تاریخ شروع : —
+⛂ - دسترسی‌ها : \${access}
+⛂ - مسئولیت اصلی : \${r === "owner" ? "تصمیم‌گیری نهایی و مدیریت کل گروه" : r === "admin" ? "مدیریت روزانه گروه و کنترل محتوا" : "—"}\`
+        : \`◈ Advanced group role system
+
+★ - \${rankLabel(ctx.lang, r)}
+
+⛂ - Name : \${ctx.replyToName ?? "—"}
+⛂ - Username : \${ctx.replyToName ? "@" + ctx.replyToName.replace(/^@/, "") : "—"}
+⛂ - ID : \${ctx.replyToUserId}
+⛂ - Role : \${rankLabel(ctx.lang, r)}
+⛂ - Start date : —
+⛂ - Access : \${access}
+⛂ - Responsibility : \${r === "owner" ? "Final decisions and full group management" : r === "admin" ? "Daily management and content control" : "—"}\`;
+    }
+    case "me":
+      return ctx.lang === "fa"
+        ? \`◈ اطلاعات کاربر
+
+⛂ - نام : \${ctx.userName}
+⛂ - نام کاربری : \${ctx.userName.startsWith("@") ? ctx.userName : "@" + ctx.userName}
+⛂ - شناسه : \${ctx.userId}
+⛂ - مقام : \${rankLabel(ctx.lang, rank)}
+⛂ - تاریخ عضویت : —
+
+─────━━───── ◈ ─────━━─────
+
+⛂ - تعداد پیام امروز : \${s.today}
+⛂ - تعداد پیام کل : \${s.total}
+⛂ - تعداد اخطار فعال : —
+⛂ - وضعیت سکوت : —
+⛂ - وضعیت لیست ویژه : \${envIds("SPECIAL_IDS").has(String(ctx.userId)) ? "فعال" : "غیرفعال"}\`
+        : \`◈ User information
+
+⛂ - Name : \${ctx.userName}
+⛂ - Username : \${ctx.userName.startsWith("@") ? ctx.userName : "@" + ctx.userName}
+⛂ - ID : \${ctx.userId}
+⛂ - Rank : \${rankLabel(ctx.lang, rank)}
+⛂ - Join date : —
+
+─────━━───── ◈ ─────━━─────
+
+⛂ - Messages today : \${s.today}
+⛂ - Total messages : \${s.total}
+⛂ - Active warnings : —
+⛂ - Mute status : —
+⛂ - Special list : \${envIds("SPECIAL_IDS").has(String(ctx.userId)) ? "Active" : "Inactive"}\`;
+    case "ping": {
+      const t = Date.now();
+      await api("getMe", {});
+      const latency = Date.now() - t;
+      const admins = ctx.chatType === "private" ? 0 : await adminCount(ctx.chatId);
+      return ctx.lang === "fa"
+        ? \`◈ وضعیت سیستم
+
+⛂ - وضعیت ربات : آنلاین
+⛂ - سرعت پاسخ : \${latency}ms
+⛂ - اتصال دیتابیس : \${process.env.DATABASE_URL ? "متصل" : "محلی"}
+⛂ - وضعیت گروه : \${ctx.chatType === "private" ? "خصوصی" : "فعال"}
+⛂ - نسخه ربات : v\${process.env.BOT_VERSION ?? "2.0.0"}
+⛂ - وضعیت ضد اسپم : فعال
+⛂ - ادمین‌های فعال : \${admins}
+
+─────━━───── ◈ ─────━━─────
+
+★ - سیستم پایدار است\`
+        : \`◈ System status
+
+⛂ - Bot status : Online
+⛂ - Response speed : \${latency}ms
+⛂ - Database : \${process.env.DATABASE_URL ? "Connected" : "Local"}
+⛂ - Group status : \${ctx.chatType === "private" ? "Private" : "Active"}
+⛂ - Bot version : v\${process.env.BOT_VERSION ?? "2.0.0"}
+⛂ - Anti-spam : Active
+⛂ - Active admins : \${admins}
+
+─────━━───── ◈ ─────━━─────
+
+★ - System is stable\`;
+    }
+    case "bot": {
+      const t = Date.now();
+      const me = await api<any>("getMe", {});
+      const latency = Date.now() - t;
+      return ctx.lang === "fa"
+        ? \`◈ اطلاعات فنی ربات
+
+⛂ - نام ربات : \${me.first_name ?? ctx.config.botName}
+⛂ - نام کاربری : \${me.username ? "@" + me.username : "—"}
+⛂ - شناسه ربات : \${me.id}
+⛂ - نسخه ربات : v\${process.env.BOT_VERSION ?? "2.0.0"}
+⛂ - وضعیت ربات : آنلاین
+⛂ - وضعیت دیتابیس : \${process.env.DATABASE_URL ? "متصل" : "محلی"}
+⛂ - API تلگرام : متصل
+⛂ - روش دریافت آپدیت : Polling
+⛂ - سرعت پاسخ : \${latency}ms
+⛂ - سرور : Railway
+⛂ - منطقه : \${process.env.RAILWAY_REPLICA_REGION ?? process.env.RAILWAY_REGION ?? "—"}
+⛂ - سیستم‌عامل : \${process.platform}
+⛂ - Node.js : \${process.version}
+
+★ - اطلاعات محرمانه مانند BOT_TOKEN نمایش داده نمی‌شود.\`
+        : \`◈ Bot technical status
+
+⛂ - Bot name : \${me.first_name ?? ctx.config.botName}
+⛂ - Username : \${me.username ? "@" + me.username : "—"}
+⛂ - Bot ID : \${me.id}
+⛂ - Bot version : v\${process.env.BOT_VERSION ?? "2.0.0"}
+⛂ - Bot status : Online
+⛂ - Database : \${process.env.DATABASE_URL ? "Connected" : "Local"}
+⛂ - Telegram API : Connected
+⛂ - Update method : Polling
+⛂ - Response speed : \${latency}ms
+⛂ - Server : Railway
+⛂ - Region : \${process.env.RAILWAY_REPLICA_REGION ?? process.env.RAILWAY_REGION ?? "—"}
+⛂ - OS : \${process.platform}
+⛂ - Node.js : \${process.version}
+
+★ - Sensitive secrets such as BOT_TOKEN are never displayed.\`;
+    }
+    case "status": {
+      if (ctx.chatType === "private") return fa(ctx.lang, "وضعیت گروه در چت خصوصی قابل نمایش نیست.", "Group status is unavailable in private chat.");
+      const members = await api<number>("getChatMemberCount", { chat_id: ctx.chatId });
+      const admins = await adminCount(ctx.chatId);
+      return ctx.lang === "fa"
+        ? \`◈ وضعیت گروه
+
+⛂ - وضعیت ربات : ● فعال
+⛂ - وضعیت مدیریت : ● فعال
+⛂ - وضعیت دیتابیس : ● \${process.env.DATABASE_URL ? "متصل" : "محلی"}
+⛂ - وضعیت ضد اسپم : ● فعال
+⛂ - وضعیت ضد فلود : ● فعال
+⛂ - وضعیت امنیت : ● فعال
+
+─────━━───── ◈ ─────━━─────
+
+⛂ - تعداد اعضا : \${members}
+⛂ - تعداد مدیران : \${admins}
+⛂ - پیام‌های امروز : \${s.today}
+⛂ - اخطارهای فعال : —
+⛂ - افراد در لیست سکوت : —
+⛂ - افراد در لیست ویژه : —
+
+★ - وضعیت کلی گروه : پایدار\`
+        : \`◈ Group status
+
+⛂ - Bot : ● Active
+⛂ - Management : ● Active
+⛂ - Database : ● \${process.env.DATABASE_URL ? "Connected" : "Local"}
+⛂ - Anti-spam : ● Active
+⛂ - Anti-flood : ● Active
+⛂ - Security : ● Active
+
+─────━━───── ◈ ─────━━─────
+
+⛂ - Members : \${members}
+⛂ - Admins : \${admins}
+⛂ - Messages today : \${s.today}
+⛂ - Active warnings : —
+⛂ - Muted users : —
+⛂ - Special users : —
+
+★ - Overall group status : Stable\`;
+    }
+    default:
+      return fa(ctx.lang, "✗ این دستور در دو فاز فعال ربات وجود ندارد.", "✗ This command is not part of the two active bot phases.");
   }
 }
 
