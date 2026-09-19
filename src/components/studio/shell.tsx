@@ -14,7 +14,7 @@ import { SimView } from "./sim-view";
 const NAV: { id: ViewId; fa: string; en: string; icon: typeof Activity }[] = [
   { id: "overview", fa: "داشبورد", en: "Overview", icon: Activity },
   { id: "config", fa: "فازها", en: "Phases", icon: Layers3 },
-  { id: "commands", fa: "دستورات و پاسخ‌ها", en: "Commands & replies", icon: BookOpen },
+  { id: "commands", fa: "۳۶ دستور", en: "36 commands", icon: BookOpen },
   { id: "sim", fa: "شبیه‌ساز", en: "Simulator", icon: MessageSquare },
   { id: "deploy", fa: "وضعیت", en: "Deploy", icon: Rocket },
 ];
@@ -38,7 +38,7 @@ export function StudioShell() {
             <div className="flex items-center gap-2"><span className="text-sm font-semibold">نظم</span><span className="font-mono text-[10px] text-subtle">CONTROL STUDIO</span></div>
             <p className="text-[10px] text-muted">{rtl ? "مرکز کنترل و پیکربندی ربات" : "Bot configuration control center"}</p>
           </div>
-          <Badge tone="accent">{rtl ? "۲ فاز" : "2 phases"}</Badge>
+          <Badge tone="accent">{rtl ? "۵ فاز" : "5 phases"}</Badge>
           <div className="ms-auto flex gap-1">
             <Button size="sm" variant={uiLang === "fa" ? "solid" : "ghost"} onClick={() => setUiLang("fa")}>فا</Button>
             <Button size="sm" variant={uiLang === "en" ? "solid" : "ghost"} onClick={() => setUiLang("en")}>EN</Button>
