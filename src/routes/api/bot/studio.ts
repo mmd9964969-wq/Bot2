@@ -79,9 +79,12 @@ function mergeDocument(stored?: Partial<StudioDocument> | null): StudioDocument 
     capabilities: Array.isArray(stored.capabilities)
       ? stored.capabilities
       : base.capabilities,
-    commands: Array.isArray(stored.commands)
-      ? stored.commands
-      : base.commands,
+    commands: base.commands.map((b) => ({
+      ...b,
+      ...(Array.isArray(stored.commands)
+        ? stored.commands.find((x) => x.id === b.id)
+        : undefined),
+    })),
     updatedAt: stored.updatedAt || base.updatedAt,
   };
 }
