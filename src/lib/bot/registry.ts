@@ -438,3 +438,8 @@ export const RANK_ORDER: Rank[] = ["member", "admin", "sudo", "owner"];
 export function rankAtLeast(have: Rank, need: Rank): boolean {
   return RANK_ORDER.indexOf(have) >= RANK_ORDER.indexOf(need);
 }
+
+
+export function normalizeToken(value: string): string {
+  return value.trim().replace(/^\/+/, "").replace(/\s+/g, "").toLowerCase();
+}
