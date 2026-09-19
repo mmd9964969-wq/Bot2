@@ -177,6 +177,7 @@ export default defineConfig(({ command, isPreview }) => ({
       "bot2-bot.up.railway.app",
       "bot2-production-2b70.up.railway.app",
       "telegram-bot-production-8782.up.railway.app",
+      "healthcheck.railway.app",
     ],
   },
 
