@@ -1,13 +1,59 @@
 import { COMMANDS, type Rank } from "./registry.ts";
 
-export type StudioPhaseId=1|2|3|4|5;
-export type StudioRank=Rank;
-export type StudioCapability={id:string;phase:StudioPhaseId;titleFa:string;titleEn:string;descriptionFa:string;descriptionEn:string;enabled:boolean};
-export type StudioCommand={id:string;capabilityId:string;phase:StudioPhaseId;aliasesFa:string[];aliasesEn:string[];minRank:StudioRank;enabled:boolean;responseFa:string;responseEn:string};
-export type StudioDocument={version:string;updatedAt:string;activePhase:StudioPhaseId;settings:{botName:string;defaultLang:"fa"|"en";bareCommands:boolean;compactReplies:boolean};capabilities:StudioCapability[];commands:StudioCommand[]};
-const names=[["هسته و اطلاعات","Core & information","هویت، اطلاعات گروه، مقام‌ها و تنظیمات پایه.","Identity, group information, ranks and core settings."],["مدیریت اعضا","Member management","بن، میوت، اخطار، اخراج و مدیریت اعضا.","Ban, mute, warn, kick and member management."],["امنیت و قفل‌ها","Security & locks","قفل محتوا، ضداسپم، ضدفلود و حالت شب.","Content locks, anti-spam, anti-flood and night mode."],["قابلیت‌های گروه","Group features","خوشامد، قوانین، فیلتر و نوت‌ها.","Welcome, rules, filters and notes."],["مدیریت پیشرفته","Advanced management","پین، پاکسازی، ارتقا، عزل و گزارش.","Pin, purge, promote, demote and reports."]] as const;
-const capabilities:StudioCapability[]=names.map((x,i)=>({id:"phase-"+(i+1),phase:(i+1) as StudioPhaseId,titleFa:x[0],titleEn:x[1],descriptionFa:x[2],descriptionEn:x[3],enabled:true}));
-const fa=(id:string)=>({start:"〽️ سلام {{user_name}}\n\nمن {{bot_name}} هستم؛ ۳۶ دستور در ۵ فاز.\n\n/راهنما برای فهرست کامل.",help:"فهرست کامل ۳۶ دستور در ۵ فاز.",ping:"◈ وضعیت سیستم\n⛂ ربات: آنلاین\n⛂ دیتابیس: {{database_status}}\n⛂ نسخه: {{version}}",id:"◈ اطلاعات کاربر\n⛂ نام: {{user_name}}\n⛂ شناسه: {{user_id}}\n⛂ مقام: {{rank}}",info:"◈ اطلاعات گروه\n⛂ نام: {{chat_title}}\n⛂ شناسه: {{chat_id}}\n⛂ اعضا: {{members_count}}",lang:"زبان فعلی: {{lang}}",staff:"◈ مدیران\n{{staff}}",settings:"◈ تنظیمات\n⛂ دستورات: ۳۶\n⛂ فازها: ۵"} as Record<string,string>)[id]||("✓ دستور /"+id+" آماده اجراست.\nهدف: {{target}}\nدلیل: {{reason}}");
-const en=(id:string)=>({start:"〽️ Hello {{user_name}}\n\nI am {{bot_name}} with 36 commands in 5 phases.\n\n/help for the full list.",help:"Full 36-command list across 5 phases.",ping:"◈ System status\n⛂ Bot: online\n⛂ Database: {{database_status}}\n⛂ Version: {{version}}",id:"◈ User information\n⛂ Name: {{user_name}}\n⛂ ID: {{user_id}}\n⛂ Rank: {{rank}}",info:"◈ Group information\n⛂ Name: {{chat_title}}\n⛂ ID: {{chat_id}}\n⛂ Members: {{members_count}}",lang:"Current language: {{lang}}",staff:"◈ Admins\n{{staff}}",settings:"◈ Settings\n⛂ Commands: 36\n⛂ Phases: 5"} as Record<string,string>)[id]||("✓ /"+id+" is ready.\nTarget: {{target}}\nReason: {{reason}}");
-export const STUDIO_DEFAULTS:StudioDocument={version:"3.0.0",updatedAt:new Date(0).toISOString(),activePhase:5,settings:{botName:"نظم",defaultLang:"fa",bareCommands:true,compactReplies:true},capabilities,commands:COMMANDS.map(c=>({id:c.id,capabilityId:"phase-"+c.phase,phase:c.phase,aliasesFa:c.aliasesFa,aliasesEn:c.aliasesEn,minRank:c.minRank,enabled:true,responseFa:fa(c.id),responseEn:en(c.id)}))};
-export function cloneStudioDefaults(){return structuredClone(STUDIO_DEFAULTS)}
+export type StudioPhaseId = 1 | 2;
+export type StudioRank = Rank;
+export type StudioCapability = { id: string; phase: StudioPhaseId; titleFa: string; titleEn: string; descriptionFa: string; descriptionEn: string; enabled: boolean };
+export type StudioCommand = { id: string; capabilityId: string; phase: StudioPhaseId; aliasesFa: string[]; aliasesEn: string[]; minRank: StudioRank; enabled: boolean; responseFa: string; responseEn: string };
+export type StudioDocument = { version: string; updatedAt: string; activePhase: StudioPhaseId; settings: { botName: string; defaultLang: "fa" | "en"; bareCommands: boolean; compactReplies: boolean }; capabilities: StudioCapability[]; commands: StudioCommand[] };
+
+const capabilities: StudioCapability[] = [
+  { id: "phase-1", phase: 1, titleFa: "هسته و اطلاعات", titleEn: "Core & information", descriptionFa: "ربات، آیدی، ادمین، اطلاعات گروه، مقام و پروفایل شخصی.", descriptionEn: "Robot, identity, admin access, group info, ranks and profile.", enabled: true },
+  { id: "phase-2", phase: 2, titleFa: "وضعیت و سیستم", titleEn: "Status & system", descriptionFa: "پینگ، وضعیت گروه و اطلاعات فنی ربات.", descriptionEn: "Ping, group status and technical bot status.", enabled: true },
+];
+
+const fa: Record<string, string> = {
+  robot: "{{robot_line}}",
+  id: "◈ اطلاعات کاربر\n\n⛂ - نام : {{user_name}}\n⛂ - شناسه : {{user_id}}\n⛂ - نام کاربری : {{username}}\n⛂ - مقام : {{rank}}\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - تعداد پیام امروز : {{messages_today}}\n⛂ - تعداد عضویت امروز : —\n⛂ - تعداد پیام کل : {{messages_total}}\n⛂ - تعداد عضویت کل : —",
+  admin: "{{admin_result}}",
+  info: "◈ اطلاعات گروه\n\n⛂ - نام گروه : {{chat_title}}\n⛂ - شناسه گروه : {{chat_id}}\n⛂ - نام کاربری گروه : {{chat_username}}\n⛂ - نوع گروه : {{chat_type}}\n⛂ - تعداد اعضا : {{members_count}}\n⛂ - تعداد مدیران : {{admins_count}}\n⛂ - مالک گروه : —\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - پیام‌های امروز : {{messages_today}}\n⛂ - اعضای جدید امروز : —\n⛂ - پیام‌های کل : {{messages_total}}\n⛂ - اعضای فعلی : {{members_count}}\n⛂ - تعداد افراد در لیست سکوت : —\n⛂ - تعداد افراد در لیست ویژه : —\n⛂ - تعداد اخطار های فعال : —\n\n★ - تاریخ ساخت گروه : —\n★ - لینک دعوت : —\n★ - وضعیت لینک دعوت : —",
+  rank: "{{rank_card}}",
+  me: "{{me_card}}",
+  ping: "{{ping_card}}",
+  bot: "{{bot_card}}",
+  status: "{{status_card}}",
+};
+
+const en: Record<string, string> = {
+  robot: "{{robot_line}}",
+  id: "◈ User information\n\n⛂ - Name : {{user_name}}\n⛂ - ID : {{user_id}}\n⛂ - Username : {{username}}\n⛂ - Rank : {{rank}}\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - Messages today : {{messages_today}}\n⛂ - Joins today : —\n⛂ - Total messages : {{messages_total}}\n⛂ - Total joins : —",
+  admin: "{{admin_result}}",
+  info: "◈ Group information\n\n⛂ - Group name : {{chat_title}}\n⛂ - Group ID : {{chat_id}}\n⛂ - Group username : {{chat_username}}\n⛂ - Group type : {{chat_type}}\n⛂ - Members : {{members_count}}\n⛂ - Admins : {{admins_count}}\n⛂ - Owner : —\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - Messages today : {{messages_today}}\n⛂ - New members today : —\n⛂ - Total messages : {{messages_total}}\n⛂ - Current members : {{members_count}}\n⛂ - Muted users : —\n⛂ - Special users : —\n⛂ - Active warnings : —\n\n★ - Group creation date : —\n★ - Invite link : —\n★ - Invite status : —",
+  rank: "{{rank_card}}",
+  me: "{{me_card}}",
+  ping: "{{ping_card}}",
+  bot: "{{bot_card}}",
+  status: "{{status_card}}",
+};
+
+export const STUDIO_DEFAULTS: StudioDocument = {
+  version: "4.0.0",
+  updatedAt: new Date(0).toISOString(),
+  activePhase: 2,
+  settings: { botName: "نظم", defaultLang: "fa", bareCommands: true, compactReplies: false },
+  capabilities,
+  commands: COMMANDS.map((c) => ({
+    id: c.id,
+    capabilityId: "phase-" + c.phase,
+    phase: c.phase,
+    aliasesFa: c.aliasesFa,
+    aliasesEn: c.aliasesEn,
+    minRank: c.minRank,
+    enabled: true,
+    responseFa: fa[c.id] ?? "✓ دستور اجرا شد.",
+    responseEn: en[c.id] ?? "✓ Command executed.",
+  })),
+};
+
+export function cloneStudioDefaults() {
+  return structuredClone(STUDIO_DEFAULTS);
+}
