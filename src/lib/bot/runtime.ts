@@ -3,7 +3,7 @@ import { telegramApi } from "../telegram/api.ts";
 import { resolveCommand, parseDuration, normalizeToken, type Rank, type Lang } from "./registry.ts";
 import type { BotConfig } from "./defaults.ts";
 
-export type LiveContext = BotContext & { messageId: number; replyToUserId?: number; replyToName?: string };
+export type LiveContext = BotContext & { messageId: number; replyToUserId?: number; replyToName?: string; replyToMessageId?: number };
 
 type BotContext = {
   text:string; chatType:"private"|"group"|"supergroup"; chatId:number; chatTitle:string;
@@ -11,15 +11,15 @@ type BotContext = {
   config:BotConfig; now:number; staff:{id:number;name:string;rank:Rank}[];
 };
 
-const memory = new Map<number,{locks:Set<string>;floodOn:boolean;floodMax:number;spam:boolean;night:boolean;welcome:string;goodbye:string;rules:string;filters:Map<string,string>;notes:Map<string,string>}>();
-function state(id:number){let s=memory.get(id);if(!s){s={locks:new Set(),floodOn:false,floodMax:6,spam:false,night:false,welcome:"",goodbye:"",rules:"",filters:new Map(),notes:new Map()};memory.set(id,s)}return s}
+const memory = new Map<number,{locks:Set<string>;floodOn:boolean;floodMax:number;spam:boolean;night:boolean;welcome:string;goodbye:string;rules:string;filters:Map<string,string>;notes:Map<string,string>;warnings:Map<number,{count:number;reasons:string[]}>}>();
+function state(id:number){let s=memory.get(id);if(!s){s={locks:new Set(),floodOn:false,floodMax:6,spam:false,night:false,welcome:"",goodbye:"",rules:"",filters:new Map(),notes:new Map(),warnings:new Map()};memory.set(id,s)}return s}
 const fa=(l:Lang,a:string,e:string)=>l==="fa"?a:e;
 const norm=(s:string)=>normalizeToken(s);
 function target(ctx:LiveContext,args:string[]){if(ctx.replyToUserId)return ctx.replyToUserId;for(const x of args){const n=norm(x);if(/^-?\d+$/.test(n))return Number(n)}return null}
 function duration(args:string[]){for(const x of args){const d=parseDuration(x);if(d)return d}return null}
 function reason(args:string[]){return args.filter(x=>!x.startsWith("@")&&!/^-?\d+$/.test(norm(x))&&!parseDuration(x)).join(" ")||"—"}
 async function api(method:string,data:Record<string,unknown>){const r=await telegramApi<any>(method,data);if(!r.ok)throw new Error(r.description||method+" failed");return r.result}
-async function botPerm(chatId:number,key:string){const me=await api("getMe",{});const m=await api("getChatMember",{chat_id:chatId,user_id:me.id});if(m.status==="creator")return true;if(m.status!=="administrator")return false;return key?m[key]!==false:true}
+async function botPerm(chatId:number,key:string){const me=await api("getMe",{});const m=await api("getChatMember",{chat_id:chatId,user_id:me.id});if(m.status==="creator")return true;if(m.status!=="administrator")return false;return key?m[key]!==false:true}\nasync function targetMember(chatId:number,userId:number){return api("getChatMember",{chat_id:chatId,user_id:userId})}\nasync function canModerateTarget(ctx:LiveContext,userId:number){const m=await targetMember(ctx.chatId,userId);if(m.status==="creator")return false;if(m.status==="administrator" && ctx.userRank!=="owner")return false;return true}
 function needTarget(id:string){return ["ban","unban","mute","unmute","kick","warn","unwarn","warns","tmute","tban","promote","demote"].includes(id)}
 
 export async function runLiveCommand(ctx:LiveContext,token:string,args:string[]):Promise<string>{
@@ -39,11 +39,11 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
     case "settings":return "◈ تنظیمات\n⛂ دستورات: ۳۶\n⛂ فازها: ۵\n⛂ زبان: "+ctx.lang+"\n⛂ پیشوندها: "+ctx.config.prefixes.join(" ");
     case "ban":
     case "tban":{if(!await botPerm(ctx.chatId,"can_restrict_members"))return "✗ Bot lacks ban permission.";const body:any={chat_id:ctx.chatId,user_id:tg,revoke_messages:true};if(c.id==="tban"&&d)body.until_date=Math.floor(Date.now()/1000)+d;await api("banChatMember",body);return "✓ "+who+" "+(c.id==="tban"?"بن موقت شد.":"بن شد.")+"\nدلیل: "+why}
-    case "unban":await api("unbanChatMember",{chat_id:ctx.chatId,user_id:tg,only_if_banned:true});return "✓ بن "+who+" برداشته شد.";
+    case "unban":if(!await botPerm(ctx.chatId,"can_restrict_members"))return "✗ Bot lacks restrict permission.";await api("unbanChatMember",{chat_id:ctx.chatId,user_id:tg,only_if_banned:true});return "✓ بن "+who+" برداشته شد.";
     case "mute":
     case "tmute":{if(!await botPerm(ctx.chatId,"can_restrict_members"))return "✗ Bot lacks restrict permission.";const body:any={chat_id:ctx.chatId,user_id:tg,permissions:{can_send_messages:false}};if(c.id==="tmute"&&d)body.until_date=Math.floor(Date.now()/1000)+d;await api("restrictChatMember",body);return "✓ "+who+" "+(d?"به مدت "+d+" ثانیه ":"")+"میوت شد."}
-    case "unmute":await api("restrictChatMember",{chat_id:ctx.chatId,user_id:tg,permissions:{can_send_messages:true,can_send_audios:true,can_send_documents:true,can_send_photos:true,can_send_videos:true,can_send_video_notes:true,can_send_voice_notes:true,can_send_polls:true,can_send_other_messages:true,can_add_web_page_previews:true}});return "✓ میوت "+who+" برداشته شد.";
-    case "kick":await api("banChatMember",{chat_id:ctx.chatId,user_id:tg,until_date:Math.floor(Date.now()/1000)+60});await api("unbanChatMember",{chat_id:ctx.chatId,user_id:tg,only_if_banned:true});return "✓ "+who+" اخراج شد.";
+    case "unmute":if(!await botPerm(ctx.chatId,"can_restrict_members"))return "✗ Bot lacks restrict permission.";if(!await canModerateTarget(ctx,tg!))return "✗ این کاربر قابل مدیریت نیست.";await api("restrictChatMember",{chat_id:ctx.chatId,user_id:tg,permissions:{can_send_messages:true,can_send_audios:true,can_send_documents:true,can_send_photos:true,can_send_videos:true,can_send_video_notes:true,can_send_voice_notes:true,can_send_polls:true,can_send_other_messages:true,can_add_web_page_previews:true}});return "✓ میوت "+who+" برداشته شد.";
+    case "kick":if(!await canModerateTarget(ctx,tg!))return "✗ این کاربر قابل مدیریت نیست.";if(!await botPerm(ctx.chatId,"can_restrict_members"))return "✗ Bot lacks restrict permission.";await api("banChatMember",{chat_id:ctx.chatId,user_id:tg,until_date:Math.floor(Date.now()/1000)+60});await api("unbanChatMember",{chat_id:ctx.chatId,user_id:tg,only_if_banned:true});return "✓ "+who+" اخراج شد.";
     case "warn":if(!ctx.config.ownerIds.length)return "✗ OWNER_IDS تنظیم نشده.";return "⚠️ اخطار برای "+who+" ثبت شد.\nدلیل: "+why;
     case "unwarn":return "✓ آخرین اخطار "+who+" حذف شد.";
     case "warns":return "◈ سوابق اخطار\n⛂ کاربر: "+who+"\n⛂ وضعیت: فعال";
@@ -59,10 +59,10 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
     case "setrules":s.rules=args.join(" ")||"قوانین گروه";return "✓ قوانین ذخیره شد.";
     case "filter":{const w=norm(args[0]||"");if(!w)return "استفاده: /فیلتر کلمه پاسخ";s.filters.set(w,args.slice(1).join(" ")||"پیام حذف شد.");return "✓ فیلتر ثبت شد: "+w}
     case "notes":{const k=norm(args[0]||"");if(!k)return "استفاده: /نوت نام متن";if(args.length>1){s.notes.set(k,args.slice(1).join(" "));return "✓ نوت ذخیره شد."}return s.notes.get(k)||"نوت پیدا نشد."}
-    case "pin":if(!await botPerm(ctx.chatId,"can_pin_messages"))return "✗ Bot lacks pin permission.";await api("pinChatMessage",{chat_id:ctx.chatId,message_id:ctx.messageId,disable_notification:true});return "✓ پیام پین شد.";
-    case "unpin":if(!await botPerm(ctx.chatId,"can_pin_messages"))return "✗ Bot lacks pin permission.";await api("unpinChatMessage",{chat_id:ctx.chatId,message_id:ctx.messageId});return "✓ پین برداشته شد.";
-    case "purge":if(!await botPerm(ctx.chatId,"can_delete_messages"))return "✗ Bot lacks delete permission.";await api("deleteMessage",{chat_id:ctx.chatId,message_id:ctx.messageId});return "✓ پیام دستور حذف شد.";
-    case "promote":if(!await botPerm(ctx.chatId,"can_promote_members"))return "✗ Bot lacks promote permission.";await api("promoteChatMember",{chat_id:ctx.chatId,user_id:tg,can_manage_chat:true,can_delete_messages:true,can_restrict_members:true,can_invite_users:true,can_pin_messages:true});return "✓ "+who+" ارتقا یافت.";
+    case "pin":if(!await botPerm(ctx.chatId,"can_pin_messages"))return "✗ Bot lacks pin permission.";await api("pinChatMessage",{chat_id:ctx.chatId,message_id:ctx.replyToMessageId||ctx.messageId,disable_notification:true});return "✓ پیام پین شد.";
+    case "unpin":if(!await botPerm(ctx.chatId,"can_pin_messages"))return "✗ Bot lacks pin permission.";await api("unpinChatMessage",{chat_id:ctx.chatId,message_id:ctx.replyToMessageId||ctx.messageId});return "✓ پین برداشته شد.";
+    case "purge":{if(!await botPerm(ctx.chatId,"can_delete_messages"))return "✗ Bot lacks delete permission.";const from=ctx.replyToMessageId??ctx.messageId;const to=ctx.messageId;let deleted=0;for(let id=from;id<=to&&deleted<100;id++){try{await api("deleteMessage",{chat_id:ctx.chatId,message_id:id});deleted++;}catch{}}return "✓ "+deleted+" پیام پاکسازی شد.";}
+    case "promote":if(!await canModerateTarget(ctx,tg!))return "✗ این کاربر قابل ارتقا نیست.";if(!await botPerm(ctx.chatId,"can_promote_members"))return "✗ Bot lacks promote permission.";await api("promoteChatMember",{chat_id:ctx.chatId,user_id:tg,can_manage_chat:true,can_delete_messages:true,can_restrict_members:true,can_invite_users:true,can_pin_messages:true});return "✓ "+who+" ارتقا یافت.";
     case "demote":if(!await botPerm(ctx.chatId,"can_promote_members"))return "✗ Bot lacks promote permission.";await api("promoteChatMember",{chat_id:ctx.chatId,user_id:tg,can_manage_chat:false,can_delete_messages:false,can_restrict_members:false,can_invite_users:false,can_pin_messages:false});return "✓ دسترسی مدیریتی "+who+" حذف شد.";
     case "report":return "✓ گزارش ثبت شد.\n⛂ هدف: "+who+"\n⛂ دلیل: "+why;
     default:return "✓ دستور اجرا شد.";
