@@ -23,16 +23,16 @@ export function OverviewView() {
           <div>
             <Badge tone="accent">CONTROL STUDIO · v2</Badge>
             <h1 className="mt-3 max-w-2xl text-2xl font-semibold tracking-tight sm:text-4xl">{fa ? "تمام کنترل ربات، از یک پنل." : "One control layer for the entire bot."}</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">{fa ? "فقط دو فاز در ربات فعال می‌ماند؛ تمام قابلیت‌ها، دستورها، پاسخ‌ها و سطح دسترسی‌ها از این پنل مدیریت می‌شوند و PostgreSQL منبع اصلی تنظیمات است." : "The bot stays two-phase; capabilities, commands, replies and permissions are managed here, with PostgreSQL as the source of truth."}</p>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">{fa ? "پنج فاز فعال ربات فعال می‌ماند؛ تمام قابلیت‌ها، دستورها، پاسخ‌ها و سطح دسترسی‌ها از این پنل مدیریت می‌شوند و PostgreSQL منبع اصلی تنظیمات است." : "The bot stays two-phase; capabilities, commands, replies and permissions are managed here, with PostgreSQL as the source of truth."}</p>
             <div className="mt-5 flex flex-wrap gap-2">
               <button type="button" onClick={() => setView("commands")} className="flex h-10 items-center gap-2 rounded-lg bg-fg px-4 text-xs font-semibold text-bg">{fa ? "ویرایش دستورات" : "Edit commands"} <ArrowUpRight className="size-3.5" /></button>
               <button type="button" onClick={() => setView("sim")} className="h-10 rounded-lg px-4 text-xs text-muted shadow-[var(--shadow-border)] hover:text-fg">{fa ? "تست شبیه‌ساز" : "Open simulator"}</button>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <Metric icon={Layers3} label={fa ? "فازها" : "Phases"} value="2" />
+            <Metric icon={Layers3} label={fa ? "فازها" : "Phases"} value="5" />
             <Metric icon={Radio} label={fa ? "قابلیت‌ها" : "Capabilities"} value={String(doc.capabilities.length)} />
-            <Metric icon={CheckCircle2} label={fa ? "دستورات" : "Commands"} value={String(doc.commands.length)} />
+            <Metric icon={CheckCircle2} label={fa ? "دستورات" : "Commands"} value="36" />
             <Metric icon={Database} label="Source" value="PostgreSQL" />
           </div>
         </div>
