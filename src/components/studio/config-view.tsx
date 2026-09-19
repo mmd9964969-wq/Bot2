@@ -30,7 +30,7 @@ export function ConfigView() {
 
   return <div className="grid gap-4">
     <Panel>
-      <PanelTitle kicker={fa ? "فازها" : "Phases"} title={fa ? "فقط دو فاز در ربات" : "Only two phases in the bot"} hint={fa ? "قابلیت‌ها در پنل جزئی‌تر دسته‌بندی می‌شوند، اما خروجی ربات فقط فاز ۱ و ۲ دارد." : "Capabilities are granular in the panel, while the bot exposes only phases 1 and 2."} />
+      <PanelTitle kicker={fa ? "فازها" : "Phases"} title={fa ? "پنج فاز فعال ربات" : "Five live phases in the bot"} hint={fa ? "قابلیت‌ها در پنل جزئی‌تر دسته‌بندی می‌شوند، اما خروجی ربات فقط فاز ۱ و ۲ دارد." : "Capabilities are granular in the panel, while the bot exposes only phases 1 and 2."} />
       <div className="grid gap-3 md:grid-cols-2">
         {[1,2].map((phase) => {
           const items = doc.capabilities.filter((c) => c.phase === phase);
