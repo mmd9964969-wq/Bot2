@@ -10,7 +10,7 @@ export function CommandsView() {
   const fa = useStudio((s) => s.uiLang) === "fa";
   const [doc, setDoc] = useState<StudioDocument>(() => cloneStudioDefaults());
   const [selected, setSelected] = useState("robot");
-  const [phase, setPhase] = useState<0 | 1 | 2>(0);
+  const [phase, setPhase] = useState<number>(0);
   const [q, setQ] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -44,7 +44,7 @@ export function CommandsView() {
   return <div className="grid gap-4 lg:grid-cols-[18rem_1fr]">
     <Panel className="h-fit">
       <PanelTitle kicker={fa ? "مرکز فرمان" : "Command center"} title={fa ? "فاز و دستور" : "Phase & command"} />
-      <div className="flex gap-1.5"><Filter active={phase===0} onClick={()=>setPhase(0)}>{fa?"همه":"All"}</Filter><Filter active={phase===1} onClick={()=>setPhase(1)}>01</Filter><Filter active={phase===2} onClick={()=>setPhase(2)}>02</Filter></div>
+      <div className="flex gap-1.5"><Filter active={phase===0} onClick={()=>setPhase(0)}>{fa?"همه":"All"}</Filter>{[1,2,3,4,5].map(p=><Filter key={p} active={phase===p} onClick={()=>setPhase(p)}>0{p}</Filter>)}</div>
       <div className="relative mt-3"><Search className="pointer-events-none absolute start-2.5 top-2.5 size-3.5 text-subtle" /><Input value={q} onChange={(e)=>setQ(e.target.value)} className="ps-8" placeholder={fa?"جستجو...":"Search..."} /></div>
       <div className="mt-3 max-h-[60vh] space-y-1 overflow-y-auto">{rows.map((c)=><button key={c.id} type="button" onClick={()=>setSelected(c.id)} className={`w-full rounded-lg p-2.5 text-start ${selected===c.id?"bg-accent/12 shadow-[var(--shadow-border)]":"hover:bg-surface-2"}`}><div className="flex items-center justify-between"><span className="font-mono text-xs">{c.aliasesFa[0]||c.id}</span><span className={c.enabled?"size-1.5 rounded-full bg-ok":"size-1.5 rounded-full bg-danger"} /></div><p className="mt-1 text-[10px] text-muted">{c.id} · {fa?`فاز ${c.phase}`:`phase ${c.phase}`}</p></button>)}</div>
     </Panel>
@@ -61,7 +61,7 @@ function CommandEditor({ command, fa, onPatch }: { command: StudioCommand; fa: b
     <div className="mt-5 grid gap-4 xl:grid-cols-2">
       <EditorField label={fa?"نام‌های فارسی":"Persian aliases"}><Input value={command.aliasesFa.join(" ")} onChange={(e)=>onPatch({aliasesFa:e.target.value.split(/\s+/).filter(Boolean)})}/></EditorField>
       <EditorField label={fa?"نام‌های انگلیسی":"English aliases"}><Input dir="ltr" value={command.aliasesEn.join(" ")} onChange={(e)=>onPatch({aliasesEn:e.target.value.split(/\s+/).filter(Boolean)})}/></EditorField>
-      <EditorField label={fa?"حداقل مقام":"Minimum rank"}><select value={command.minRank} onChange={(e)=>onPatch({minRank:e.target.value as StudioCommand["minRank"]})} className="h-9 rounded-md bg-surface-2 px-2 text-xs shadow-[var(--shadow-border)]"><option value="member">{fa?"عضو":"member"}</option><option value="admin">{fa?"ادمین":"admin"}</option><option value="owner">{fa?"مالک":"owner"}</option></select></EditorField>
+      <EditorField label={fa?"حداقل مقام":"Minimum rank"}><select value={command.minRank} onChange={(e)=>onPatch({minRank:e.target.value as StudioCommand["minRank"]})} className="h-9 rounded-md bg-surface-2 px-2 text-xs shadow-[var(--shadow-border)]"><option value="member">{fa?"عضو":"member"}</option><option value="admin">{fa?"ادمین":"admin"}</option><option value="sudo">sudo</option><option value="owner">{fa?"مالک":"owner"}</option></select></EditorField>
       <EditorField label={fa?"قابلیت":"Capability"}><div className="flex h-9 items-center rounded-md bg-surface-2 px-3 text-xs"><Badge tone="accent">{command.capabilityId}</Badge></div></EditorField>
       <EditorField label={fa?"پاسخ فارسی":"Persian response"}><textarea value={command.responseFa} onChange={(e)=>onPatch({responseFa:e.target.value})} className="min-h-52 w-full resize-y rounded-lg bg-surface-2 p-3 text-sm leading-6 shadow-[var(--shadow-border)] outline-none focus:ring-1 focus:ring-accent/40"/></EditorField>
       <EditorField label={fa?"پاسخ انگلیسی":"English response"}><textarea dir="ltr" value={command.responseEn} onChange={(e)=>onPatch({responseEn:e.target.value})} className="min-h-52 w-full resize-y rounded-lg bg-surface-2 p-3 text-sm leading-6 shadow-[var(--shadow-border)] outline-none focus:ring-1 focus:ring-accent/40"/></EditorField>
