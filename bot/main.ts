@@ -160,7 +160,10 @@ async function handleMessage(msg: TgMessage) {
 
   const chat = msg.chat;
   const isPrivate = chat.type === "private";
-  let adminIds = new Set<number>();\n  if (!isPrivate) {\n    try { adminIds = await chatAdmins(chat.id); } catch (error) { console.error("[admins] lookup failed", error); }\n  }
+  let adminIds = new Set<number>();
+  if (!isPrivate) {
+    try { adminIds = await chatAdmins(chat.id); } catch (error) { console.error("[admins] lookup failed", error); }
+  }
   const lang = chatLang.get(chat.id) ?? config.defaultLang;
 
   const ctx: BotContext = {
@@ -236,4 +239,17 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-process.once("SIGTERM", async () => { await studioPool?.end().catch(() => {}); process.exit(0); });\nprocess.once("SIGINT", async () => { await studioPool?.end().catch(() => {}); process.exit(0); });\n\n(async () => {\n  try {\n    const me = await telegramApi("getMe", {});\n    if (me.ok) console.log("[startup] Telegram bot @" + ((me.result as any)?.username ?? "unknown") + " is reachable");\n    else console.error("[startup] Telegram getMe failed:", me.description);\n    await poll();\n  } catch (error) {\n    console.error("[startup] fatal:", error);\n    process.exit(1);\n  }\n})();
+process.once("SIGTERM", async () => { await studioPool?.end().catch(() => {}); process.exit(0); });
+process.once("SIGINT", async () => { await studioPool?.end().catch(() => {}); process.exit(0); });
+
+(async () => {
+  try {
+    const me = await telegramApi("getMe", {});
+    if (me.ok) console.log("[startup] Telegram bot @" + ((me.result as any)?.username ?? "unknown") + " is reachable");
+    else console.error("[startup] Telegram getMe failed:", me.description);
+    await poll();
+  } catch (error) {
+    console.error("[startup] fatal:", error);
+    process.exit(1);
+  }
+})();
