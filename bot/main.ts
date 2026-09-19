@@ -160,7 +160,7 @@ async function handleMessage(msg: TgMessage) {
 
   const chat = msg.chat;
   const isPrivate = chat.type === "private";
-  const adminIds = isPrivate ? new Set<number>() : await chatAdmins(chat.id);
+  let adminIds = new Set<number>();\n  if (!isPrivate) {\n    try { adminIds = await chatAdmins(chat.id); } catch (error) { console.error("[admins] lookup failed", error); }\n  }
   const lang = chatLang.get(chat.id) ?? config.defaultLang;
 
   const ctx: BotContext = {
@@ -189,7 +189,7 @@ async function handleMessage(msg: TgMessage) {
   if (studioCommand && !studioCommand.enabled) return;
   if (!rankAtLeast(ctx.userRank, command.minRank)) { await telegramApi("sendMessage", { chat_id: chat.id, text: ctx.lang === "fa" ? "✗ دسترسی کافی ندارید." : "✗ You do not have enough access.", reply_to_message_id: msg.message_id }); return; }
   try {
-    const result = await runLiveCommand({ ...ctx, messageId: msg.message_id, replyToUserId: msg.reply_to_message?.from?.id, replyToName: msg.reply_to_message?.from?.username || msg.reply_to_message?.from?.first_name }, token, parsed);
+    const result = await runLiveCommand({ ...ctx, messageId: msg.message_id, replyToUserId: msg.reply_to_message?.from?.id, replyToName: msg.reply_to_message?.from?.username || msg.reply_to_message?.from?.first_name, replyToMessageId: msg.reply_to_message ? (msg as any).reply_to_message.message_id : undefined }, token, parsed);
     await telegramApi("sendMessage", { chat_id: chat.id, text: result, reply_to_message_id: msg.message_id });
   } catch (error) { console.error("[command]", error); await telegramApi("sendMessage", { chat_id: chat.id, text: ctx.lang === "fa" ? "✗ اجرای دستور ناموفق بود؛ دسترسی ربات یا هدف را بررسی کنید." : "✗ Command failed; check bot permissions or target.", reply_to_message_id: msg.message_id }); }
 }
@@ -236,4 +236,4 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-poll();
+process.once("SIGTERM", async () => { await studioPool?.end().catch(() => {}); process.exit(0); });\nprocess.once("SIGINT", async () => { await studioPool?.end().catch(() => {}); process.exit(0); });\n\n(async () => {\n  try {\n    const me = await telegramApi("getMe", {});\n    if (me.ok) console.log("[startup] Telegram bot @" + ((me.result as any)?.username ?? "unknown") + " is reachable");\n    else console.error("[startup] Telegram getMe failed:", me.description);\n    await poll();\n  } catch (error) {\n    console.error("[startup] fatal:", error);\n    process.exit(1);\n  }\n})();
