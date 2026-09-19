@@ -4,6 +4,8 @@ import { handleCommand, type BotContext } from "../src/lib/bot/engine.ts";
 import { cloneStudioDefaults, type StudioDocument } from "../src/lib/bot/studio.ts";
 import type { Lang, Rank } from "../src/lib/bot/registry.ts";
 import { telegramApi } from "../src/lib/telegram/api.ts";
+import { resolveCommand, rankAtLeast } from "../src/lib/bot/registry.ts";
+import { runLiveCommand, moderateLive } from "../src/lib/bot/runtime.ts";
 
 const TOKEN = process.env.BOT_TOKEN ?? "";
 if (!TOKEN) { console.error("BOT_TOKEN is missing"); process.exit(1); }
@@ -178,14 +180,18 @@ async function handleMessage(msg: TgMessage) {
     staff: [...adminIds].map((id) => ({ id, name: String(id), rank: rankOf(id, adminIds) })),
   };
 
-  const panelReply = studioReply(ctx);
-  if (!panelReply) return;
-
-  await telegramApi("sendMessage", {
-    chat_id: chat.id,
-    text: panelReply,
-    reply_to_message_id: msg.message_id,
-  });
+  const parsed = text.trim().replace(/^[/!.]/, "").split(/\s+/);
+  if (!text.trim().match(/^[/!.]/)) { await moderateLive({ chatId: chat.id, userId: msg.from.id, messageId: msg.message_id, text }); return; }
+  const token = parsed.shift()?.split("@")[0] ?? "";
+  const command = resolveCommand(token);
+  if (!command) return;
+  const studioCommand = studio.commands.find((x) => x.id === command.id);
+  if (studioCommand && !studioCommand.enabled) return;
+  if (!rankAtLeast(ctx.userRank, command.minRank)) { await telegramApi("sendMessage", { chat_id: chat.id, text: ctx.lang === "fa" ? "✗ دسترسی کافی ندارید." : "✗ You do not have enough access.", reply_to_message_id: msg.message_id }); return; }
+  try {
+    const result = await runLiveCommand({ ...ctx, messageId: msg.message_id, replyToUserId: msg.reply_to_message?.from?.id, replyToName: msg.reply_to_message?.from?.username || msg.reply_to_message?.from?.first_name }, token, parsed);
+    await telegramApi("sendMessage", { chat_id: chat.id, text: result, reply_to_message_id: msg.message_id });
+  } catch (error) { console.error("[command]", error); await telegramApi("sendMessage", { chat_id: chat.id, text: ctx.lang === "fa" ? "✗ اجرای دستور ناموفق بود؛ دسترسی ربات یا هدف را بررسی کنید." : "✗ Command failed; check bot permissions or target.", reply_to_message_id: msg.message_id }); }
 }
 
 async function handleMyChatMember(update: TgChatMemberUpdate) {
