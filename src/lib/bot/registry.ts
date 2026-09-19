@@ -442,11 +442,11 @@ export function rankAtLeast(have: Rank, need: Rank): boolean {
 
 
 export function normalizeToken(value: string): string {
-  return value.trim().replace(/^\\/+/, "").replace(/\\s+/g, "").toLowerCase();
+  return value.trim().replace(/^\/+/, "").replace(/\s+/g, "").toLowerCase();
 }
 
 export function parseDuration(value: string): number | null {
-  const m = value.trim().toLowerCase().match(/^(\\d+)(s|m|h|d)?$/);
+  const m = value.trim().toLowerCase().match(/^(\d+)(s|m|h|d)?$/);
   if (!m) return null;
   const n = Number(m[1]);
   const unit = m[2] || "s";
