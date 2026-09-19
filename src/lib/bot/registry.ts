@@ -440,6 +440,17 @@ export function rankAtLeast(have: Rank, need: Rank): boolean {
 }
 
 
+
 export function normalizeToken(value: string): string {
-  return value.trim().replace(/^\/+/, "").replace(/\s+/g, "").toLowerCase();
+  return value.trim().replace(/^\\/+/, "").replace(/\\s+/g, "").toLowerCase();
+}
+
+export function parseDuration(value: string): number | null {
+  const m = value.trim().toLowerCase().match(/^(\\d+)(s|m|h|d)?$/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  const unit = m[2] || "s";
+  const mult = unit === "m" ? 60 : unit === "h" ? 3600 : unit === "d" ? 86400 : 1;
+  const seconds = n * mult;
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
 }
