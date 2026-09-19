@@ -137,7 +137,7 @@ async function createPgliteSql(): Promise<Sql> {
       "@electric-sql/pglite"
     );
 
-    const pg = new PGlite({
+    const pg = new PGlite("/tmp/telegram-manager-pglite", {
       parsers: {
         [OID_INT8]: Number,
         [OID_DATE]: identity,
