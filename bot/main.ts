@@ -75,6 +75,45 @@ function studioReply(ctx: BotContext): string | null {
   return render(ctx.lang === "fa" ? command.responseFa : command.responseEn, ctx);
 }
 
+async function studioReplyLive(ctx: BotContext): Promise<string | null> {
+  const token = normalizeCommand(ctx.text);
+  const command = studio.commands.find((item) =>
+    item.enabled &&
+    item.phase <= 2 &&
+    [...item.aliasesFa, ...item.aliasesEn].some((alias) => normalizeCommand(alias) === token),
+  );
+  if (!command) return null;
+  if (!rankAtLeast(ctx.userRank, command.minRank)) {
+    return ctx.lang === "fa" ? "✗ دسترسی کافی برای این دستور را ندارید." : "✗ You do not have enough access for this command.";
+  }
+
+  let liveCard = "";
+  if (["robot", "admin", "rank", "me", "ping", "bot", "status"].includes(command.id)) {
+    liveCard = await runLiveCommand({ ...ctx, messageId: 0 }, command.aliasesEn[0] ?? command.id, []);
+  }
+
+  const values: Record<string, string> = {
+    user_name: ctx.userName,
+    username: ctx.userName.startsWith("@") ? ctx.userName : "@" + ctx.userName,
+    user_id: String(ctx.userId),
+    rank: ctx.userRank,
+    chat_title: ctx.chatTitle,
+    chat_id: String(ctx.chatId),
+    chat_type: ctx.chatType,
+    members_count: String(ctx.membersCount),
+    admins_count: String(ctx.staff.length),
+    robot_line: command.id === "robot" ? liveCard : "—",
+    admin_result: command.id === "admin" ? liveCard : "—",
+    rank_card: command.id === "rank" ? liveCard : "—",
+    me_card: command.id === "me" ? liveCard : "—",
+    ping_card: command.id === "ping" ? liveCard : "—",
+    bot_card: command.id === "bot" ? liveCard : "—",
+    status_card: command.id === "status" ? liveCard : "—",
+  };
+  const template = ctx.lang === "fa" ? command.responseFa : command.responseEn;
+  return template.replace(/{{\s*([a-z0-9_]+)\s*}}/gi, (_, key) => values[key] ?? "—");
+}
+
 function render(template: string, ctx: BotContext) {
   const values: Record<string, string> = {
     user_name: ctx.userName,
@@ -160,6 +199,7 @@ async function handleMessage(msg: TgMessage) {
 
   const chat = msg.chat;
   const isPrivate = chat.type === "private";
+  if (isPrivate) return;
   let adminIds = new Set<number>();
   if (!isPrivate) {
     try { adminIds = await chatAdmins(chat.id); } catch (error) { console.error("[admins] lookup failed", error); }
@@ -182,6 +222,12 @@ async function handleMessage(msg: TgMessage) {
     now: Date.now(),
     staff: [...adminIds].map((id) => ({ id, name: String(id), rank: rankOf(id, adminIds) })),
   };
+
+  const studioResult = await studioReplyLive(ctx);
+  if (studioResult !== null) {
+    await telegramApi("sendMessage", { chat_id: chat.id, text: studioResult, reply_to_message_id: msg.message_id });
+    return;
+  }
 
   const parsed = text.trim().replace(/^[/!.]/, "").split(/\s+/);
   const token = parsed.shift()?.split("@")[0] ?? "";
