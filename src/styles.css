@@ -3,29 +3,30 @@
 
 @theme {
   --font-sans: "Vazirmatn", "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", "ui-monospace", monospace;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 
-  --color-bg: #0b0c0e;
-  --color-surface: #131416;
-  --color-surface-2: #1b1d20;
-  --color-fg: #ecece6;
-  --color-muted: #9a9b96;
-  --color-subtle: #6e6f6a;
-  --color-accent: #7d9b8e;
-  --color-accent-fg: #0b0c0e;
-  --color-danger: #c45c4a;
-  --color-warn: #c4a15a;
-  --color-ok: #6a9a78;
-  --color-line: #ecece617;
-  --color-line-strong: #ecece629;
+  --color-bg: #0a0b0d;
+  --color-surface: #111417;
+  --color-surface-2: #171b1f;
+  --color-fg: #f0efe8;
+  --color-muted: #a2a49f;
+  --color-subtle: #6f746f;
+  --color-accent: #b59a62;
+  --color-accent-fg: #0a0b0d;
+  --color-danger: #bd6556;
+  --color-warn: #b59a62;
+  --color-ok: #6f9b7b;
+  --color-line: #f0efe812;
+  --color-line-strong: #b59a6230;
 
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 16px;
   --radius-xl: 22px;
 
-  --shadow-border: 0 0 0 1px #ecece614;
-  --shadow-border-hover: 0 0 0 1px #ecece624;
+  --shadow-border: 0 0 0 1px #f0efe612;
+  --shadow-border-hover: 0 0 0 1px #b59a6235;
+  --shadow-panel: 0 18px 55px #00000028;
 
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --motion-quick: 150ms;
@@ -36,31 +37,45 @@
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    background: var(--color-bg);
   }
+
   html,
   body,
   #app {
     min-height: 100%;
-    background: var(--color-bg);
+    background:
+      radial-gradient(circle at 82% -10%, #b59a620d, transparent 34rem),
+      radial-gradient(circle at 8% 18%, #6f9b7b08, transparent 30rem),
+      var(--color-bg);
     color: var(--color-fg);
   }
+
   body {
     font-family: var(--font-sans);
     line-height: 1.35;
     letter-spacing: -0.01em;
   }
+
   button:not(:disabled),
   [role="button"]:not(:disabled) {
     cursor: pointer;
   }
+
   h1,
   h2,
   h3 {
     text-wrap: balance;
     line-height: 1.2;
   }
+
   p {
     text-wrap: pretty;
+  }
+
+  ::selection {
+    background: #b59a6240;
+    color: #fff;
   }
 }
 
