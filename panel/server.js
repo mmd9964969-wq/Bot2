@@ -365,19 +365,30 @@ async function ensureCoreCommandRecords() {
     ["status","وضعیت","status"]
   ];
   const roles=["OWNER","SUPER_ADMIN","ADMIN","MODERATOR","SPECIAL_USER","MEMBER"];
+  const responses = {
+    robot: { fa: "{{robot_line}}", en: "{{robot_line}}" },
+    id: { fa: "◈ اطلاعات کاربر\\n\\n⛂ - نام : {{user_name}}\\n⛂ - شناسه : {{user_id}}\\n⛂ - نام کاربری : {{username}}\\n⛂ - مقام : {{rank}}\\n\\n─────━━───── ◈ ─────━━─────\\n\\n⛂ - تعداد پیام امروز : {{messages_today}}\\n⛂ - تعداد عضویت امروز : —\\n⛂ - تعداد پیام کل : {{messages_total}}\\n⛂ - تعداد عضویت کل : —", en: "◈ User information\\n\\n⛂ - Name : {{user_name}}\\n⛂ - ID : {{user_id}}\\n⛂ - Username : {{username}}\\n⛂ - Rank : {{rank}}\\n\\n─────━━───── ◈ ─────━━─────\\n\\n⛂ - Messages today : {{messages_today}}\\n⛂ - Joins today : —\\n⛂ - Total messages : {{messages_total}}\\n⛂ - Total joins : —" },
+    admin: { fa: "{{admin_result}}", en: "{{admin_result}}" },
+    info: { fa: "◈ اطلاعات گروه\\n\\n⛂ - نام گروه : {{chat_title}}\\n⛂ - شناسه گروه : {{chat_id}}\\n⛂ - نام کاربری گروه : {{chat_username}}\\n⛂ - نوع گروه : {{chat_type}}\\n⛂ - تعداد اعضا : {{members_count}}\\n⛂ - تعداد مدیران : {{admins_count}}\\n⛂ - مالک گروه : —\\n\\n─────━━───── ◈ ─────━━─────\\n\\n⛂ - پیام‌های امروز : {{messages_today}}\\n⛂ - اعضای جدید امروز : —\\n⛂ - پیام‌های کل : {{messages_total}}\\n⛂ - اعضای فعلی : {{members_count}}\\n⛂ - تعداد افراد در لیست سکوت : —\\n⛂ - تعداد افراد در لیست ویژه : —\\n⛂ - تعداد اخطار های فعال : —\\n\\n★ - تاریخ ساخت گروه : —\\n★ - لینک دعوت : —\\n★ - وضعیت لینک دعوت : —", en: "◈ Group information\\n\\n⛂ - Group name : {{chat_title}}\\n⛂ - Group ID : {{chat_id}}\\n⛂ - Group username : {{chat_username}}\\n⛂ - Group type : {{chat_type}}\\n⛂ - Members : {{members_count}}\\n⛂ - Admins : {{admins_count}}\\n⛂ - Owner : —\\n\\n─────━━───── ◈ ─────━━─────\\n\\n⛂ - Messages today : {{messages_today}}\\n⛂ - New members today : —\\n⛂ - Total messages : {{messages_total}}\\n⛂ - Current members : {{members_count}}\\n⛂ - Muted users : —\\n⛂ - Special users : —\\n⛂ - Active warnings : —\\n\\n★ - Group creation date : —\\n★ - Invite link : —\\n★ - Invite status : —" },
+    rank: { fa: "{{rank_card}}", en: "{{rank_card}}" },
+    me: { fa: "{{me_card}}", en: "{{me_card}}" },
+    ping: { fa: "{{ping_card}}", en: "{{ping_card}}" },
+    bot: { fa: "{{bot_card}}", en: "{{bot_card}}" },
+    status: { fa: "{{status_card}}", en: "{{status_card}}" }
+  };
   for (const [key, fa, en] of commands) {
     const existing = await query("SELECT id FROM commands WHERE command_key=$1 ORDER BY id ASC LIMIT 1",[key]);
     let id = existing.rows[0]?.id;
     if (!id) {
       const result = await query(
-        "INSERT INTO commands (command_key,fa_name,en_name,enabled,permission_level,required_permission,minimum_role,response_fa,response_en) VALUES($1,$2,$3,TRUE,10,'execute','MEMBER','','') RETURNING id",
-        [key,fa,en]
+        "INSERT INTO commands (command_key,fa_name,en_name,enabled,permission_level,required_permission,minimum_role,response_fa,response_en) VALUES($1,$2,$3,TRUE,10,'execute','MEMBER',$4,$5) RETURNING id",
+        [key,fa,en,responses[key]?.fa??"",responses[key]?.en??""]
       );
       id = result.rows[0]?.id;
     } else {
       id = existing.rows[0]?.id;
       if (id) {
-        await query("UPDATE commands SET fa_name=$1,en_name=$2,enabled=TRUE,required_permission='execute',minimum_role='MEMBER',updated_at=NOW() WHERE id=$3",[fa,en,id]);
+        await query("UPDATE commands SET fa_name=$1,en_name=$2,enabled=TRUE,required_permission='execute',minimum_role='MEMBER',response_fa=CASE WHEN COALESCE(response_fa,'')='' OR response_fa LIKE '%{{live_card}}%' THEN $4 ELSE response_fa END,response_en=CASE WHEN COALESCE(response_en,'')='' OR response_en LIKE '%{{live_card}}%' THEN $5 ELSE response_en END,updated_at=NOW() WHERE id=$3",[fa,en,id,responses[key]?.fa??"",responses[key]?.en??""]);
       }
     }
     if (id) {
