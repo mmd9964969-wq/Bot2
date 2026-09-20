@@ -15,52 +15,29 @@ async function commandsPage(){
   shell("Command Manager","BOT MANAGEMENT · COMMANDS",`
     <div class="command-toolbar"><div class="searchbox">⌕ <input id="commandSearch" placeholder="جستجوی دستور، Alias یا نام فارسی..."></div>
     <div class="toolbar-actions"><select id="commandFilter"><option value="all">همه وضعیت‌ها</option><option value="on">فعال</option><option value="off">غیرفعال</option></select><button class="primary" id="addCommand">+ دستور جدید</button></div></div>
-    <div class="command-layout"><div class="panel-card command-table-card"><div class="table-head"><div><b>Command Registry</b><small>مدیریت دستورات و سطح دسترسی</small></div><span class="badge" id="commandCount">0 COMMANDS</span></div>
-    <div id="commandTable" class="command-table"><div class="loading-state">در حال دریافت دستورات...</div></div></div>
-    <div class="panel-card command-insight"><span class="eyebrow">ACCESS MODEL</span><h3>کنترل صفر تا صد</h3>
-      <div class="access-level"><span>100</span><div><b>OWNER</b><small>دسترسی کامل</small></div></div>
-      <div class="access-level"><span>80</span><div><b>ADMIN</b><small>مدیریت عملیاتی</small></div></div>
-      <div class="access-level"><span>60</span><div><b>MODERATOR</b><small>مدیریت روزمره</small></div></div>
-      <div class="access-level"><span>10</span><div><b>MEMBER</b><small>دسترسی کاربری</small></div></div>
-      <div class="insight-note">هر دستور می‌تواند سطح دسترسی مستقل داشته باشد.</div>
-    </div></div>`);
-  const table=document.getElementById("commandTable"), search=document.getElementById("commandSearch"), filter=document.getElementById("commandFilter");
-  let all=[];
-  async function load(){
-    try{const r=await fetch("/api/commands",{cache:"no-store"}); const d=await r.json(); if(!r.ok)throw Error(d.error); all=d.commands||[]; render();}
-    catch(e){table.innerHTML='<div class="loading-state error">اتصال به Command API برقرار نشد.</div>';}
-  }
-  function render(){
-    const q=(search.value||"").toLowerCase().trim(), f=filter.value;
-    const rows=all.filter(c=>(!q||[c.command_key,c.fa_name,c.en_name].join(" ").toLowerCase().includes(q))&&(f==="all"||(f==="on"&&c.enabled)||(f==="off"&&!c.enabled)));
-    document.getElementById("commandCount").textContent=`${rows.length} COMMANDS`;
-    if(!rows.length){table.innerHTML='<div class="empty-table"><span>⌘</span><b>هنوز دستوری ثبت نشده</b><small>از «دستور جدید» اولین Command را بسازید.</small></div>';return;}
-    table.innerHTML=`<div class="command-row command-header"><span>COMMAND</span><span>ALIAS</span><span>ACCESS</span><span>STATUS</span><span></span></div>`+rows.map(c=>`<div class="command-row"><div><b>\/${esc(c.command_key)}</b><small>${esc(c.fa_name||"بدون نام فارسی")}</small></div><span class="alias">${esc(c.en_name||"—")}</span><span class="permission-pill">${c.permission_level===100?"OWNER":c.permission_level===80?"ADMIN":c.permission_level===60?"MOD":"MEMBER"}</span><span class="status ${c.enabled?"on":"off"}">${c.enabled?"ACTIVE":"DISABLED"}</span><button class="row-menu" data-edit="${c.id}">•••</button></div>`).join("");
-    table.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>openEditor(all.find(c=>String(c.id)===b.dataset.edit)));
-  }
-  search.oninput=render; filter.onchange=render; document.getElementById("addCommand").onclick=()=>openEditor(null); await load();
+    <div class="panel-card"><div class="table-head"><div><b>Command Registry</b><small>مدیریت کامل دستورها و مجوزها</small></div><span class="badge" id="commandCount">0 COMMANDS</span></div><div id="commandTable"><div class="loading-state">در حال دریافت...</div></div></div>`);
+  const table=document.getElementById("commandTable"),search=document.getElementById("commandSearch"),filter=document.getElementById("commandFilter");let all=[];
+  async function load(){const r=await fetch("/api/commands",{cache:"no-store"}),d=await r.json();if(!r.ok)throw Error(d.error||"API error");all=d.commands||[];render();}
+  function render(){const q=(search.value||"").toLowerCase().trim(),f=filter.value,rows=all.filter(c=>(!q||[c.command_key,c.fa_name,c.en_name].join(" ").toLowerCase().includes(q))&&(f==="all"||(f==="on"&&c.enabled)||(f==="off"&&!c.enabled)));document.getElementById("commandCount").textContent=rows.length+" COMMANDS";table.innerHTML=rows.map(c=>`<div class="command-row"><div><b>/${esc(c.command_key)}</b><small>${esc(c.fa_name||"—")}</small></div><span>${esc(c.en_name||"—")}</span><span>${esc(c.minimum_role||"MEMBER")} · ${esc(c.required_permission||"execute")}</span><span class="status ${c.enabled?"on":"off"}">${c.enabled?"ACTIVE":"DISABLED"}</span><button class="row-menu" data-id="${c.id}">ویرایش کامل</button></div>`).join("")||'<div class="empty-table">دستوری ثبت نشده است.</div>';table.querySelectorAll("[data-id]").forEach(b=>b.onclick=()=>openCommandEditor(all.find(x=>String(x.id)===b.dataset.id)));}
+  search.oninput=render;filter.onchange=render;document.getElementById("addCommand").onclick=()=>openCommandEditor(null);await load();
 }
-
-function openEditor(command){
-  const edit=!!command;
-  const wrap=document.createElement("div"); wrap.className="modal-backdrop";
-  wrap.innerHTML=`<div class="modal"><div class="modal-head"><div><span class="eyebrow">COMMAND STUDIO</span><h2>${edit?"ویرایش دستور":"ساخت دستور جدید"}</h2></div><button class="modal-close">×</button></div>
-  <form id="commandForm" class="form-grid">
-    <label>Command Key<input name="command_key" required placeholder="ban" value="${esc(command?.command_key)}"></label>
-    <label>نام فارسی<input name="fa_name" placeholder="مسدود کردن" value="${esc(command?.fa_name)}"></label>
-    <label>English Alias<input name="en_name" placeholder="ban" value="${esc(command?.en_name)}"></label>
-    <label>Permission Level<select name="permission_level"><option value="10" ${command?.permission_level==10?"selected":""}>MEMBER · 10</option><option value="60" ${command?.permission_level==60?"selected":""}>MODERATOR · 60</option><option value="80" ${command?.permission_level==80?"selected":""}>ADMIN · 80</option><option value="100" ${command?.permission_level==100?"selected":""}>OWNER · 100</option></select></label>
-    <label class="full">پاسخ فارسی<textarea name="response_fa" placeholder="متن پاسخ فارسی...">${esc(command?.response_fa)}</textarea></label>
-    <label class="full">English Response<textarea name="response_en" placeholder="English response...">${esc(command?.response_en)}</textarea></label>
-    <label class="switch-line"><input type="checkbox" name="enabled" ${command?.enabled!==false?"checked":""}> دستور فعال باشد</label>
-    <div class="form-actions"><button type="button" class="ghost modal-cancel">انصراف</button><button class="primary" type="submit">${edit?"ذخیره تغییرات":"ایجاد دستور"}</button></div>
-  </form></div>`;
-  document.body.appendChild(wrap);
-  const close=()=>wrap.remove(); wrap.querySelector(".modal-close").onclick=close; wrap.querySelector(".modal-cancel").onclick=close;
-  wrap.querySelector("#commandForm").onsubmit=async e=>{e.preventDefault(); const f=new FormData(e.target); const data=Object.fromEntries(f.entries()); data.enabled=f.get("enabled")==="on"; data.permission_level=Number(data.permission_level);
-    const r=await fetch(edit?`/api/commands/${command.id}`:"/api/commands",{method:edit?"PUT":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});
-    if(!r.ok){alert("ذخیره دستور انجام نشد.");return;} close(); commandsPage();
-  };
+function openCommandEditor(command){
+  const edit=!!command,roles=["OWNER","SUPER_ADMIN","ADMIN","MODERATOR","SPECIAL_USER","MEMBER"],labels={OWNER:"مالک",SUPER_ADMIN:"سوپر ادمین",ADMIN:"مدیر",MODERATOR:"ناظر",SPECIAL_USER:"کاربر ویژه",MEMBER:"عضو"},perms=["view","create","edit","delete","manage","configure","execute","sync"],allowed=new Set((command?.permissions||[]).filter(x=>x.allowed).map(x=>x.role));
+  const w=document.createElement("div");w.className="modal-backdrop";w.innerHTML=`<div class="modal"><div class="modal-head"><div><span class="eyebrow">COMMAND STUDIO</span><h2>${edit?"ویرایش کامل دستور":"دستور جدید"}</h2></div><button class="modal-close">×</button></div><form id="cmdForm" class="form-grid">
+  <label>Command Key<input name="command_key" required value="${esc(command?.command_key)}" placeholder="ban"></label>
+  <label>نام فارسی<input name="fa_name" value="${esc(command?.fa_name)}"></label>
+  <label>English Alias<input name="en_name" value="${esc(command?.en_name)}"></label>
+  <label>حداقل نقش<select name="minimum_role">${roles.map(r=>`<option value="${r}" ${(command?.minimum_role||"MEMBER")===r?"selected":""}>${labels[r]} · ${r}</option>`).join("")}</select></label>
+  <label>مجوز موردنیاز<select name="required_permission">${perms.map(p=>`<option value="${p}" ${(command?.required_permission||"execute")===p?"selected":""}>${p}</option>`).join("")}</select></label>
+  <label>سطح دسترسی قدیمی<select name="permission_level">${[10,40,60,80,90,100].map(n=>`<option value="${n}" ${Number(command?.permission_level||10)===n?"selected":""}>${n}</option>`).join("")}</select></label>
+  <div class="full"><b>نقش‌های مجاز</b><div class="permission-grid">${roles.map(r=>`<label class="switch-line"><input type="checkbox" name="allowed_roles" value="${r}" ${allowed.has(r)?"checked":""}> ${labels[r]} · ${r}</label>`).join("")}</div></div>
+  <label class="full">پاسخ فارسی<textarea name="response_fa">${esc(command?.response_fa)}</textarea></label>
+  <label class="full">English Response<textarea name="response_en">${esc(command?.response_en)}</textarea></label>
+  <label class="switch-line"><input type="checkbox" name="enabled" ${command?.enabled!==false?"checked":""}> دستور فعال باشد</label>
+  <div class="form-actions"><button type="button" class="ghost cancel">انصراف</button>${edit?'<button type="button" class="ghost danger" id="deleteCmd">حذف دستور</button>':""}<button class="primary">ذخیره</button></div>
+  </form></div>`;document.body.appendChild(w);const close=()=>w.remove();w.querySelector(".modal-close").onclick=close;w.querySelector(".cancel").onclick=close;
+  if(edit)w.querySelector("#deleteCmd").onclick=async()=>{if(!confirm("حذف این دستور؟"))return;const r=await fetch("/api/commands/"+command.id,{method:"DELETE"});if(!r.ok)return alert("حذف ناموفق بود");close();commandsPage();};
+  w.querySelector("#cmdForm").onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target),data=Object.fromEntries(f.entries());data.enabled=f.get("enabled")==="on";data.permission_level=Number(data.permission_level);data.allowed_roles=f.getAll("allowed_roles");const r=await fetch(edit?"/api/commands/"+command.id:"/api/commands",{method:edit?"PUT":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});if(!r.ok){const d=await r.json().catch(()=>({}));return alert(d.error||"ذخیره ناموفق بود");}close();commandsPage();};
 }
 
 async function usersPage(){
