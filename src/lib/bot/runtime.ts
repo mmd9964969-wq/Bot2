@@ -85,6 +85,7 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
       return fa(ctx.lang,
         "◈ اطلاعات کاربر\n\n⛂ - نام : "+ctx.userName+"\n⛂ - شناسه : "+ctx.userId+"\n⛂ - نام کاربری : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - مقام : "+rankLabel(ctx.lang,rank)+"\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - تعداد پیام امروز : "+us.today+"\n⛂ - تعداد عضویت امروز : —\n⛂ - تعداد پیام کل : "+us.total+"\n⛂ - تعداد عضویت کل : —",
         "◈ User information\n\n⛂ - Name : "+ctx.userName+"\n⛂ - ID : "+ctx.userId+"\n⛂ - Username : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - Rank : "+rank+"\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - Messages today : "+us.today+"\n⛂ - Joins today : —\n⛂ - Total messages : "+us.total+"\n⛂ - Total joins : —");
+    }
     case "info": {
       requireGroup();
       const c=await api<any>("getChat",{chat_id:ctx.chatId});
