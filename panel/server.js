@@ -29,6 +29,47 @@ async function ensurePermissionSchema() {
     }
   }
 }
+
+async function ensureSupervisionSchema() {
+  await query(`CREATE TABLE IF NOT EXISTS supervision_events (
+    id BIGSERIAL PRIMARY KEY, event_type TEXT NOT NULL, severity TEXT NOT NULL DEFAULT 'info',
+    actor_id TEXT, target_type TEXT, target_id TEXT, command_key TEXT, group_id BIGINT,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_supervision_events_created_at ON supervision_events(created_at DESC)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_supervision_events_type ON supervision_events(event_type)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_supervision_events_actor ON supervision_events(actor_id)`);
+}
+async function supervisionApi(req,res,url) {
+  if(req.method==="GET" && url.pathname==="/api/supervision/summary"){
+    const [events,users,commands,alerts,errors]=await Promise.all([
+      query("SELECT COUNT(*)::int AS count FROM supervision_events WHERE created_at >= NOW() - INTERVAL '24 hours'"),
+      query("SELECT COUNT(*)::int AS count FROM users"),
+      query("SELECT COUNT(*)::int AS count FROM commands WHERE enabled = TRUE"),
+      query("SELECT COUNT(*)::int AS count FROM supervision_events WHERE severity IN ('warning','critical') AND created_at >= NOW() - INTERVAL '24 hours'"),
+      query("SELECT COUNT(*)::int AS count FROM supervision_events WHERE severity IN ('error','critical') AND created_at >= NOW() - INTERVAL '24 hours'")
+    ]);
+    return send(res,200,JSON.stringify({events24h:events.rows[0].count,users:users.rows[0].count,activeCommands:commands.rows[0].count,securityAlerts24h:alerts.rows[0].count,errors24h:errors.rows[0].count}));
+  }
+  if(req.method==="GET" && url.pathname==="/api/supervision/events"){
+    const limit=Math.min(Math.max(Number(url.searchParams.get("limit")||50),1),200);
+    const type=url.searchParams.get("type"), severity=url.searchParams.get("severity"), params=[], where=[];
+    if(type){params.push(type);where.push("event_type = $"+params.length);}
+    if(severity){params.push(severity);where.push("severity = $"+params.length);}
+    params.push(limit);
+    const result=await query("SELECT id,event_type,severity,actor_id,target_type,target_id,command_key,group_id,metadata,created_at FROM supervision_events "+(where.length?"WHERE "+where.join(" AND "):"")+" ORDER BY created_at DESC LIMIT $"+params.length,params);
+    return send(res,200,JSON.stringify({events:result.rows}));
+  }
+  if(req.method==="POST" && url.pathname==="/api/supervision/events"){
+    const body=await readBody(req), eventType=String(body.event_type||"").trim(), allowed=["info","success","warning","error","critical"];
+    const severity=allowed.includes(body.severity)?body.severity:"info";
+    if(!eventType)return send(res,400,JSON.stringify({error:"event_type is required"}));
+    const result=await query("INSERT INTO supervision_events (event_type,severity,actor_id,target_type,target_id,command_key,group_id,metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb) RETURNING *",[eventType,severity,body.actor_id||null,body.target_type||null,body.target_id||null,body.command_key||null,body.group_id||null,JSON.stringify(body.metadata||{})]);
+    return send(res,201,JSON.stringify({event:result.rows[0]}));
+  }
+  return null;
+}
+
 const FRONTEND = path.join(__dirname, "frontend");
 
 const types = {
@@ -133,6 +174,10 @@ http.createServer(async (req,res) => {
       }));
     }
 
+    if (url.pathname.startsWith("/api/supervision")) {
+      const handled = await supervisionApi(req,res,url);
+      if (handled !== null) return handled;
+    }
     if (url.pathname.startsWith("/api/permissions")) {
       const handled = await permissionsApi(req,res,url);
       if (handled !== null) return handled;
@@ -158,7 +203,7 @@ http.createServer(async (req,res) => {
     send(res,500,JSON.stringify({error:error.message}));
   }
 });
-ensurePermissionSchema()
+Promise.all([ensurePermissionSchema(), ensureSupervisionSchema()])
   .then(() => server.listen(PORT, () => console.log(`PERSIAN BOT STUDIO running on port ${PORT}`)))
   .catch(error => {
     console.error("Permission schema initialization failed:", error);
