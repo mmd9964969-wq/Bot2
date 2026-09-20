@@ -4,7 +4,8 @@
   "description": "PERSIAN BOT STUDIO Backend",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "build": "echo \"PERSIAN BOT STUDIO build complete\""
   },
   "engines": {
     "node": ">=20"
