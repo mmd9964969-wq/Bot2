@@ -103,3 +103,16 @@ CREATE TABLE IF NOT EXISTS response_templates (
 );
 CREATE INDEX IF NOT EXISTS idx_response_templates_event_type ON response_templates(event_type);
 CREATE INDEX IF NOT EXISTS idx_response_templates_enabled ON response_templates(enabled);
+
+
+-- User-specific Permission Overrides
+CREATE TABLE IF NOT EXISTS user_permissions (
+  user_id TEXT NOT NULL,
+  permission_key TEXT NOT NULL,
+  allowed BOOLEAN NOT NULL DEFAULT FALSE,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, permission_key)
+);
+CREATE INDEX IF NOT EXISTS idx_user_permissions_user ON user_permissions(user_id);
+CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_active ON users(is_active);
