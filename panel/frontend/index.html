@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/frontend/style.css?v=20260920-3">
+<link rel="stylesheet" href="/style.css?v=20260920-4">
 </head>
 <body>
 <div class="app-shell">
@@ -35,7 +35,6 @@
     <div class="owner"><div class="avatar">J</div><div><b>Jowati</b><small>Owner · Full Access</small></div><span>•••</span></div>
   </div>
 </aside>
-
 <main class="main">
 <header class="topbar">
   <div class="top-left"><button class="mobile-menu" id="mobileMenu">☰</button><div class="breadcrumbs"><span>PERSIAN BOT STUDIO</span><b>/</b><strong id="pageTitle">Dashboard</strong></div></div>
@@ -46,7 +45,6 @@
     <button class="profile-btn"><span class="avatar sm">J</span><span>Jowati</span><b>⌄</b></button>
   </div>
 </header>
-
 <section id="content" class="content">
 <div class="page dashboard-page">
   <div class="hero">
@@ -59,7 +57,6 @@
     </div>
     <div class="hero-visual"><div class="visual-ring r1"></div><div class="visual-ring r2"></div><div class="visual-ring r3"></div><div class="core"><b>PB</b><small>CONTROL</small></div></div>
   </div>
-
   <div class="section-head"><div><span class="eyebrow">OVERVIEW</span><h2>نمای کلی سیستم</h2></div><div class="live-label"><span class="pulse"></span> LIVE</div></div>
   <div class="stats">
     <div class="stat-card featured"><div class="stat-top"><span class="stat-icon green">⌁</span><span class="stat-kicker">BOT STATUS</span><span class="mini-live">LIVE</span></div><strong id="botStatus">Online</strong><span>Operational · Telegram API connected</span><div class="meter"><i style="width:98%"></i></div></div>
@@ -67,21 +64,16 @@
     <div class="stat-card"><div class="stat-top"><span class="stat-icon purple">⌘</span><span class="stat-kicker">COMMANDS</span><span class="mini-dot">●</span></div><strong>Ready</strong><span>Command engine configured</span><div class="stat-foot">Aliases <b>FA / EN</b></div></div>
     <div class="stat-card"><div class="stat-top"><span class="stat-icon blue">↻</span><span class="stat-kicker">SYNC</span><span class="mini-dot">●</span></div><strong>Ready</strong><span>Panel ↔ Bot architecture</span><div class="stat-foot">Last sync <b>Live</b></div></div>
   </div>
-
   <div class="dashboard-grid">
     <div class="panel-card architecture-card">
       <div class="card-head"><div><span class="eyebrow">SYSTEM ARCHITECTURE</span><h3>زیرساخت PERSIAN BOT STUDIO</h3></div><span class="badge">HEALTHY</span></div>
       <div class="flow">
-        <div class="flow-node active"><span class="flow-icon">◈</span><div><b>WEB PANEL</b><small>Control Interface</small></div><i>ONLINE</i></div>
-        <div class="flow-line"><span></span></div>
-        <div class="flow-node"><span class="flow-icon">⌘</span><div><b>REST API</b><small>Application Layer</small></div><i>READY</i></div>
-        <div class="flow-line"><span></span></div>
-        <div class="flow-node"><span class="flow-icon">▦</span><div><b>POSTGRESQL</b><small>Persistent Data</small></div><i id="flowDb">CHECK</i></div>
-        <div class="flow-line"><span></span></div>
+        <div class="flow-node active"><span class="flow-icon">◈</span><div><b>WEB PANEL</b><small>Control Interface</small></div><i>ONLINE</i></div><div class="flow-line"><span></span></div>
+        <div class="flow-node"><span class="flow-icon">⌘</span><div><b>REST API</b><small>Application Layer</small></div><i>READY</i></div><div class="flow-line"><span></span></div>
+        <div class="flow-node"><span class="flow-icon">▦</span><div><b>POSTGRESQL</b><small>Persistent Data</small></div><i id="flowDb">CHECK</i></div><div class="flow-line"><span></span></div>
         <div class="flow-node"><span class="flow-icon">✦</span><div><b>TELEGRAM BOT</b><small>Execution Layer</small></div><i>READY</i></div>
       </div>
     </div>
-
     <div class="panel-card security-card">
       <div class="card-head"><div><span class="eyebrow">SECURITY CENTER</span><h3>امنیت و سلامت سیستم</h3></div><span class="shield">◇</span></div>
       <div class="security-score"><div><strong>98</strong><small>SECURITY HEALTH</small></div><div class="score-ring"><span>SECURE</span></div></div>
@@ -92,7 +84,6 @@
       </div>
     </div>
   </div>
-
   <div class="section-head compact"><div><span class="eyebrow">COMMAND CENTER</span><h2>دسترسی سریع</h2></div><button class="section-link" data-page="commands">مشاهده همه <span>←</span></button></div>
   <div class="quick-grid">
     <button class="quick" data-page="commands"><span>⌘</span><div><b>Command Manager</b><small>دستورات، Alias و وضعیت اجرا</small></div><i>→</i></button>
@@ -100,7 +91,6 @@
     <button class="quick" data-page="permissions"><span>♜</span><div><b>Permissions</b><small>سطوح دسترسی و کنترل نقش‌ها</small></div><i>→</i></button>
     <button class="quick" data-page="audit"><span>◉</span><div><b>Audit Log</b><small>تاریخچه رویدادها و فعالیت سیستم</small></div><i>→</i></button>
   </div>
-
   <div class="bottom-grid">
     <div class="panel-card activity-card"><div class="card-head"><div><span class="eyebrow">RECENT ACTIVITY</span><h3>آخرین فعالیت‌ها</h3></div><span class="badge muted">TODAY</span></div>
       <div class="activity"><span class="activity-dot green"></span><div><b>Control panel initialized</b><small>Dashboard · just now</small></div><em>✓</em></div>
@@ -108,10 +98,7 @@
       <div class="activity"><span class="activity-dot blue"></span><div><b>System synchronization ready</b><small>Sync layer · ready</small></div><em>✓</em></div>
     </div>
     <div class="panel-card quick-status"><div class="card-head"><div><span class="eyebrow">ENVIRONMENT</span><h3>محیط اجرا</h3></div></div>
-      <div class="env-row"><span>Environment</span><b>Production</b></div>
-      <div class="env-row"><span>Version</span><b>v1.0.0</b></div>
-      <div class="env-row"><span>Phase</span><b>03 · UI</b></div>
-      <div class="env-row"><span>Session</span><b class="green-text">Protected</b></div>
+      <div class="env-row"><span>Environment</span><b>Production</b></div><div class="env-row"><span>Version</span><b>v1.0.0</b></div><div class="env-row"><span>Phase</span><b>03 · UI</b></div><div class="env-row"><span>Session</span><b class="green-text">Protected</b></div>
     </div>
   </div>
 </div>
@@ -119,6 +106,6 @@
 <footer><span>© 2026 PERSIAN BOT STUDIO</span><span>Professional Telegram Management System · <b>Phase 03</b></span></footer>
 </main>
 </div>
-<script src="/frontend/app.js?v=20260920-3"></script>
+<script src="/app.js?v=20260920-4"></script>
 </body>
 </html>
