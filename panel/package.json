@@ -1,0 +1,16 @@
+{
+  "name": "persian-bot-studio",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PERSIAN BOT STUDIO web control panel",
+  "scripts": {
+    "start": "node backend/server.js",
+    "build": "echo \"PERSIAN BOT STUDIO build complete\""
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "pg": "^8.16.3"
+  }
+}
