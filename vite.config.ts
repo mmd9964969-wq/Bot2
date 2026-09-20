@@ -117,7 +117,7 @@ export default defineConfig(({ command, isPreview }) => ({
     tanstackStart(),
     ...(command === "build" || isPreview
       ? [nitro({
-          preset: "vercel",
+          preset: "node-server",
           serverDir: "./server",
         })]
       : []),
