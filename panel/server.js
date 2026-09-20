@@ -30,6 +30,52 @@ async function ensurePermissionSchema() {
   }
 }
 
+async function ensureRuntimeSchema() {
+  await query(`CREATE TABLE IF NOT EXISTS runtime_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    auto_restart BOOLEAN NOT NULL DEFAULT TRUE,
+    graceful_shutdown BOOLEAN NOT NULL DEFAULT TRUE,
+    worker_count INTEGER NOT NULL DEFAULT 1,
+    queue_size INTEGER NOT NULL DEFAULT 100,
+    concurrency INTEGER NOT NULL DEFAULT 10,
+    request_timeout_ms INTEGER NOT NULL DEFAULT 15000,
+    max_retries INTEGER NOT NULL DEFAULT 3,
+    backoff_ms INTEGER NOT NULL DEFAULT 1000,
+    log_level TEXT NOT NULL DEFAULT 'info',
+    deduplication BOOLEAN NOT NULL DEFAULT TRUE,
+    deduplication_ttl_seconds INTEGER NOT NULL DEFAULT 600,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+  await query(`INSERT INTO runtime_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
+}
+
+async function runtimeApi(req,res,url){
+  if(req.method==="GET" && url.pathname==="/api/runtime/overview"){
+    const settings=(await query("SELECT * FROM runtime_settings WHERE id=1")).rows[0];
+    const db=await checkConnection();
+    const [events,errors]=await Promise.all([
+      query("SELECT COUNT(*)::int AS count FROM supervision_events WHERE created_at >= NOW() - INTERVAL '24 hours'"),
+      query("SELECT COUNT(*)::int AS count FROM supervision_events WHERE severity IN ('error','critical') AND created_at >= NOW() - INTERVAL '24 hours'")
+    ]);
+    return send(res,200,JSON.stringify({runtime:{status:"ready",mode:"panel_control",telegram:"not_connected_to_runtime",note:"Bot Core runtime control will be connected in the next integration stage"},database:db,metrics:{events24h:events.rows[0].count,errors24h:errors.rows[0].count},settings}));
+  }
+  if(req.method==="PUT" && url.pathname==="/api/runtime/settings"){
+    const body=await readBody(req), before=(await query("SELECT * FROM runtime_settings WHERE id=1")).rows[0];
+    const num=(v,d,min,max)=>Math.min(Math.max(Number.isFinite(Number(v))?Number(v):d,min),max);
+    const next={auto_restart:body.auto_restart!==false,graceful_shutdown:body.graceful_shutdown!==false,worker_count:num(body.worker_count,before.worker_count,1,32),queue_size:num(body.queue_size,before.queue_size,10,10000),concurrency:num(body.concurrency,before.concurrency,1,500),request_timeout_ms:num(body.request_timeout_ms,before.request_timeout_ms,1000,120000),max_retries:num(body.max_retries,before.max_retries,0,10),backoff_ms:num(body.backoff_ms,before.backoff_ms,100,60000),log_level:["error","warn","info","debug"].includes(body.log_level)?body.log_level:before.log_level,deduplication:body.deduplication!==false,deduplication_ttl_seconds:num(body.deduplication_ttl_seconds,before.deduplication_ttl_seconds,30,86400)};
+    const r=await query(`UPDATE runtime_settings SET auto_restart=$1,graceful_shutdown=$2,worker_count=$3,queue_size=$4,concurrency=$5,request_timeout_ms=$6,max_retries=$7,backoff_ms=$8,log_level=$9,deduplication=$10,deduplication_ttl_seconds=$11,updated_at=NOW() WHERE id=1 RETURNING *`,[next.auto_restart,next.graceful_shutdown,next.worker_count,next.queue_size,next.concurrency,next.request_timeout_ms,next.max_retries,next.backoff_ms,next.log_level,next.deduplication,next.deduplication_ttl_seconds]);
+    await audit("runtime_settings_changed","panel-owner","runtime_settings",before,r.rows[0],"panel");
+    return send(res,200,JSON.stringify({settings:r.rows[0]}));
+  }
+  if(req.method==="POST" && url.pathname==="/api/runtime/action"){
+    const body=await readBody(req), action=["health_check","reload_config","restart_requested","maintenance_on","maintenance_off"].includes(body.action)?body.action:null;
+    if(!action)return send(res,400,JSON.stringify({error:"Invalid runtime action"}));
+    await query("INSERT INTO supervision_events (event_type,severity,actor_id,target_type,target_id,metadata) VALUES ($1,$2,$3,$4,$5,$6::jsonb)",[action==="health_check"?"system_health":"runtime_action",action==="health_check"?"info":"warning","panel-owner","runtime","runtime",JSON.stringify({action})]);
+    return send(res,200,JSON.stringify({success:true,action,status:"recorded",note:"Action is recorded; live Bot Core execution control is not connected yet."}));
+  }
+  return null;
+}
+
 async function ensureSupervisionSchema() {
   await query(`CREATE TABLE IF NOT EXISTS supervision_events (
     id BIGSERIAL PRIMARY KEY, event_type TEXT NOT NULL, severity TEXT NOT NULL DEFAULT 'info',
@@ -256,7 +302,7 @@ const server = http.createServer(async (req,res) => {
       }));
     }
 
-    if (url.pathname.startsWith("/api/responses")) { const handled = await responseStudioApi(req,res,url); if (handled !== null) return handled; }
+    if (url.pathname.startsWith("/api/runtime")) { const handled = await runtimeApi(req,res,url); if (handled !== null) return handled; }\n    if (url.pathname.startsWith("/api/responses")) { const handled = await responseStudioApi(req,res,url); if (handled !== null) return handled; }
     if (url.pathname.startsWith("/api/users")) { const handled = await usersApi(req,res,url); if (handled !== null) return handled; }
     if (url.pathname.startsWith("/api/supervision")) {
       const handled = await supervisionApi(req,res,url);
@@ -287,7 +333,7 @@ const server = http.createServer(async (req,res) => {
     send(res,500,JSON.stringify({error:error.message}));
   }
 });
-Promise.all([ensurePermissionSchema(), ensureSupervisionSchema()])
+Promise.all([ensurePermissionSchema(), ensureSupervisionSchema(), ensureRuntimeSchema()])
   .then(() => server.listen(PORT, () => console.log(`PERSIAN BOT STUDIO running on port ${PORT}`)))
   .catch(error => {
     console.error("Permission schema initialization failed:", error);
