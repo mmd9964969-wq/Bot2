@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Check, Save, Search, ToggleLeft } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { cloneStudioDefaults, type StudioCommand, type StudioDocument } from "@/lib/bot/studio";
+import { cloneStudioDefaults, type StudioCommand, type StudioDocument, type StudioResponseTemplate } from "@/lib/bot/studio";
 import { useStudio } from "@/store/studio";
 import { Panel, PanelTitle } from "./panel";
 
@@ -14,6 +14,7 @@ export function CommandsView() {
   const [q, setQ] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [responseQ, setResponseQ] = useState("");
 
   useEffect(() => { fetch("/api/bot/studio").then((r) => r.json()).then((x) => { if (x.document) { setDoc(x.document); setSelected(x.document.commands[0]?.id ?? "robot"); } }).catch(() => undefined); }, []);
 
@@ -50,6 +51,16 @@ export function CommandsView() {
     </Panel>
     <div className="grid gap-4">
       {current ? <CommandEditor command={current} fa={fa} onPatch={patchCommand} /> : <Panel><p className="text-sm text-muted">{fa?"دستوری پیدا نشد.":"No command found."}</p></Panel>}
+      <Panel>
+        <PanelTitle kicker={fa ? "اسکلت پاسخ‌ها" : "Response skeletons"} title={fa ? "۳۶ پاسخ دو فاز" : "36 two-phase responses"} hint={fa ? "فعلاً فقط متن پاسخ‌ها ثبت شده‌اند؛ اجرای اصلی و اتصال دستورها در مرحله بعد انجام می‌شود." : "Only response texts are scaffolded for now; real command wiring comes later."} />
+        <div className="relative mb-3"><Search className="pointer-events-none absolute start-2.5 top-2.5 size-3.5 text-subtle" /><Input value={responseQ} onChange={(e)=>setResponseQ(e.target.value)} className="ps-8" placeholder={fa ? "جستجوی پاسخ..." : "Search responses..."} /></div>
+        <div className="grid gap-2 lg:grid-cols-2">
+          {doc.responseTemplates.filter((r) => {
+            const n = responseQ.trim().toLowerCase();
+            return !n || [r.id, r.titleFa, r.titleEn, r.responseFa, r.responseEn].join(" ").toLowerCase().includes(n);
+          }).map((r) => <ResponseCard key={r.id} item={r} fa={fa} onPatch={(patch)=>{ setDoc((s)=>({...s,responseTemplates:s.responseTemplates.map((x)=>x.id===r.id?{...x,...patch}:x)})); setSaved(false); }} />)}
+        </div>
+      </Panel>
       <Panel><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-mono text-[10px] text-accent">PERSISTENCE</p><h3 className="mt-1 text-sm font-semibold">{fa?"ذخیره مستقیم در PostgreSQL":"Persist directly to PostgreSQL"}</h3><p className="mt-1 text-xs text-muted">{fa?"تغییرات ذخیره‌شده منبع اصلی تنظیمات هستند.":"Saved changes become the configuration source of truth."}</p></div><button type="button" onClick={save} disabled={saving} className="flex h-10 items-center gap-2 rounded-lg bg-fg px-4 text-xs font-semibold text-bg disabled:opacity-50">{saved?<Check className="size-3.5"/>:<Save className="size-3.5"/>}{saving?(fa?"در حال ذخیره...":"Saving..."):saved?(fa?"ذخیره شد":"Saved"):(fa?"ذخیره تغییرات":"Save changes")}</button></div></Panel>
     </div>
   </div>;
@@ -72,3 +83,10 @@ function CommandEditor({ command, fa, onPatch }: { command: StudioCommand; fa: b
 
 function EditorField({ label, children }: { label: string; children: ReactNode }) { return <label className="grid gap-1.5"><span className="text-[11px] text-muted">{label}</span>{children}</label>; }
 function Filter({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) { return <button type="button" onClick={onClick} className={active?"h-8 rounded-md bg-fg px-3 text-[11px] font-medium text-bg":"h-8 rounded-md px-3 text-[11px] text-muted shadow-[var(--shadow-border)]"}>{children}</button>; }
+
+function ResponseCard({ item, fa, onPatch }: { item: StudioResponseTemplate; fa: boolean; onPatch: (patch: Partial<StudioResponseTemplate>) => void }) {
+  return <div className="rounded-xl bg-surface-2 p-3 shadow-[var(--shadow-border)]">
+    <div className="flex items-center justify-between gap-2"><div><p className="font-mono text-[9px] text-accent">{item.id} · PHASE {item.phase}</p><p className="mt-1 text-xs font-semibold">{fa ? item.titleFa : item.titleEn}</p></div><Badge tone={item.phase === 1 ? "ok" : "warn"}>P{item.phase}</Badge></div>
+    <textarea value={fa ? item.responseFa : item.responseEn} dir={fa ? "rtl" : "ltr"} onChange={(e)=>onPatch(fa ? {responseFa:e.target.value} : {responseEn:e.target.value})} className="mt-3 min-h-32 w-full resize-y rounded-lg bg-bg p-3 text-xs leading-6 shadow-[var(--shadow-border)] outline-none focus:ring-1 focus:ring-accent/40" />
+  </div>;
+}
