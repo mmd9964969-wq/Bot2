@@ -119,6 +119,41 @@ async function permissionsApi(req, res, url) {
   return null;
 }
 
+async function responseStudioApi(req,res,url) {
+  if (req.method === "GET" && url.pathname === "/api/responses") {
+    const result = await query("SELECT id,response_key,event_type,title,message_fa,message_en,channel,enabled,created_at,updated_at FROM response_templates ORDER BY id DESC");
+    return send(res,200,JSON.stringify({responses:result.rows}));
+  }
+  if (req.method === "POST" && url.pathname === "/api/responses") {
+    const body=await readBody(req);
+    const key=String(body.response_key||"").trim().toLowerCase().replace(/[^a-z0-9_\-]/g,"_");
+    if(!key) return send(res,400,JSON.stringify({error:"response_key is required"}));
+    const result=await query("INSERT INTO response_templates (response_key,event_type,title,message_fa,message_en,channel,enabled) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *",[key,body.event_type||"custom",body.title||"",body.message_fa||"",body.message_en||"",body.channel||"group",body.enabled!==false]);
+    return send(res,201,JSON.stringify({response:result.rows[0]}));
+  }
+  const match=url.pathname.match(/^\/api\/responses\/(\d+)$/);
+  if(match && (req.method==="PUT" || req.method==="DELETE")){
+    const id=Number(match[1]);
+    if(req.method==="DELETE"){await query("DELETE FROM response_templates WHERE id=$1",[id]);return send(res,200,JSON.stringify({success:true}));}
+    const body=await readBody(req);
+    const key=String(body.response_key||"").trim().toLowerCase().replace(/[^a-z0-9_\-]/g,"_");
+    if(!key)return send(res,400,JSON.stringify({error:"response_key is required"}));
+    const result=await query("UPDATE response_templates SET response_key=$1,event_type=$2,title=$3,message_fa=$4,message_en=$5,channel=$6,enabled=$7,updated_at=NOW() WHERE id=$8 RETURNING *",[key,body.event_type||"custom",body.title||"",body.message_fa||"",body.message_en||"",body.channel||"group",body.enabled!==false,id]);
+    if(!result.rowCount)return send(res,404,JSON.stringify({error:"Response not found"}));
+    return send(res,200,JSON.stringify({response:result.rows[0]}));
+  }
+  return null;
+}
+
+async function usersApi(req,res,url) {
+  if(req.method==="GET" && url.pathname==="/api/users"){
+    const limit=Math.min(Math.max(Number(url.searchParams.get("limit")||100),1),500);
+    const result=await query("SELECT id,telegram_id,username,first_name,role,language,is_active,created_at,updated_at FROM users ORDER BY updated_at DESC LIMIT $1",[limit]);
+    return send(res,200,JSON.stringify({users:result.rows}));
+  }
+  return null;
+}
+
 async function commandsApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/commands") {
     const result = await query("SELECT id, command_key, fa_name, en_name, enabled, permission_level, response_fa, response_en, created_at, updated_at FROM commands ORDER BY id DESC");
@@ -174,7 +209,7 @@ http.createServer(async (req,res) => {
       }));
     }
 
-    if (url.pathname.startsWith("/api/supervision")) {
+    if (url.pathname.startsWith("/api/responses")) { const handled = await responseStudioApi(req,res,url); if (handled !== null) return handled; }\n    if (url.pathname.startsWith("/api/users")) { const handled = await usersApi(req,res,url); if (handled !== null) return handled; }\n    if (url.pathname.startsWith("/api/supervision")) {
       const handled = await supervisionApi(req,res,url);
       if (handled !== null) return handled;
     }
