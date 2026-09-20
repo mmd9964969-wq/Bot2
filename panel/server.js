@@ -101,6 +101,12 @@ function readBody(req) {
   });
 }
 
+async function audit(action, actorId, target, beforeData, afterData, source="panel"){
+  try{
+    await query("INSERT INTO audit_logs (actor_id,action,target,before_data,after_data,source) VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6)",[actorId||null,action,target||null,JSON.stringify(beforeData||null),JSON.stringify(afterData||null),source]);
+  }catch(error){ console.error("Audit write failed:", error.message); }
+}
+
 async function permissionsApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/permissions") {
     const result = await query("SELECT role, permission_key, allowed FROM role_permissions ORDER BY role, permission_key");
@@ -146,11 +152,51 @@ async function responseStudioApi(req,res,url) {
   return null;
 }
 
-async function usersApi(req,res,url) {
+async function usersApi(req,res,url){
   if(req.method==="GET" && url.pathname==="/api/users"){
     const limit=Math.min(Math.max(Number(url.searchParams.get("limit")||100),1),500);
-    const result=await query("SELECT id,telegram_id,username,first_name,role,language,is_active,created_at,updated_at FROM users ORDER BY updated_at DESC LIMIT $1",[limit]);
+    const q=String(url.searchParams.get("q")||"").trim().toLowerCase();
+    const params=[]; let where="";
+    if(q){params.push("%"+q+"%");where="WHERE LOWER(COALESCE(first_name,'')||' '||COALESCE(username,'')||' '||COALESCE(telegram_id::text,'')||' '||COALESCE(id,'')) LIKE $1";}
+    params.push(limit);
+    const result=await query("SELECT id,telegram_id,username,first_name,role,language,is_active,created_at,updated_at FROM users "+where+" ORDER BY updated_at DESC LIMIT $"+params.length,params);
     return send(res,200,JSON.stringify({users:result.rows}));
+  }
+  const permMatch=url.pathname.match(/^\/api\/users\/([^/]+)\/permissions$/);
+  if(permMatch && req.method==="GET"){
+    const userId=decodeURIComponent(permMatch[1]);
+    const user=await query("SELECT id,telegram_id,username,first_name,role,language,is_active,created_at,updated_at FROM users WHERE id=$1 OR telegram_id::text=$1 LIMIT 1",[userId]);
+    if(!user.rowCount)return send(res,404,JSON.stringify({error:"User not found"}));
+    const permissions=await query("SELECT permission_key,allowed FROM user_permissions WHERE user_id=$1 ORDER BY permission_key",[user.rows[0].id]);
+    return send(res,200,JSON.stringify({user:user.rows[0],permissions:permissions.rows}));
+  }
+  if(permMatch && req.method==="PUT"){
+    const userId=decodeURIComponent(permMatch[1]), body=await readBody(req);
+    const keys=["view","create","edit","delete","manage","configure","execute","sync"];
+    if(!keys.includes(body.permission_key))return send(res,400,JSON.stringify({error:"Invalid permission_key"}));
+    const user=await query("SELECT id FROM users WHERE id=$1 OR telegram_id::text=$1 LIMIT 1",[userId]);
+    if(!user.rowCount)return send(res,404,JSON.stringify({error:"User not found"}));
+    await query("INSERT INTO user_permissions (user_id,permission_key,allowed,updated_at) VALUES ($1,$2,$3,NOW()) ON CONFLICT (user_id,permission_key) DO UPDATE SET allowed=EXCLUDED.allowed,updated_at=NOW()",[user.rows[0].id,body.permission_key,body.allowed===true]);
+    await audit("user_permission_changed",body.actor_id,user.rows[0].id,null,{permission_key:body.permission_key,allowed:body.allowed===true});
+    return send(res,200,JSON.stringify({success:true}));
+  }
+  const idMatch=url.pathname.match(/^\/api\/users\/([^/]+)$/);
+  if(idMatch && req.method==="GET"){
+    const userId=decodeURIComponent(idMatch[1]);
+    const user=await query("SELECT id,telegram_id,username,first_name,role,language,is_active,created_at,updated_at FROM users WHERE id=$1 OR telegram_id::text=$1 LIMIT 1",[userId]);
+    if(!user.rowCount)return send(res,404,JSON.stringify({error:"User not found"}));
+    return send(res,200,JSON.stringify({user:user.rows[0]}));
+  }
+  if(idMatch && req.method==="PUT"){
+    const userId=decodeURIComponent(idMatch[1]), body=await readBody(req);
+    const before=await query("SELECT id,telegram_id,username,first_name,role,language,is_active FROM users WHERE id=$1 OR telegram_id::text=$1 LIMIT 1",[userId]);
+    if(!before.rowCount)return send(res,404,JSON.stringify({error:"User not found"}));
+    const allowedRoles=["owner","super_admin","admin","moderator","special_user","member"];
+    const role=String(body.role||before.rows[0].role).toLowerCase();
+    if(!allowedRoles.includes(role))return send(res,400,JSON.stringify({error:"Invalid role"}));
+    const result=await query("UPDATE users SET role=$1,language=$2,is_active=$3,updated_at=NOW() WHERE id=$4 RETURNING id,telegram_id,username,first_name,role,language,is_active,created_at,updated_at",[role,body.language||before.rows[0].language,body.is_active!==false,before.rows[0].id]);
+    await audit("user_updated",body.actor_id,before.rows[0].id,before.rows[0],result.rows[0]);
+    return send(res,200,JSON.stringify({user:result.rows[0]}));
   }
   return null;
 }
