@@ -114,6 +114,7 @@ async function permissionsApi(req, res, url) {
     if (!allowedRoles.includes(role) || !keys.includes(body.permission_key)) return send(res,400,JSON.stringify({error:"Invalid role or permission_key"}));
     if (role === "OWNER" && body.allowed === false) return send(res,403,JSON.stringify({error:"OWNER permissions cannot be disabled"}));
     await query("INSERT INTO role_permissions (role, permission_key, allowed, updated_at) VALUES ($1,$2,$3,NOW()) ON CONFLICT (role, permission_key) DO UPDATE SET allowed=EXCLUDED.allowed, updated_at=NOW()",[role,body.permission_key,body.allowed===true]);
+    await audit("permission_changed",body.actor_id,null,null,{role,permission_key:body.permission_key,allowed:body.allowed===true});
     return send(res,200,JSON.stringify({success:true}));
   }
   return null;
@@ -197,7 +198,7 @@ async function commandsApi(req, res, url) {
   return null;
 }
 
-http.createServer(async (req,res) => {
+const server = http.createServer(async (req,res) => {
   try {
     const url = new URL(req.url,"http://localhost");
 
@@ -209,7 +210,9 @@ http.createServer(async (req,res) => {
       }));
     }
 
-    if (url.pathname.startsWith("/api/responses")) { const handled = await responseStudioApi(req,res,url); if (handled !== null) return handled; }\n    if (url.pathname.startsWith("/api/users")) { const handled = await usersApi(req,res,url); if (handled !== null) return handled; }\n    if (url.pathname.startsWith("/api/supervision")) {
+    if (url.pathname.startsWith("/api/responses")) { const handled = await responseStudioApi(req,res,url); if (handled !== null) return handled; }
+    if (url.pathname.startsWith("/api/users")) { const handled = await usersApi(req,res,url); if (handled !== null) return handled; }
+    if (url.pathname.startsWith("/api/supervision")) {
       const handled = await supervisionApi(req,res,url);
       if (handled !== null) return handled;
     }
