@@ -118,6 +118,7 @@ export default defineConfig(({ command, isPreview }) => ({
     ...(command === "build" || isPreview
       ? [nitro({
           preset: "node-server",
+            externals: { external: ["@electric-sql/pglite"] },
           serverDir: "./server",
         })]
       : []),
