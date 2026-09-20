@@ -1,4 +1,4 @@
-const titles={dashboard:"Dashboard",commands:"Commands",responses:"Responses",users:"Users",permissions:"Permissions",supervision:"Supervision Center",settings:"Settings",database:"Database",sync:"Sync",audit:"Audit Log"};
+const titles={dashboard:"Dashboard",commands:"Commands",responses:"Responses",users:"Users",permissions:"Permissions",supervision:"Supervision Center",settings:"Settings",database:"Database",sync:"Sync",audit:"Audit Log",security:"Security Center"};
 const contentEl=document.getElementById("content"), pageTitle=document.getElementById("pageTitle"), sidebar=document.getElementById("sidebar");
 
 const esc=v=>String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
@@ -223,6 +223,7 @@ function page(name){
   if(name==="users")return usersPage();
   if(name==="permissions")return permissionsPage();
   if(name==="supervision")return supervisionPage();
+  if(name==="security")return;
   placeholder(name);
 }
 
