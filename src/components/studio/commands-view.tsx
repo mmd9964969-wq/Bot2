@@ -16,7 +16,7 @@ export function CommandsView() {
   const [saved, setSaved] = useState(false);
   const [responseQ, setResponseQ] = useState("");
 
-  useEffect(() => { fetch("/api/bot/studio").then((r) => r.json()).then((x) => { if (x.document) { setDoc(x.document); setSelected(x.document.commands[0]?.id ?? "robot"); } }).catch(() => undefined); }, []);
+  useEffect(() => { fetch("/api/bot/studio").then((r) => r.json()).then((x) => { if (x.document) { const base = cloneStudioDefaults(); setDoc({ ...base, ...x.document, responseTemplates: Array.isArray(x.document.responseTemplates) && x.document.responseTemplates.length ? x.document.responseTemplates : base.responseTemplates }); setSelected(x.document.commands[0]?.id ?? "robot"); } }).catch(() => undefined); }, []);
 
   const rows = useMemo(() => doc.commands.filter((c) => {
     if (phase && c.phase !== phase) return false;
