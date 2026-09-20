@@ -1,4 +1,4 @@
-import { Pool } from "pg";
+import { Client, Pool } from "pg";
 import { DEFAULT_CONFIG, type BotConfig } from "../src/lib/bot/defaults.ts";
 import { handleCommand, type BotContext } from "../src/lib/bot/engine.ts";
 import { cloneStudioDefaults, type StudioDocument } from "../src/lib/bot/studio.ts";
@@ -22,6 +22,7 @@ const config: BotConfig = {
 
 let studio = cloneStudioDefaults();
 let studioPool: Pool | null = null;
+let pollLockClient: Client | null = null;
 
 async function refreshStudio() {
   const url = process.env.DATABASE_URL;
@@ -257,6 +258,35 @@ async function handleMyChatMember(update: TgChatMemberUpdate) {
   console.log("my_chat_member: chat=" + update.chat.id + " title=" + (update.chat.title ?? "unknown") + " status=" + status);
 }
 
+async function acquirePollingLock(): Promise<Client | null> {
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    console.warn("[poll-lock] DATABASE_URL is missing; polling without database lock");
+    return null;
+  }
+
+  const client = new Client({ connectionString: url });
+  await client.connect();
+
+  const lockKey = `telegram-polling:${TOKEN}`;
+
+  for (;;) {
+    const result = await client.query<{ locked: boolean }>(
+      "select pg_try_advisory_lock(hashtext($1)) as locked",
+      [lockKey],
+    );
+
+    if (result.rows[0]?.locked) {
+      console.log("[poll-lock] acquired");
+      pollLockClient = client;
+      return client;
+    }
+
+    console.warn("[poll-lock] another polling instance is active; waiting 5s");
+    await sleep(5000);
+  }
+}
+
 async function poll() {
   let offset = 0;
   await refreshStudio();
@@ -279,8 +309,16 @@ async function poll() {
 
       for (const upd of data.result as TgUpdate[]) {
         offset = upd.update_id + 1;
-        if (upd.message) await handleMessage(upd.message);
-        if (upd.my_chat_member) await handleMyChatMember(upd.my_chat_member);
+        if (upd.message) {
+          void handleMessage(upd.message).catch((error) => {
+            console.error("[update] message handler failed", error);
+          });
+        }
+        if (upd.my_chat_member) {
+          void handleMyChatMember(upd.my_chat_member).catch((error) => {
+            console.error("[update] member handler failed", error);
+          });
+        }
       }
     } catch (err) {
       console.error(err);
@@ -301,9 +339,16 @@ process.once("SIGINT", async () => { await studioPool?.end().catch(() => {}); pr
     const me = await telegramApi("getMe", {});
     if (me.ok) console.log("[startup] Telegram bot @" + ((me.result as any)?.username ?? "unknown") + " is reachable");
     else console.error("[startup] Telegram getMe failed:", me.description);
+
+    await acquirePollingLock();
     await poll();
   } catch (error) {
     console.error("[startup] fatal:", error);
     process.exit(1);
+  } finally {
+    if (pollLockClient) {
+      await pollLockClient.end().catch(() => {});
+      pollLockClient = null;
+    }
   }
 })();
