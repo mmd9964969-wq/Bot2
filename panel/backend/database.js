@@ -2,12 +2,21 @@ const { Pool } = require("pg");
 
 const connectionString = process.env.DATABASE_URL;
 
+let useSsl = false;
+if (connectionString) {
+  try {
+    const hostname = new URL(connectionString).hostname;
+    const isRailwayInternal = hostname.endsWith(".railway.internal");
+    useSsl = process.env.NODE_ENV === "production" && !isRailwayInternal;
+  } catch {
+    useSsl = false;
+  }
+}
+
 const pool = connectionString
   ? new Pool({
       connectionString,
-      ssl: process.env.NODE_ENV === "production"
-        ? { rejectUnauthorized: false }
-        : false,
+      ssl: useSsl ? { rejectUnauthorized: false } : false,
     })
   : null;
 
