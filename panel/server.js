@@ -35,6 +35,24 @@ function readBody(req) {
   });
 }
 
+async function permissionsApi(req, res, url) {
+  if (req.method === "GET" && url.pathname === "/api/permissions") {
+    const result = await query("SELECT role, permission_key, allowed FROM role_permissions ORDER BY role, permission_key");
+    return send(res, 200, JSON.stringify({permissions: result.rows}));
+  }
+  if (req.method === "PUT" && url.pathname === "/api/permissions") {
+    const body = await readBody(req);
+    const role = String(body.role || "").toUpperCase().replace(/\s+/g, "_");
+    const allowedRoles = ["OWNER","SUPER_ADMIN","ADMIN","MODERATOR","SPECIAL_USER","MEMBER"];
+    const keys = ["view","create","edit","delete","manage","configure","execute","sync"];
+    if (!allowedRoles.includes(role) || !keys.includes(body.permission_key)) return send(res,400,JSON.stringify({error:"Invalid role or permission_key"}));
+    if (role === "OWNER" && body.allowed === false) return send(res,403,JSON.stringify({error:"OWNER permissions cannot be disabled"}));
+    await query("INSERT INTO role_permissions (role, permission_key, allowed, updated_at) VALUES ($1,$2,$3,NOW()) ON CONFLICT (role, permission_key) DO UPDATE SET allowed=EXCLUDED.allowed, updated_at=NOW()",[role,body.permission_key,body.allowed===true]);
+    return send(res,200,JSON.stringify({success:true}));
+  }
+  return null;
+}
+
 async function commandsApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/commands") {
     const result = await query("SELECT id, command_key, fa_name, en_name, enabled, permission_level, response_fa, response_en, created_at, updated_at FROM commands ORDER BY id DESC");
@@ -90,6 +108,10 @@ http.createServer(async (req,res) => {
       }));
     }
 
+    if (url.pathname.startsWith("/api/permissions")) {
+      const handled = await permissionsApi(req,res,url);
+      if (handled !== null) return handled;
+    }
     if (url.pathname.startsWith("/api/commands")) {
       const handled = await commandsApi(req,res,url);
       if (handled !== null) return handled;
