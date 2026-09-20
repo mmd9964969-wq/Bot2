@@ -49,33 +49,46 @@ async function ensureRuntimeSchema() {
   await query(`INSERT INTO runtime_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
 }
 
+function runtimeToken(req){ return String(req.headers["x-runtime-control-token"] || "").trim(); }
+function runtimeRole(token){ return token && process.env.RUNTIME_CONTROL_TOKEN && token === process.env.RUNTIME_CONTROL_TOKEN ? "OWNER" : null; }
+async function runtimeAuthorize(req, permission){
+  const role=runtimeRole(runtimeToken(req));
+  if(!role) return {ok:false,status:401,error:"Runtime control authorization required"};
+  const result=await query("SELECT allowed FROM role_permissions WHERE role=$1 AND permission_key=$2 LIMIT 1",[role,permission]);
+  if(!result.rows[0]?.allowed) return {ok:false,status:403,error:"Runtime permission denied"};
+  return {ok:true,role};
+}
+async function botCoreRequest(path, method="GET", body=null){
+  const base=process.env.BOT_CORE_CONTROL_URL; const token=process.env.BOT_CORE_CONTROL_TOKEN;
+  if(!base || !token) throw new Error("Bot Core control connection is not configured");
+  const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),10000);
+  try{const response=await fetch(base.replace(/\/$/,"")+path,{method,headers:{"content-type":"application/json","x-runtime-control-token":token},body:body?JSON.stringify(body):undefined,signal:controller.signal}); const text=await response.text(); let data={}; try{data=text?JSON.parse(text):{};}catch{data={error:text};} if(!response.ok)throw new Error(data.error||data.message||("Bot Core HTTP "+response.status)); return data;} finally{clearTimeout(timer);}
+}
+
 async function runtimeApi(req,res,url){
   if(req.method==="GET" && url.pathname==="/api/runtime/overview"){
-    const settings=(await query("SELECT * FROM runtime_settings WHERE id=1")).rows[0];
-    const db=await checkConnection();
-    const [events,errors]=await Promise.all([
-      query("SELECT COUNT(*)::int AS count FROM supervision_events WHERE created_at >= NOW() - INTERVAL '24 hours'"),
-      query("SELECT COUNT(*)::int AS count FROM supervision_events WHERE severity IN ('error','critical') AND created_at >= NOW() - INTERVAL '24 hours'")
-    ]);
-    return send(res,200,JSON.stringify({runtime:{status:"ready",mode:"panel_control",telegram:"not_connected_to_runtime",note:"Bot Core runtime control will be connected in the next integration stage"},database:db,metrics:{events24h:events.rows[0].count,errors24h:errors.rows[0].count},settings}));
+    const settings=(await query("SELECT * FROM runtime_settings WHERE id=1")).rows[0]; const db=await checkConnection();
+    const [events,errors]=await Promise.all([query("SELECT COUNT(*)::int AS count FROM supervision_events WHERE created_at >= NOW() - INTERVAL '24 hours'"),query("SELECT COUNT(*)::int AS count FROM supervision_events WHERE severity IN ('error','critical') AND created_at >= NOW() - INTERVAL '24 hours'")]);
+    let core={connected:false,status:"unreachable"}; try{core=await botCoreRequest("/internal/runtime/status");core.connected=true;}catch(error){core={connected:false,status:"unreachable",error:error.message};}
+    return send(res,200,JSON.stringify({runtime:{status:core.connected?(core.maintenance?"maintenance":"ready"):"unreachable",mode:"live_control",telegram:core.connected?"connected":"unreachable",core},database:db,metrics:{events24h:events.rows[0].count,errors24h:errors.rows[0].count},settings}));
   }
   if(req.method==="PUT" && url.pathname==="/api/runtime/settings"){
-    const body=await readBody(req), before=(await query("SELECT * FROM runtime_settings WHERE id=1")).rows[0];
+    const auth=await runtimeAuthorize(req,"configure"); if(!auth.ok)return send(res,auth.status,JSON.stringify({error:auth.error})); const body=await readBody(req), before=(await query("SELECT * FROM runtime_settings WHERE id=1")).rows[0];
     const num=(v,d,min,max)=>Math.min(Math.max(Number.isFinite(Number(v))?Number(v):d,min),max);
     const next={auto_restart:body.auto_restart!==false,graceful_shutdown:body.graceful_shutdown!==false,worker_count:num(body.worker_count,before.worker_count,1,32),queue_size:num(body.queue_size,before.queue_size,10,10000),concurrency:num(body.concurrency,before.concurrency,1,500),request_timeout_ms:num(body.request_timeout_ms,before.request_timeout_ms,1000,120000),max_retries:num(body.max_retries,before.max_retries,0,10),backoff_ms:num(body.backoff_ms,before.backoff_ms,100,60000),log_level:["error","warn","info","debug"].includes(body.log_level)?body.log_level:before.log_level,deduplication:body.deduplication!==false,deduplication_ttl_seconds:num(body.deduplication_ttl_seconds,before.deduplication_ttl_seconds,30,86400)};
-    const r=await query(`UPDATE runtime_settings SET auto_restart=$1,graceful_shutdown=$2,worker_count=$3,queue_size=$4,concurrency=$5,request_timeout_ms=$6,max_retries=$7,backoff_ms=$8,log_level=$9,deduplication=$10,deduplication_ttl_seconds=$11,updated_at=NOW() WHERE id=1 RETURNING *`,[next.auto_restart,next.graceful_shutdown,next.worker_count,next.queue_size,next.concurrency,next.request_timeout_ms,next.max_retries,next.backoff_ms,next.log_level,next.deduplication,next.deduplication_ttl_seconds]);
-    await audit("runtime_settings_changed","panel-owner","runtime_settings",before,r.rows[0],"panel");
-    return send(res,200,JSON.stringify({settings:r.rows[0]}));
+    const saved=await query(`UPDATE runtime_settings SET auto_restart=$1,graceful_shutdown=$2,worker_count=$3,queue_size=$4,concurrency=$5,request_timeout_ms=$6,max_retries=$7,backoff_ms=$8,log_level=$9,deduplication=$10,deduplication_ttl_seconds=$11,updated_at=NOW() WHERE id=1 RETURNING *`,[next.auto_restart,next.graceful_shutdown,next.worker_count,next.queue_size,next.concurrency,next.request_timeout_ms,next.max_retries,next.backoff_ms,next.log_level,next.deduplication,next.deduplication_ttl_seconds]);
+    try{await botCoreRequest("/internal/runtime/settings","PUT",saved.rows[0]);}catch(error){return send(res,502,JSON.stringify({error:"Bot Core settings sync failed",detail:error.message}));}
+    await audit("runtime_settings_changed",auth.role,"runtime_settings",before,saved.rows[0],"panel"); return send(res,200,JSON.stringify({settings:saved.rows[0],synced:true}));
   }
   if(req.method==="POST" && url.pathname==="/api/runtime/action"){
-    const body=await readBody(req), action=["health_check","reload_config","restart_requested","maintenance_on","maintenance_off"].includes(body.action)?body.action:null;
+    const auth=await runtimeAuthorize(req,"execute"); if(!auth.ok)return send(res,auth.status,JSON.stringify({error:auth.error})); const body=await readBody(req), action=["health_check","reload_config","restart_requested","maintenance_on","maintenance_off"].includes(body.action)?body.action:null;
     if(!action)return send(res,400,JSON.stringify({error:"Invalid runtime action"}));
-    await query("INSERT INTO supervision_events (event_type,severity,actor_id,target_type,target_id,metadata) VALUES ($1,$2,$3,$4,$5,$6::jsonb)",[action==="health_check"?"system_health":"runtime_action",action==="health_check"?"info":"warning","panel-owner","runtime","runtime",JSON.stringify({action})]);
-    return send(res,200,JSON.stringify({success:true,action,status:"recorded",note:"Action is recorded; live Bot Core execution control is not connected yet."}));
+    if(action==="health_check"){try{const core=await botCoreRequest("/internal/runtime/status");return send(res,200,JSON.stringify({success:true,action,status:"executed",core}));}catch(error){return send(res,502,JSON.stringify({error:"Bot Core health check failed",detail:error.message}));}}
+    try{const core=await botCoreRequest("/internal/runtime/action","POST",{action});await query("INSERT INTO supervision_events (event_type,severity,actor_id,target_type,target_id,metadata) VALUES ($1,$2,$3,$4,$5,$6::jsonb)",["runtime_action",action==="restart_requested"?"critical":"warning",auth.role,"runtime","bot-core",JSON.stringify({action,executed:true})]);return send(res,200,JSON.stringify({success:true,action,status:"executed",core}));}
+    catch(error){await query("INSERT INTO supervision_events (event_type,severity,actor_id,target_type,target_id,metadata) VALUES ($1,$2,$3,$4,$5,$6::jsonb)",["runtime_action","error",auth.role,"runtime","bot-core",JSON.stringify({action,executed:false,error:error.message})]);return send(res,502,JSON.stringify({error:"Bot Core action failed",detail:error.message}));}
   }
   return null;
 }
-
 async function ensureSupervisionSchema() {
   await query(`CREATE TABLE IF NOT EXISTS supervision_events (
     id BIGSERIAL PRIMARY KEY, event_type TEXT NOT NULL, severity TEXT NOT NULL DEFAULT 'info',
