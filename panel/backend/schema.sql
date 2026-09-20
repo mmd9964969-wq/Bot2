@@ -23,6 +23,15 @@ CREATE TABLE IF NOT EXISTS commands (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS command_permissions (
+  command_id BIGINT NOT NULL REFERENCES commands(id) ON DELETE CASCADE,
+  role TEXT NOT NULL,
+  allowed BOOLEAN NOT NULL DEFAULT FALSE,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (command_id, role)
+);
+CREATE INDEX IF NOT EXISTS idx_command_permissions_role ON command_permissions(role);
+
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value JSONB NOT NULL DEFAULT '{}'::jsonb,
