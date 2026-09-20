@@ -133,6 +133,8 @@ async function logCommandAccess(ctx:BotContext,key:string,eventType:"command_exe
 async function studioReplyLive(ctx: BotContext): Promise<string | null> {
   const raw=ctx.text.trim();
   if(!raw)return null;
+  // Commands are plain words only; slash/prefix forms are intentionally disabled.
+  if(/^[/!.]/.test(raw))return null;
   const token=normalizeCommand(raw);
   const studioCommand=studio.commands.find(item=>item.enabled&&item.phase<=2&&commandMatches(token,[...item.aliasesFa,...item.aliasesEn]));
   const panelCommand=panelCommands.find(item=>commandMatches(token,[item.command_key,item.fa_name,item.en_name]));
