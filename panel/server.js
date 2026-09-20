@@ -50,7 +50,7 @@ async function ensureRuntimeSchema() {
 }
 
 function runtimeToken(req){ return String(req.headers["x-runtime-control-token"] || "").trim(); }
-function runtimeRole(token){ return token && process.env.RUNTIME_CONTROL_TOKEN && token === process.env.RUNTIME_CONTROL_TOKEN ? "OWNER" : null; }
+function runtimeRole(token){ return token && (process.env.RUNTIME_CONTROL_TOKEN || process.env.BOT_CORE_CONTROL_TOKEN) && token === (process.env.RUNTIME_CONTROL_TOKEN || process.env.BOT_CORE_CONTROL_TOKEN) ? "OWNER" : null; }
 async function runtimeAuthorize(req, permission){
   const role=runtimeRole(runtimeToken(req));
   if(!role) return {ok:false,status:401,error:"Runtime control authorization required"};
