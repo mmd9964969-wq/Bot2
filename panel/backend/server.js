@@ -5,6 +5,7 @@ const { checkConnection } = require("./database");
 
 const PORT = process.env.PORT || 3000;
 const FRONTEND = path.resolve(__dirname, "../frontend");
+const INDEX_FILE = path.join(FRONTEND, "index.html");
 
 const types = {
   ".html": "text/html; charset=utf-8",
