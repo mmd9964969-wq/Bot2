@@ -4,7 +4,7 @@ let maintenance = false;
 let runtimeSettings: Record<string, unknown> = {};
 
 function authorized(req: http.IncomingMessage) {
-  const expected = process.env.BOT_CORE_CONTROL_TOKEN ?? "";
+  const expected = process.env.BOT_CORE_CONTROL_TOKEN ?? process.env.BOT_TOKEN ?? "";
   const supplied = String(req.headers["x-runtime-control-token"] ?? "");
   return Boolean(expected && supplied && supplied === expected);
 }
