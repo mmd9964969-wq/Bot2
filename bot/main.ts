@@ -43,6 +43,9 @@ async function refreshStudio() {
       FROM commands c LEFT JOIN command_permissions cp ON cp.command_id=c.id GROUP BY c.id ORDER BY c.id
     `);
     panelCommands=result.rows;
+    await studioPool.query(
+      "UPDATE commands SET response_fa='', response_en='' WHERE response_fa LIKE '%{{live_card}}%' OR response_en LIKE '%{{live_card}}%'"
+    );
   }catch(error){console.error("[command-access] refresh failed",error);panelCommands=[];}
 }
 
@@ -144,6 +147,7 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
     await logCommandAccess(ctx,command.id,"command_executed","allowed",auth.role);
     const values:Record<string,string>={user_name:ctx.userName,username:ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName,user_id:String(ctx.userId),rank:ctx.userRank,chat_title:ctx.chatTitle,chat_id:String(ctx.chatId),chat_type:ctx.chatType,members_count:String(ctx.membersCount),admins_count:String(ctx.staff.length),live_card:liveCard};
     const template=ctx.lang==="fa"?command.responseFa:command.responseEn;
+    if(!template.trim()) return liveCard;
     return template.replace(/{{\\s*([a-z0-9_]+)\\s*}}/gi,(_,key)=>values[key]??"—");
   }catch(error){
     console.error("[studio-command]",error);
