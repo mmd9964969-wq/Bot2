@@ -352,6 +352,43 @@ async function ensureCommandAccessSchema() {
     for(const r of roles) await query("INSERT INTO command_permissions(command_id,role,allowed) VALUES($1,$2,$3) ON CONFLICT(command_id,role) DO NOTHING",[row.id,r,roles.indexOf(r)<=idx]);
   }
 }
+async function ensureCoreCommandRecords() {
+  const commands = [
+    ["robot","ربات","robot"],
+    ["id","آیدی","id"],
+    ["admin","ادمین","admin"],
+    ["info","اطلاعات","info"],
+    ["rank","مقام / اطلاعات مقام","rank"],
+    ["me","من","me"],
+    ["ping","پینگ","ping"],
+    ["bot","بات","bot"],
+    ["status","وضعیت","status"]
+  ];
+  const roles=["OWNER","SUPER_ADMIN","ADMIN","MODERATOR","SPECIAL_USER","MEMBER"];
+  for (const [key, fa, en] of commands) {
+    const result = await query(
+      "INSERT INTO commands (command_key,fa_name,en_name,enabled,permission_level,required_permission,minimum_role,response_fa,response_en) VALUES($1,$2,$3,TRUE,10,'execute','MEMBER','','') ON CONFLICT DO NOTHING RETURNING id",
+      [key,fa,en]
+    );
+    let id = result.rows[0]?.id;
+    if (!id) {
+      const existing = await query("SELECT id FROM commands WHERE command_key=$1 ORDER BY id ASC LIMIT 1",[key]);
+      id = existing.rows[0]?.id;
+      if (id) {
+        await query("UPDATE commands SET fa_name=$1,en_name=$2,enabled=TRUE,required_permission='execute',minimum_role='MEMBER',updated_at=NOW() WHERE id=$3",[fa,en,id]);
+      }
+    }
+    if (id) {
+      for (const role of roles) {
+        await query(
+          "INSERT INTO command_permissions(command_id,role,allowed,updated_at) VALUES($1,$2,$3,NOW()) ON CONFLICT(command_id,role) DO NOTHING",
+          [id,role,role==="MEMBER"]
+        );
+      }
+    }
+  }
+}
+
 async function commandsApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/commands") {
     const result = await query(`SELECT c.id,c.command_key,c.fa_name,c.en_name,c.enabled,c.permission_level,c.required_permission,c.minimum_role,c.response_fa,c.response_en,c.created_at,c.updated_at,
@@ -442,6 +479,7 @@ ensureBaseSchema()
     ensureRuntimeSchema(),
     ensureCommandAccessSchema()
   ]))
+  .then(() => ensureCoreCommandRecords())
   .then(() => server.listen(PORT, () => console.log(`PERSIAN BOT STUDIO running on port ${PORT}`)))
   .catch(error => {
     console.error("Database schema initialization failed:", error);
