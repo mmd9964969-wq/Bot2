@@ -63,7 +63,7 @@ function mergeStudio(value: Partial<StudioDocument>): StudioDocument {
 }
 
 function normalizeCommand(text: string) {
-  return text.trim().replace(/^[\\/!.]+/, "").replace(/\\s+/g, " ").toLowerCase();
+  return text.trim().replace(/^[/!.]+/, "").replace(/\s+/g, " ").toLowerCase();
 }
 
 function commandMatches(text: string, aliases: string[]) {
