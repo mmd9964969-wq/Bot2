@@ -19,6 +19,15 @@ const groups=new Map<number,GroupState>();
 let robotIndex=0;
 const chatLang=new Map<number,Lang>();
 const messageTimes=new Map<number,number[]>();
+const userMessageCounts=new Map<string, number>();
+const userMessageDailyCounts=new Map<string, { day:string; count:number }>();
+function userKey(chatId:number,userId:number){ return chatId+":"+userId; }
+function dayKey(){ return new Date().toISOString().slice(0,10); }
+function userStats(chatId:number,userId:number){
+  const key=userKey(chatId,userId);
+  const daily=userMessageDailyCounts.get(key);
+  return { total:userMessageCounts.get(key)??0, today:daily?.day===dayKey()?daily.count:0 };
+}
 function state(id:number):GroupState{
   let s=groups.get(id);
   if(!s){s={locks:new Set(),floodOn:false,floodMax:6,spamOn:false,nightOn:false,welcome:"",goodbye:"",rules:"",filters:new Set(),notes:new Map(),warnings:new Map(),recent:[],language:"fa"};groups.set(id,s)}
@@ -71,7 +80,8 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "◈ وضعیت سیستم\n\n⛂ - وضعیت ربات : آنلاین\n⛂ - سرعت پاسخ : "+ms+"ms\n⛂ - اتصال دیتابیس : "+(process.env.DATABASE_URL?"متصل":"محلی")+"\n⛂ - وضعیت گروه : فعال\n⛂ - نسخه ربات : v"+(process.env.BOT_VERSION??"2.0.0")+"\n⛂ - وضعیت ضد اسپم : فعال\n⛂ - ادمین‌های آنلاین : "+ctx.staff.length+" از "+ctx.staff.length+"\n\n─────━━───── ◈ ─────━━─────\n\n★ - سیستم پایدار است",
         "◈ System status\n\n⛂ - Bot : Online\n⛂ - Response : "+ms+"ms\n⛂ - Database : "+(process.env.DATABASE_URL?"Connected":"Local")+"\n⛂ - Group : Active\n⛂ - Version : v"+(process.env.BOT_VERSION??"2.0.0")+"\n⛂ - Anti-spam : Active\n⛂ - Online admins : "+ctx.staff.length+"\n\n─────━━───── ◈ ─────━━─────\n\n★ - System is stable");
     }
-    case "id":
+    case "id": {
+      const us=userStats(ctx.chatId,ctx.userId);
       return fa(ctx.lang,
         "◈ اطلاعات کاربر\n\n⛂ - نام : "+ctx.userName+"\n⛂ - شناسه : "+ctx.userId+"\n⛂ - نام کاربری : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - مقام : "+rankLabel(ctx.lang,rank)+"\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - تعداد پیام امروز : —\n⛂ - تعداد عضویت امروز : —\n⛂ - تعداد پیام کل : —\n⛂ - تعداد عضویت کل : —",
         "◈ User information\n\n⛂ - Name : "+ctx.userName+"\n⛂ - ID : "+ctx.userId+"\n⛂ - Username : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - Rank : "+rank+"\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - Messages today : —\n⛂ - Joins today : —\n⛂ - Total messages : —\n⛂ - Total joins : —");
@@ -88,11 +98,14 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
       return fa(ctx.lang,
         "◈ سیستم پیشرفته مدیران\n\n★ - "+rankLabel(ctx.lang,rank)+"\n\n⛂ - نام : "+ctx.userName+"\n⛂ - نام کاربری : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - شناسه : "+ctx.userId+"\n⛂ - مقام : "+rankLabel(ctx.lang,rank)+"\n⛂ - تاریخ شروع : —\n⛂ - دسترسی‌ها : "+(rank==="owner"?"کامل":rank==="admin"?"مدیریتی":"عادی")+"\n⛂ - مسئولیت اصلی : —",
         "◈ Advanced manager system\n\n★ - "+rank+"\n\n⛂ - Name : "+ctx.userName+"\n⛂ - Username : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - ID : "+ctx.userId+"\n⛂ - Rank : "+rank+"\n⛂ - Start date : —\n⛂ - Access : "+(rank==="owner"?"Full":rank==="admin"?"Management":"Standard"));
-    case "me":
+    case "me": {
+      const us=userStats(ctx.chatId,ctx.userId);
       return fa(ctx.lang,
         "◈ اطلاعات کاربر\n\n⛂ - نام : "+ctx.userName+"\n⛂ - نام کاربری : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - شناسه : "+ctx.userId+"\n⛂ - مقام : "+rankLabel(ctx.lang,rank)+"\n⛂ - تاریخ عضویت : —\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - تعداد پیام امروز : —\n⛂ - تعداد پیام کل : —\n⛂ - تعداد اخطار فعال : "+(s.warnings.get(ctx.userId)?.count??0)+"\n⛂ - وضعیت سکوت : —\n⛂ - وضعیت لیست ویژه : —",
         "◈ User information\n\n⛂ - Name : "+ctx.userName+"\n⛂ - Username : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - ID : "+ctx.userId+"\n⛂ - Rank : "+rank+"\n⛂ - Join date : —\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - Messages today : —\n⛂ - Total messages : —\n⛂ - Active warnings : "+(s.warnings.get(ctx.userId)?.count??0)+"\n⛂ - Mute status : —\n⛂ - Special status : —");
-    case "bot":
+    case "bot": {
+      const me=await api<any>("getMe",{});
+      const botId=me.id??"—";
       return fa(ctx.lang,
         "◈ اطلاعات فنی ربات\n\n⛂ - نام ربات : "+(ctx.config.botName||"نظم")+"\n⛂ - نام کاربری : "+(ctx.config.botUsername||"—")+"\n⛂ - شناسه ربات : —\n⛂ - نسخه ربات : v"+(process.env.BOT_VERSION??"2.0.0")+"\n⛂ - وضعیت ربات : آنلاین\n⛂ - اتصال دیتابیس : "+(process.env.DATABASE_URL?"متصل":"محلی")+"\n⛂ - روش ارتباط تلگرام : Polling\n⛂ - وضعیت سرویس : فعال\n⛂ - سیستم‌عامل : "+process.platform+"\n⛂ - نسخه Node.js : "+process.version+"\n⛂ - uptime : "+Math.floor(process.uptime())+" ثانیه",
         "◈ Bot technical information\n\n⛂ - Bot name : "+(ctx.config.botName||"Nizam")+"\n⛂ - Username : "+(ctx.config.botUsername||"—")+"\n⛂ - Bot ID : —\n⛂ - Version : v"+(process.env.BOT_VERSION??"2.0.0")+"\n⛂ - Status : Online\n⛂ - Database : "+(process.env.DATABASE_URL?"Connected":"Local")+"\n⛂ - Telegram connection : Polling\n⛂ - Service : Active\n⛂ - OS : "+process.platform+"\n⛂ - Node.js : "+process.version+"\n⛂ - Uptime : "+Math.floor(process.uptime())+"s");
@@ -103,8 +116,13 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
   }
 }
 
-export async function recordMessage(chatId:number,messageId:number){
+export async function recordMessage(chatId:number,userId:number,messageId:number){
   const s=state(chatId);s.recent.push(messageId);if(s.recent.length>100)s.recent.shift();
+  const key=userKey(chatId,userId);
+  userMessageCounts.set(key,(userMessageCounts.get(key)??0)+1);
+  const day=dayKey();
+  const daily=userMessageDailyCounts.get(key);
+  userMessageDailyCounts.set(key,{day,count:(daily?.day===day?daily.count:0)+1});
   const now=Date.now();const times=messageTimes.get(chatId)??[];times.push(now);while(times.length&&now-times[0]>10000)times.shift();messageTimes.set(chatId,times);
 }
 
