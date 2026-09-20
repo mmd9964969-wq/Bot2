@@ -163,6 +163,13 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
         members_count:String(ctx.membersCount),
         admins_count:String(ctx.staff.length),
         live_card:liveCard,
+        robot_line:liveCard,
+        admin_result:liveCard,
+        rank_card:liveCard,
+        me_card:liveCard,
+        ping_card:liveCard,
+        bot_card:liveCard,
+        status_card:liveCard,
         messages_today:"—",
         messages_total:"—"
       };
