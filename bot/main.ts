@@ -1,11 +1,11 @@
 import { Client, Pool } from "pg";
 import { DEFAULT_CONFIG, type BotConfig } from "../src/lib/bot/defaults.ts";
-import { handleCommand, type BotContext } from "../src/lib/bot/engine.ts";
+import type { BotContext } from "../src/lib/bot/engine.ts";
 import { cloneStudioDefaults, type StudioDocument } from "../src/lib/bot/studio.ts";
 import type { Lang, Rank } from "../src/lib/bot/registry.ts";
 import { telegramApi } from "../src/lib/telegram/api.ts";
-import { resolveCommand, rankAtLeast } from "../src/lib/bot/registry.ts";
-import { runLiveCommand, moderateLive, recordMessage } from "../src/lib/bot/runtime.ts";
+import { rankAtLeast } from "../src/lib/bot/registry.ts";
+import { runLiveCommand, recordMessage } from "../src/lib/bot/runtime.ts";
 
 const TOKEN = process.env.BOT_TOKEN ?? "";
 if (!TOKEN) { console.error("BOT_TOKEN is missing"); process.exit(1); }
@@ -51,34 +51,14 @@ function mergeStudio(value: Partial<StudioDocument>): StudioDocument {
 }
 
 function normalizeCommand(text: string) {
-  const clean = text.trim().replace(/^[/!.]/, "").trim();
-  return clean.split(/\s+/)[0]?.toLowerCase() ?? "";
-}
-
-function studioReply(ctx: BotContext): string | null {
-  if (!studio.settings.bareCommands && !ctx.text.trim().match(/^[/!.]/)) return null;
-  const token = normalizeCommand(ctx.text);
-  const command = studio.commands.find((item) =>
-    item.enabled &&
-    item.phase <= 2 &&
-    [...item.aliasesFa, ...item.aliasesEn].some((alias) => alias.toLowerCase() === token),
-  );
-  if (!command) return null;
-
-  const allowed =
-    command.minRank === "member" ||
-    (command.minRank === "admin" && ctx.userRank !== "member") ||
-    ctx.userRank === "owner";
-
-  if (!allowed) return ctx.lang === "fa"
-    ? "✗ دسترسی کافی برای این دستور را ندارید."
-    : "✗ You do not have enough access for this command.";
-
-  return render(ctx.lang === "fa" ? command.responseFa : command.responseEn, ctx);
+  return text.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
 }
 
 async function studioReplyLive(ctx: BotContext): Promise<string | null> {
-  const token = normalizeCommand(ctx.text);
+  const raw = ctx.text.trim();
+  if (!raw || /^[\/!.]/.test(raw)) return null;
+
+  const token = normalizeCommand(raw);
   const command = studio.commands.find((item) =>
     item.enabled &&
     item.phase <= 2 &&
@@ -93,7 +73,7 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
     const liveCard = await runLiveCommand(
       { ...ctx, messageId: 0 },
       command.aliasesEn[0] ?? command.id,
-      ctx.text.trim().replace(/^[/!.]/, "").trim().split(/\s+/).slice(1),
+      raw.split(/\s+/).slice(1),
     );
     const values: Record<string, string> = {
       user_name: ctx.userName,
@@ -201,7 +181,6 @@ async function handleMessage(msg: TgMessage) {
 
   const chat = msg.chat;
   const isPrivate = chat.type === "private";
-  if (isPrivate) return;
   let adminIds = new Set<number>();
   if (!isPrivate) {
     try { adminIds = await chatAdmins(chat.id); } catch (error) { console.error("[admins] lookup failed", error); }
@@ -233,23 +212,8 @@ async function handleMessage(msg: TgMessage) {
     return;
   }
 
-  const parsed = text.trim().replace(/^[/!.]/, "").split(/\s+/);
-  const token = parsed.shift()?.split("@")[0] ?? "";
-  const command = resolveCommand(token);
-  if (!command) { await moderateLive({ chatId: chat.id, userId: msg.from.id, messageId: msg.message_id, text }); return; }
-  const studioCommand = studio.commands.find((x) => x.id === command.id);
-  if (studioCommand && !studioCommand.enabled) return;
-  if (!rankAtLeast(ctx.userRank, command.minRank)) {
-    await telegramApi("sendMessage", { chat_id: chat.id, text: ctx.lang === "fa" ? "✗ دسترسی کافی ندارید." : "✗ You do not have enough access.", reply_to_message_id: msg.message_id });
-    return;
-  }
-  try {
-    const result = await runLiveCommand({ ...ctx, messageId: msg.message_id, replyToUserId: msg.reply_to_message?.from?.id, replyToName: msg.reply_to_message?.from?.username || msg.reply_to_message?.from?.first_name, replyToMessageId: msg.reply_to_message ? (msg as any).reply_to_message.message_id : undefined }, token, parsed);
-    await telegramApi("sendMessage", { chat_id: chat.id, text: result, reply_to_message_id: msg.message_id });
-  } catch (error) {
-    console.error("[command]", error);
-    await telegramApi("sendMessage", { chat_id: chat.id, text: ctx.lang === "fa" ? "✗ اجرای دستور ناموفق بود؛ دسترسی ربات یا هدف را بررسی کنید." : "✗ Command failed; check bot permissions or target.", reply_to_message_id: msg.message_id });
-  }
+  // Studio commands are authoritative. Legacy slash/prefix commands are disabled.
+  // Unknown text is ignored here so old command handlers cannot answer.
 }
 
 async function handleMyChatMember(update: TgChatMemberUpdate) {
