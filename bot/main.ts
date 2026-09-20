@@ -25,19 +25,25 @@ const config: BotConfig = {
 let studio = cloneStudioDefaults();
 let studioPool: Pool | null = null;
 let pollLockClient: Client | null = null;
+let panelCommands: PanelCommand[] = [];
 
 async function refreshStudio() {
-  const url = process.env.DATABASE_URL;
-  if (!url) return;
-  try {
-    studioPool ??= new Pool({ connectionString: url, max: 2 });
-    const result = await studioPool.query<{ config: StudioDocument }>(
-      "select config from bot_studio_panel where id = 1 limit 1",
-    );
-    if (result.rows[0]?.config) studio = mergeStudio(result.rows[0].config);
-  } catch (error) {
-    console.error("[studio] refresh failed", error);
-  }
+  const url=process.env.DATABASE_URL;
+  if(!url)return;
+  studioPool??=new Pool({connectionString:url,max:2});
+  try{
+    const result=await studioPool.query<{config:StudioDocument}>("select config from bot_studio_panel where id=1 limit 1");
+    if(result.rows[0]?.config)studio=mergeStudio(result.rows[0].config);
+  }catch(error){console.error("[studio] refresh failed",error);}
+  try{
+    const result=await studioPool.query<PanelCommand>(`
+      SELECT c.id,c.command_key,COALESCE(c.fa_name,'') AS fa_name,COALESCE(c.en_name,'') AS en_name,c.enabled,
+      COALESCE(c.required_permission,'execute') AS required_permission,UPPER(COALESCE(c.minimum_role,'MEMBER')) AS minimum_role,
+      COALESCE(json_agg(json_build_object('role',cp.role,'allowed',cp.allowed) ORDER BY cp.role) FILTER(WHERE cp.role IS NOT NULL),'[]'::json) AS permissions
+      FROM commands c LEFT JOIN command_permissions cp ON cp.command_id=c.id GROUP BY c.id ORDER BY c.id
+    `);
+    panelCommands=result.rows;
+  }catch(error){console.error("[command-access] refresh failed",error);panelCommands=[];}
 }
 
 function mergeStudio(value: Partial<StudioDocument>): StudioDocument {
@@ -65,44 +71,83 @@ function commandMatches(text: string, aliases: string[]) {
   });
 }
 
-async function studioReplyLive(ctx: BotContext): Promise<string | null> {
-  const raw = ctx.text.trim();
-  if (!raw || /^[\/!.]/.test(raw)) return null;
+const PANEL_ROLE_ORDER: PanelRole[] = ["MEMBER","SPECIAL_USER","MODERATOR","ADMIN","SUPER_ADMIN","OWNER"];
+type PanelRole = typeof PANEL_ROLE_ORDER[number];
+type PanelCommand = { id:number; command_key:string; fa_name:string; en_name:string; enabled:boolean; required_permission:string; minimum_role:PanelRole; permissions:Array<{role:PanelRole;allowed:boolean}> };
 
-  const token = normalizeCommand(raw);
-  const command = studio.commands.find((item) =>
-    item.enabled &&
-    item.phase <= 2 &&
-    commandMatches(token, [...item.aliasesFa, ...item.aliasesEn]),
-  );
-  if (!command) return null;
-  if (!rankAtLeast(ctx.userRank, command.minRank)) {
-    return ctx.lang === "fa" ? "✗ دسترسی کافی برای این دستور را ندارید." : "✗ You do not have enough access for this command.";
+function panelRoleForRank(rank: Rank): PanelRole {
+  if(rank==="owner") return "OWNER";
+  if(rank==="sudo") return "SUPER_ADMIN";
+  if(rank==="admin") return "ADMIN";
+  return "MEMBER";
+}
+function panelRoleAtLeast(have:PanelRole, need:PanelRole){ return PANEL_ROLE_ORDER.indexOf(have)>=PANEL_ROLE_ORDER.indexOf(need); }
+function normalizeRole(value:unknown):PanelRole {
+  const role=String(value??"").trim().toUpperCase();
+  return (PANEL_ROLE_ORDER as string[]).includes(role) ? role as PanelRole : "MEMBER";
+}
+async function resolvePanelRole(ctx:BotContext):Promise<PanelRole>{
+  const fallback=panelRoleForRank(ctx.userRank);
+  if(!studioPool)return fallback;
+  try{
+    const r=await studioPool.query<{role:string}>("SELECT role FROM users WHERE telegram_id=$1 AND is_active=TRUE LIMIT 1",[ctx.userId]);
+    return r.rows[0]?.role ? normalizeRole(r.rows[0].role) : fallback;
+  }catch(error){ console.error("[command-access] role lookup failed",error); return fallback; }
+}
+async function hasPanelPermission(ctx:BotContext,role:PanelRole,permission:string){
+  if(role==="OWNER")return true;
+  if(!studioPool)return permission==="view";
+  try{
+    const custom=await studioPool.query<{allowed:boolean}>("SELECT allowed FROM user_permissions WHERE user_id=$1 AND permission_key=$2 LIMIT 1",[String(ctx.userId),permission]);
+    if(custom.rows[0])return custom.rows[0].allowed===true;
+    const r=await studioPool.query<{allowed:boolean}>("SELECT allowed FROM role_permissions WHERE role=$1 AND permission_key=$2 LIMIT 1",[role,permission]);
+    return r.rows[0]?.allowed===true;
+  }catch(error){ console.error("[command-access] permission lookup failed",error); return false; }
+}
+async function authorizeStudioCommand(ctx:BotContext,command:typeof studio.commands[number]){
+  const role=await resolvePanelRole(ctx);
+  const aliases=[...command.aliasesEn,...command.aliasesFa,command.id];
+  const panel=panelCommands.find(item=>aliases.some(a=>normalizeCommand(item.command_key)===normalizeCommand(a)||normalizeCommand(item.en_name)===normalizeCommand(a)||normalizeCommand(item.fa_name)===normalizeCommand(a)));
+  if(panel&&!panel.enabled)return {allowed:false,role,reason:"disabled"};
+  const minimum=panel?normalizeRole(panel.minimum_role):panelRoleForRank(command.minRank);
+  if(!panelRoleAtLeast(role,minimum))return {allowed:false,role,reason:"minimum_role"};
+  if(panel){
+    const row=panel.permissions.find(x=>normalizeRole(x.role)===role);
+    if(row&&row.allowed!==true)return {allowed:false,role,reason:"command_role"};
+  }
+  const required=panel?.required_permission || (command.minRank==="member"?"view":"execute");
+  if(!(await hasPanelPermission(ctx,role,required)))return {allowed:false,role,reason:"permission"};
+  return {allowed:true,role,reason:"allowed"};
+}
+async function logCommandAccess(ctx:BotContext,key:string,eventType:"command_executed"|"permission_denied",reason:string,role:PanelRole){
+  if(!studioPool)return;
+  try{
+    await studioPool.query("INSERT INTO supervision_events (event_type,severity,actor_id,target_type,target_id,command_key,group_id,metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)",[eventType,eventType==="permission_denied"?"warning":"info",String(ctx.userId),"command",key,key,ctx.chatId,JSON.stringify({role,reason})]);
+  }catch(error){ console.error("[command-access] audit failed",error); }
+}
+
+async function studioReplyLive(ctx: BotContext): Promise<string | null> {
+  const raw=ctx.text.trim();
+  if(!raw)return null;
+  const token=normalizeCommand(raw);
+  const command=studio.commands.find(item=>item.enabled&&item.phase<=2&&commandMatches(token,[...item.aliasesFa,...item.aliasesEn]));
+  if(!command)return null;
+
+  const auth=await authorizeStudioCommand(ctx,command);
+  if(!auth.allowed){
+    await logCommandAccess(ctx,command.id,"permission_denied",auth.reason,auth.role);
+    return ctx.lang==="fa"?"✗ دسترسی کافی برای اجرای این دستور را ندارید.":"✗ You do not have permission to execute this command.";
   }
 
-  try {
-    const liveCard = await runLiveCommand(
-      { ...ctx, messageId: 0 },
-      command.aliasesEn[0] ?? command.id,
-      raw.split(/\s+/).slice(1),
-    );
-    const values: Record<string, string> = {
-      user_name: ctx.userName,
-      username: ctx.userName.startsWith("@") ? ctx.userName : "@" + ctx.userName,
-      user_id: String(ctx.userId),
-      rank: ctx.userRank,
-      chat_title: ctx.chatTitle,
-      chat_id: String(ctx.chatId),
-      chat_type: ctx.chatType,
-      members_count: String(ctx.membersCount),
-      admins_count: String(ctx.staff.length),
-      live_card: liveCard,
-    };
-    const template = ctx.lang === "fa" ? command.responseFa : command.responseEn;
-    return template.replace(/{{\s*([a-z0-9_]+)\s*}}/gi, (_, key) => values[key] ?? "—");
-  } catch (error) {
-    console.error("[studio-command]", error);
-    return ctx.lang === "fa" ? "✗ اجرای دستور ناموفق بود؛ دسترسی ربات یا هدف را بررسی کنید." : "✗ Command failed; check bot permissions or target.";
+  try{
+    const liveCard=await runLiveCommand({...ctx,messageId:0},command.aliasesEn[0]??command.id,raw.split(/\\s+/).slice(1));
+    await logCommandAccess(ctx,command.id,"command_executed","allowed",auth.role);
+    const values:Record<string,string>={user_name:ctx.userName,username:ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName,user_id:String(ctx.userId),rank:ctx.userRank,chat_title:ctx.chatTitle,chat_id:String(ctx.chatId),chat_type:ctx.chatType,members_count:String(ctx.membersCount),admins_count:String(ctx.staff.length),live_card:liveCard};
+    const template=ctx.lang==="fa"?command.responseFa:command.responseEn;
+    return template.replace(/{{\\s*([a-z0-9_]+)\\s*}}/gi,(_,key)=>values[key]??"—");
+  }catch(error){
+    console.error("[studio-command]",error);
+    return ctx.lang==="fa"?"✗ اجرای دستور ناموفق بود؛ دسترسی ربات یا هدف را بررسی کنید.":"✗ Command failed; check bot permissions or target.";
   }
 }
 
