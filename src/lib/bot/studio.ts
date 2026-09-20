@@ -106,8 +106,8 @@ export const STUDIO_DEFAULTS: StudioDocument = {
     aliasesEn: c.aliasesEn,
     minRank: c.minRank,
     enabled: true,
-    responseFa: fa[c.id] ?? "✓ دستور اجرا شد.",
-    responseEn: en[c.id] ?? "✓ Command executed.",
+    responseFa: "{{live_card}}",
+    responseEn: "{{live_card}}",
   })),
 };
 
