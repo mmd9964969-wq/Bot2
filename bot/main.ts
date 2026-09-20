@@ -45,6 +45,7 @@ function mergeStudio(value: Partial<StudioDocument>): StudioDocument {
     settings: { ...base.settings, ...(value.settings ?? {}) },
     capabilities: Array.isArray(value.capabilities) ? value.capabilities : base.capabilities,
     commands: base.commands.map((b) => ({ ...b, ...(Array.isArray(value.commands) ? value.commands.find((x) => x.id === b.id) : undefined) })),
+    responseTemplates: Array.isArray(value.responseTemplates) && value.responseTemplates.length ? value.responseTemplates : base.responseTemplates,
   };
 }
 
