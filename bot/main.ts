@@ -88,31 +88,30 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
     return ctx.lang === "fa" ? "✗ دسترسی کافی برای این دستور را ندارید." : "✗ You do not have enough access for this command.";
   }
 
-  let liveCard = "";
-  if (["robot", "admin", "rank", "me", "ping", "bot", "status"].includes(command.id)) {
-    liveCard = await runLiveCommand({ ...ctx, messageId: 0 }, command.aliasesEn[0] ?? command.id, []);
+  try {
+    const liveCard = await runLiveCommand(
+      { ...ctx, messageId: 0 },
+      command.aliasesEn[0] ?? command.id,
+      ctx.text.trim().replace(/^[/!.]/, "").trim().split(/\s+/).slice(1),
+    );
+    const values: Record<string, string> = {
+      user_name: ctx.userName,
+      username: ctx.userName.startsWith("@") ? ctx.userName : "@" + ctx.userName,
+      user_id: String(ctx.userId),
+      rank: ctx.userRank,
+      chat_title: ctx.chatTitle,
+      chat_id: String(ctx.chatId),
+      chat_type: ctx.chatType,
+      members_count: String(ctx.membersCount),
+      admins_count: String(ctx.staff.length),
+      live_card: liveCard,
+    };
+    const template = ctx.lang === "fa" ? command.responseFa : command.responseEn;
+    return template.replace(/{{\s*([a-z0-9_]+)\s*}}/gi, (_, key) => values[key] ?? "—");
+  } catch (error) {
+    console.error("[studio-command]", error);
+    return ctx.lang === "fa" ? "✗ اجرای دستور ناموفق بود؛ دسترسی ربات یا هدف را بررسی کنید." : "✗ Command failed; check bot permissions or target.";
   }
-
-  const values: Record<string, string> = {
-    user_name: ctx.userName,
-    username: ctx.userName.startsWith("@") ? ctx.userName : "@" + ctx.userName,
-    user_id: String(ctx.userId),
-    rank: ctx.userRank,
-    chat_title: ctx.chatTitle,
-    chat_id: String(ctx.chatId),
-    chat_type: ctx.chatType,
-    members_count: String(ctx.membersCount),
-    admins_count: String(ctx.staff.length),
-    robot_line: command.id === "robot" ? liveCard : "—",
-    admin_result: command.id === "admin" ? liveCard : "—",
-    rank_card: command.id === "rank" ? liveCard : "—",
-    me_card: command.id === "me" ? liveCard : "—",
-    ping_card: command.id === "ping" ? liveCard : "—",
-    bot_card: command.id === "bot" ? liveCard : "—",
-    status_card: command.id === "status" ? liveCard : "—",
-  };
-  const template = ctx.lang === "fa" ? command.responseFa : command.responseEn;
-  return template.replace(/{{\s*([a-z0-9_]+)\s*}}/gi, (_, key) => values[key] ?? "—");
 }
 
 function render(template: string, ctx: BotContext) {
@@ -128,6 +127,7 @@ function render(template: string, ctx: BotContext) {
     admins_count: String(ctx.staff.length),
     latency_ms: "—",
     database_status: process.env.DATABASE_URL ? "متصل" : "local",
+    live_card: "—",
     version: studio.version,
     bot_name: config.botName,
     bot_username: config.botUsername,
@@ -206,6 +206,8 @@ async function handleMessage(msg: TgMessage) {
     try { adminIds = await chatAdmins(chat.id); } catch (error) { console.error("[admins] lookup failed", error); }
   }
   const lang = chatLang.get(chat.id) ?? config.defaultLang;
+
+  await recordMessage(chat.id, msg.message_id);
 
   const ctx: BotContext = {
     text,
