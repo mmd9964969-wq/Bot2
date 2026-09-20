@@ -302,7 +302,8 @@ const server = http.createServer(async (req,res) => {
       }));
     }
 
-    if (url.pathname.startsWith("/api/runtime")) { const handled = await runtimeApi(req,res,url); if (handled !== null) return handled; }\n    if (url.pathname.startsWith("/api/responses")) { const handled = await responseStudioApi(req,res,url); if (handled !== null) return handled; }
+    if (url.pathname.startsWith("/api/runtime")) { const handled = await runtimeApi(req,res,url); if (handled !== null) return handled; }
+    if (url.pathname.startsWith("/api/responses")) { const handled = await responseStudioApi(req,res,url); if (handled !== null) return handled; }
     if (url.pathname.startsWith("/api/users")) { const handled = await usersApi(req,res,url); if (handled !== null) return handled; }
     if (url.pathname.startsWith("/api/supervision")) {
       const handled = await supervisionApi(req,res,url);
