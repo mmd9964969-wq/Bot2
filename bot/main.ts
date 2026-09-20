@@ -70,11 +70,8 @@ function commandMatches(text: string, aliases: string[]) {
   const raw = text.trim();
   if (/^[\\/!.]/.test(raw)) return false;
   const normalized = normalizeCommand(raw);
-  const firstToken = normalized.split(" ")[0] ?? "";
-  return aliases.some((alias) => {
-    const target = normalizeCommand(alias);
-    return normalized === target || firstToken === target;
-  });
+  const targets = aliases.map(normalizeCommand).filter(Boolean).sort((a,b)=>b.length-a.length);
+  return targets.some((target) => normalized === target || normalized.startsWith(target + " "));
 }
 
 const PANEL_ROLE_ORDER: PanelRole[] = ["MEMBER","SPECIAL_USER","MODERATOR","ADMIN","SUPER_ADMIN","OWNER"];
@@ -156,7 +153,7 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
         user_name:ctx.userName,
         username:ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName,
         user_id:String(ctx.userId),
-        rank:ctx.userRank,
+        rank:ctx.lang==="fa" ? ({owner:"مالک",sudo:"سودو",admin:"مدیر",member:"کاربر"} as Record<string,string>)[ctx.userRank] : ctx.userRank,
         chat_title:ctx.chatTitle,
         chat_id:String(ctx.chatId),
         chat_type:ctx.chatType,
@@ -277,9 +274,9 @@ const adminCache = new Map<number, { at: number; ids: Set<number> }>();
 
 type TgUser = { id: number; first_name?: string; username?: string };
 type TgChat = { id: number; type: string; title?: string };
-type TgMessage = { message_id: number; chat: TgChat; from?: TgUser; text?: string; reply_to_message?: { from?: TgUser } };
+type TgMessage = { message_id: number; chat: TgChat; from?: TgUser; text?: string; reply_to_message?: { from?: TgUser }; new_chat_members?: TgUser[]; left_chat_member?: TgUser };
 type TgChatMemberUpdate = { chat: TgChat; from?: TgUser; new_chat_member?: { status?: string; user?: TgUser } };
-type TgUpdate = { update_id: number; message?: TgMessage; my_chat_member?: TgChatMemberUpdate };
+type TgUpdate = { update_id: number; message?: TgMessage; my_chat_member?: TgChatMemberUpdate; chat_member?: TgChatMemberUpdate };
 
 function splitIds(raw: string | undefined): string[] {
   return (raw ?? "").split(/[,\s]+/).map((s) => s.trim()).filter(Boolean);
@@ -410,7 +407,7 @@ async function poll() {
       const data = await telegramApi("getUpdates", {
         offset,
         timeout: 30,
-        allowed_updates: ["message", "my_chat_member"],
+        allowed_updates: ["message", "my_chat_member", "chat_member"],
       });
       if (!data.ok || !Array.isArray(data.result)) {
         console.error(data.description ?? "getUpdates failed");
@@ -428,6 +425,11 @@ async function poll() {
         if (upd.my_chat_member) {
           void handleMyChatMember(upd.my_chat_member).catch((error) => {
             console.error("[update] member handler failed", error);
+          });
+        }
+        if (upd.chat_member?.new_chat_member?.user && ["member","administrator","creator"].includes(upd.chat_member.new_chat_member.status ?? "")) {
+          void recordMemberJoin(upd.chat_member.chat.id, upd.chat_member.new_chat_member.user.id, Date.now()).catch((error) => {
+            console.error("[member] join tracking failed", error);
           });
         }
       }
