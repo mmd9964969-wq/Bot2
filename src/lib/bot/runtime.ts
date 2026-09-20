@@ -104,6 +104,7 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
       return fa(ctx.lang,
         "◈ اطلاعات کاربر\n\n⛂ - نام : "+ctx.userName+"\n⛂ - نام کاربری : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - شناسه : "+ctx.userId+"\n⛂ - مقام : "+rankLabel(ctx.lang,rank)+"\n⛂ - تاریخ عضویت : —\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - تعداد پیام امروز : "+us.today+"\n⛂ - تعداد پیام کل : "+us.total+"\n⛂ - تعداد اخطار فعال : "+(s.warnings.get(ctx.userId)?.count??0)+"\n⛂ - وضعیت سکوت : —\n⛂ - وضعیت لیست ویژه : —",
         "◈ User information\n\n⛂ - Name : "+ctx.userName+"\n⛂ - Username : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - ID : "+ctx.userId+"\n⛂ - Rank : "+rank+"\n⛂ - Join date : —\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - Messages today : "+us.today+"\n⛂ - Total messages : "+us.total+"\n⛂ - Active warnings : "+(s.warnings.get(ctx.userId)?.count??0)+"\n⛂ - Mute status : —\n⛂ - Special status : —");
+    }
     case "bot": {
       const me=await api<any>("getMe",{});
       const botId=me.id??"—";
