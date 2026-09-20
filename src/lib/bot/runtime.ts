@@ -16,6 +16,7 @@ type GroupState = {
   language:Lang;
 };
 const groups=new Map<number,GroupState>();
+let robotIndex=0;
 const chatLang=new Map<number,Lang>();
 const messageTimes=new Map<number,number[]>();
 function state(id:number):GroupState{
@@ -50,6 +51,34 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
   const targetRequired=()=>{if(!targetId)throw new Error(fa(ctx.lang,"✗ روی پیام کاربر ریپلای کن یا شناسه عددی بده.","✗ Reply to a user or provide a numeric ID."));return targetId;};
 
   switch(command.id){
+    case "robot": {
+      const faLines=["جانم من اینجا هستم حاضر و آماده در خدمت شما","بله فرمانده فرمان بدی آماده‌ خدمتم","کاپیتان دستور بده که رو این دریا یه کاپیتان داریم اونم شمایی"];
+      const enLines=["I am here and ready to serve.","Yes, commander. Give the order.","Captain, give the order. There is one captain here — you."];
+      const lines=ctx.lang==="fa"?faLines:enLines;
+      const out=lines[robotIndex%lines.length];
+      robotIndex=(robotIndex+1)%lines.length;
+      return out;
+    }
+    case "admin":
+      return ["owner","sudo","admin"].includes(rank)
+        ? fa(ctx.lang,"✓ دسترسی تأیید شد شما ادمین این گروه هستید.","✓ Access confirmed. You are an admin of this group.")
+        : fa(ctx.lang,"✗ دسترسی رد شد شما ادمین این گروه نیستید.","✗ Access denied. You are not an admin of this group.");
+    case "rank":
+      return fa(ctx.lang,
+        "◈ سیستم پیشرفته مدیران\n\n★ - "+rankLabel(ctx.lang,rank)+"\n\n⛂ - نام : "+ctx.userName+"\n⛂ - نام کاربری : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - شناسه : "+ctx.userId+"\n⛂ - مقام : "+rankLabel(ctx.lang,rank)+"\n⛂ - تاریخ شروع : —\n⛂ - دسترسی‌ها : "+(rank==="owner"?"کامل":rank==="admin"?"مدیریتی":"عادی")+"\n⛂ - مسئولیت اصلی : —",
+        "◈ Advanced manager system\n\n★ - "+rankLabel(ctx.lang,rank)+"\n\n⛂ - Name : "+ctx.userName+"\n⛂ - Username : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - ID : "+ctx.userId+"\n⛂ - Rank : "+rank+"\n⛂ - Start date : —\n⛂ - Access : "+(rank==="owner"?"Full":rank==="admin"?"Management":"Standard"));
+    case "me":
+      return fa(ctx.lang,
+        "◈ اطلاعات کاربر\n\n⛂ - نام : "+ctx.userName+"\n⛂ - نام کاربری : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - شناسه : "+ctx.userId+"\n⛂ - مقام : "+rankLabel(ctx.lang,rank)+"\n⛂ - تاریخ عضویت : —\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - تعداد پیام امروز : —\n⛂ - تعداد پیام کل : —\n⛂ - تعداد اخطار فعال : "+(s.warnings.get(ctx.userId)?.count??0)+"\n⛂ - وضعیت سکوت : —\n⛂ - وضعیت لیست ویژه : —",
+        "◈ User information\n\n⛂ - Name : "+ctx.userName+"\n⛂ - Username : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - ID : "+ctx.userId+"\n⛂ - Rank : "+rank+"\n⛂ - Join date : —\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - Messages today : —\n⛂ - Total messages : —\n⛂ - Active warnings : "+(s.warnings.get(ctx.userId)?.count??0)+"\n⛂ - Mute status : —\n⛂ - Special status : —");
+    case "bot":
+      return fa(ctx.lang,
+        "◈ اطلاعات فنی ربات\n\n⛂ - نام ربات : "+(ctx.config.botName||"نظم")+"\n⛂ - نام کاربری : "+(ctx.config.botUsername||"—")+"\n⛂ - شناسه ربات : —\n⛂ - نسخه ربات : v"+(process.env.BOT_VERSION??"2.0.0")+"\n⛂ - وضعیت ربات : آنلاین\n⛂ - اتصال دیتابیس : "+(process.env.DATABASE_URL?"متصل":"محلی")+"\n⛂ - روش ارتباط تلگرام : Polling\n⛂ - وضعیت سرویس : فعال\n⛂ - سیستم‌عامل : "+process.platform+"\n⛂ - نسخه Node.js : "+process.version+"\n⛂ - uptime : "+Math.floor(process.uptime())+" ثانیه",
+        "◈ Bot technical information\n\n⛂ - Bot name : "+(ctx.config.botName||"Nizam")+"\n⛂ - Username : "+(ctx.config.botUsername||"—")+"\n⛂ - Bot ID : —\n⛂ - Version : v"+(process.env.BOT_VERSION??"2.0.0")+"\n⛂ - Status : Online\n⛂ - Database : "+(process.env.DATABASE_URL?"Connected":"Local")+"\n⛂ - Telegram connection : Polling\n⛂ - Service : Active\n⛂ - OS : "+process.platform+"\n⛂ - Node.js : "+process.version+"\n⛂ - Uptime : "+Math.floor(process.uptime())+"s");
+    case "status":
+      return fa(ctx.lang,
+        "◈ وضعیت گروه\n\n⛂ - وضعیت ربات : ● فعال\n⛂ - وضعیت مدیریت : ● فعال\n⛂ - وضعیت دیتابیس : ● "+(process.env.DATABASE_URL?"متصل":"محلی")+"\n⛂ - وضعیت ضد اسپم : ● فعال\n⛂ - وضعیت ضد فلود : ● فعال\n⛂ - وضعیت امنیت : ● فعال\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - تعداد اعضا : "+ctx.membersCount+"\n⛂ - تعداد مدیران : "+ctx.staff.length+"\n⛂ - پیام‌های امروز : —\n⛂ - اخطارهای فعال : "+stats(ctx.chatId).warnings+"\n⛂ - افراد در لیست سکوت : —\n⛂ - افراد در لیست ویژه : —\n\n★ - وضعیت کلی گروه : پایدار",
+        "◈ Group status\n\n⛂ - Bot : ● Active\n⛂ - Management : ● Active\n⛂ - Database : ● "+(process.env.DATABASE_URL?"Connected":"Local")+"\n⛂ - Anti-spam : ● Active\n⛂ - Anti-flood : ● Active\n⛂ - Security : ● Active\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - Members : "+ctx.membersCount+"\n⛂ - Admins : "+ctx.staff.length+"\n⛂ - Messages today : —\n⛂ - Active warnings : "+stats(ctx.chatId).warnings+"\n⛂ - Muted users : —\n⛂ - Special users : —\n\n★ - Overall group status : Stable");
     case "start": return fa(ctx.lang,"〽️ سلام 🌹\n\nربات مدیریت گروه فعال است. برای راهنما، «راهنما» را ارسال کن.","〽️ Hello 🌹\n\nThe group manager is online. Send “help” for commands.");
     case "help": return fa(ctx.lang,
       "◈ راهنمای ربات\n\nفاز ۱ — هسته و مدیریت\nاستارت | راهنما | پینگ | آیدی | اطلاعات | زبان | مدیران | تنظیمات | بن | آنبن | میوت | آنمیوت | کیک | اخطار | حذفاخطار | اخطارها | تی‌میوت | تی‌بن\n\nفاز ۲ — امنیت و تنظیمات\nقفل | آنلاک | قفلها | ضدفلود | ضداسپم | نایت | خوشامد | خدافظی | قوانین | تنظیم‌قوانین | فیلتر | نوت | پین | آنپین | پاکسازی | ارتقا | عزل | گزارش",
