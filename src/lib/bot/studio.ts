@@ -97,7 +97,7 @@ export const STUDIO_DEFAULTS: StudioDocument = {
   activePhase: 2,
   settings: { botName: "نظم", defaultLang: "fa", bareCommands: true, compactReplies: false },
   capabilities,
-  responseTemplates,
+  responseTemplates: responseTemplates.filter((x) => !["me", "bot", "status"].includes(x.id)).map((x) => ({ ...x, phase: ["start", "help", "ping", "id", "info", "lang", "staff", "settings"].includes(x.id) ? 1 : 2 })),
   commands: COMMANDS.map((c) => ({
     id: c.id,
     capabilityId: "phase-" + c.phase,
