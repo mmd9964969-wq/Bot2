@@ -140,36 +140,74 @@ function permissionsPage(){
 
 async function supervisionPage(){
   shell("مرکز نظارت","SUPERVISION CENTER · LIVE MONITOR",`
-    <div class="permission-hero"><div><span class="eyebrow">LIVE SUPERVISION</span><h2>مرکز نظارت و رویدادهای ربات</h2><p>ردیابی شروع کاربران، اجرای دستورات، فعالیت مدیران، رویدادهای امنیتی و خطاهای سیستم.</p></div><span class="security-badge">● LIVE</span></div>
-    <div class="stats supervision-stats" id="supervisionStats">
-      <div class="stat-card"><div class="stat-top"><span class="stat-icon blue">◉</span><span class="stat-kicker">EVENTS · 24H</span></div><strong>—</strong><span>رویدادهای ثبت‌شده</span></div>
-      <div class="stat-card"><div class="stat-top"><span class="stat-icon green">♙</span><span class="stat-kicker">USERS</span></div><strong>—</strong><span>کاربران ثبت‌شده</span></div>
-      <div class="stat-card"><div class="stat-top"><span class="stat-icon purple">⌘</span><span class="stat-kicker">COMMANDS</span></div><strong>—</strong><span>دستورات فعال</span></div>
-      <div class="stat-card"><div class="stat-top"><span class="stat-icon gold">◇</span><span class="stat-kicker">SECURITY</span></div><strong>—</strong><span>هشدارهای ۲۴ ساعت اخیر</span></div>
-      <div class="stat-card"><div class="stat-top"><span class="stat-icon blue">!</span><span class="stat-kicker">ERRORS</span></div><strong>—</strong><span>خطاهای ۲۴ ساعت اخیر</span></div>
+    <div class="permission-hero"><div><span class="eyebrow">SUPERVISION CENTER</span><h2>مرکز نظارت و کنترل زنده</h2><p>یک نمای متمرکز برای پایش کاربران، دستورات، گروه‌ها، مدیران، امنیت، خطاها و سلامت سیستم.</p></div><span class="security-badge">● LIVE</span></div>
+    <div class="quick-grid supervision-modules" id="supervisionModules">
+      <button class="quick active" data-supervision-tab="monitor"><span>◉</span><div><b>Live Monitor</b><small>نمای زنده سیستم و رویدادها</small></div><i>01</i></button>
+      <button class="quick" data-supervision-tab="users"><span>♙</span><div><b>Users</b><small>فعالیت و وضعیت کاربران</small></div><i>02</i></button>
+      <button class="quick" data-supervision-tab="commands"><span>⌘</span><div><b>Commands</b><small>اجرای دستورات و خطاها</small></div><i>03</i></button>
+      <button class="quick" data-supervision-tab="groups"><span>▣</span><div><b>Groups</b><small>گروه‌ها و وضعیت ربات</small></div><i>04</i></button>
+      <button class="quick" data-supervision-tab="admins"><span>♜</span><div><b>Administrators</b><small>فعالیت مدیران و اقدامات</small></div><i>05</i></button>
+      <button class="quick" data-supervision-tab="security"><span>◇</span><div><b>Security</b><small>هشدارها و رویدادهای حساس</small></div><i>06</i></button>
+      <button class="quick" data-supervision-tab="events"><span>◌</span><div><b>Events</b><small>تمام رویدادهای ثبت‌شده</small></div><i>07</i></button>
+      <button class="quick" data-supervision-tab="errors"><span>!</span><div><b>Errors</b><small>خطاهای API و دیتابیس</small></div><i>08</i></button>
+      <button class="quick" data-supervision-tab="health"><span>♥</span><div><b>System Health</b><small>سلامت سرویس و دیتابیس</small></div><i>09</i></button>
+      <button class="quick" data-supervision-tab="statistics"><span>▥</span><div><b>Statistics</b><small>آمار و روند فعالیت</small></div><i>10</i></button>
     </div>
-    <div class="panel-card command-table-card">
-      <div class="table-head"><div><b>Live Event Stream</b><small>رویدادها به‌صورت نزولی بر اساس زمان</small></div>
-        <div class="toolbar-actions"><select id="supervisionSeverity"><option value="">همه سطوح</option><option value="info">INFO</option><option value="success">SUCCESS</option><option value="warning">WARNING</option><option value="error">ERROR</option><option value="critical">CRITICAL</option></select><button class="ghost" id="supervisionRefresh">↻ بروزرسانی</button></div>
-      </div>
-      <div id="supervisionEvents" class="command-table"><div class="loading-state">در حال دریافت رویدادها...</div></div>
-    </div>`);
-  const stats=document.getElementById("supervisionStats"), events=document.getElementById("supervisionEvents"), severity=document.getElementById("supervisionSeverity");
+    <div id="supervisionWorkspace"></div>`);
+  const workspace=document.getElementById("supervisionWorkspace");
+  const modules=document.getElementById("supervisionModules");
+  const labels={monitor:"LIVE MONITOR",users:"USERS",commands:"COMMANDS",groups:"GROUPS",admins:"ADMINISTRATORS",security:"SECURITY",events:"EVENTS",errors:"ERRORS",health:"SYSTEM HEALTH",statistics:"STATISTICS"};
   function eventLabel(e){const map={user_started:"کاربر ربات را Start کرد",user_blocked_bot:"کاربر ربات را Block کرد",user_unblocked_bot:"کاربر ربات را Unblock کرد",command_executed:"اجرای دستور",command_failed:"خطای دستور",group_joined:"ورود ربات به گروه",group_left:"خروج ربات از گروه",admin_action:"فعالیت مدیر",permission_denied:"رد دسترسی",permission_changed:"تغییر دسترسی",settings_changed:"تغییر تنظیمات",bot_added_to_group:"افزوده‌شدن ربات به گروه",bot_removed_from_group:"حذف ربات از گروه",security_alert:"هشدار امنیتی",api_error:"خطای API",database_error:"خطای دیتابیس",system_health:"بررسی سلامت سیستم"};return map[e]||e;}
-  async function load(){
+  async function getData(severity=""){const q=severity?("?severity="+encodeURIComponent(severity)):"";const [sr,er]=await Promise.all([fetch("/api/supervision/summary",{cache:"no-store"}),fetch("/api/supervision/events"+q,{cache:"no-store"})]);const s=await sr.json(),e=await er.json();if(!sr.ok||!er.ok)throw Error("API");return {s,e};}
+  function statCard(icon,kicker,value,label,cls="blue"){return `<div class="stat-card"><div class="stat-top"><span class="stat-icon ${cls}">${icon}</span><span class="stat-kicker">${kicker}</span></div><strong>${value}</strong><span>${label}</span></div>`;}
+  function eventTable(rows,empty="هنوز رویدادی ثبت نشده"){return rows.length?'<div class="command-row command-header"><span>EVENT</span><span>SEVERITY</span><span>ACTOR</span><span>TARGET</span><span>TIME</span></div>'+rows.map(x=>'<div class="command-row"><div><b>'+esc(eventLabel(x.event_type))+'</b><small>'+esc(x.command_key||x.event_type)+'</small></div><span class="status '+((x.severity==="info"||x.severity==="success")?"on":"off")+'">'+esc(x.severity.toUpperCase())+'</span><span class="alias">'+esc(x.actor_id||"SYSTEM")+'</span><span class="alias">'+esc(x.target_id||x.group_id||"—")+'</span><span class="alias">'+new Date(x.created_at).toLocaleString("fa-IR",{hour:"2-digit",minute:"2-digit",month:"2-digit",day:"2-digit"})+'</span></div>').join(""):'<div class="empty-table"><span>◉</span><b>'+empty+'</b><small>با اتصال Bot Runtime داده‌های واقعی این بخش نمایش داده می‌شوند.</small></div>';}
+  async function render(tab="monitor"){
+    modules.querySelectorAll("[data-supervision-tab]").forEach(x=>x.classList.toggle("active",x.dataset.supervisionTab===tab));
+    workspace.innerHTML='<div class="panel-card"><div class="loading-state">در حال دریافت اطلاعات مرکز نظارت...</div></div>';
     try{
-      const q=severity.value?("?severity="+encodeURIComponent(severity.value)):"";
-      const [sr,er]=await Promise.all([fetch("/api/supervision/summary",{cache:"no-store"}),fetch("/api/supervision/events"+q,{cache:"no-store"})]);
-      const s=await sr.json(), e=await er.json(); if(!sr.ok||!er.ok)throw Error("API");
-      const vals=[s.events24h,s.users,s.activeCommands,s.securityAlerts24h,s.errors24h];
-      stats.querySelectorAll(".stat-card strong").forEach((el,i)=>el.textContent=vals[i]);
+      const {s,e}=await getData();
       const rows=e.events||[];
-      events.innerHTML=rows.length?'<div class="command-row command-header"><span>EVENT</span><span>SEVERITY</span><span>ACTOR</span><span>TARGET</span><span>TIME</span></div>'+rows.map(x=>'<div class="command-row"><div><b>'+esc(eventLabel(x.event_type))+'</b><small>'+esc(x.command_key||x.event_type)+'</small></div><span class="status '+((x.severity==="info"||x.severity==="success")?"on":"off")+'">'+esc(x.severity.toUpperCase())+'</span><span class="alias">'+esc(x.actor_id||"SYSTEM")+'</span><span class="alias">'+esc(x.target_id||x.group_id||"—")+'</span><span class="alias">'+new Date(x.created_at).toLocaleString("fa-IR",{hour:"2-digit",minute:"2-digit",month:"2-digit",day:"2-digit"})+'</span></div>').join(""):'<div class="empty-table"><span>◉</span><b>هنوز رویدادی ثبت نشده</b><small>با اتصال Bot Runtime، رویدادهای /start، دستورات، گروه‌ها و امنیت اینجا نمایش داده می‌شوند.</small></div>';
-    }catch(e){events.innerHTML='<div class="loading-state error">Supervision API در دسترس نیست.</div>';}
+      if(tab==="monitor"){
+        workspace.innerHTML=`<div class="stats supervision-stats">
+          ${statCard("◉","EVENTS · 24H",s.events24h,"رویدادهای ثبت‌شده","blue")}
+          ${statCard("♙","USERS",s.users,"کاربران ثبت‌شده","green")}
+          ${statCard("⌘","COMMANDS",s.activeCommands,"دستورات فعال","purple")}
+          ${statCard("◇","SECURITY",s.securityAlerts24h,"هشدارهای ۲۴ ساعت اخیر","gold")}
+          ${statCard("!","ERRORS",s.errors24h,"خطاهای ۲۴ ساعت اخیر","blue")}
+        </div><div class="panel-card command-table-card"><div class="table-head"><div><b>Live Event Stream</b><small>آخرین رویدادهای سیستم</small></div><div class="toolbar-actions"><button class="ghost" id="supervisionRefresh">↻ بروزرسانی</button></div></div><div id="supervisionEvents" class="command-table">${eventTable(rows)}</div></div>`;
+        document.getElementById("supervisionRefresh").onclick=()=>render("monitor");
+      } else if(tab==="users"){
+        const userEvents=rows.filter(x=>String(x.event_type).startsWith("user_")||x.event_type==="permission_denied");
+        workspace.innerHTML=`<div class="stats supervision-stats">${statCard("♙","REGISTERED",s.users,"کاربران ثبت‌شده","green")}${statCard("◌","START EVENTS",userEvents.filter(x=>x.event_type==="user_started").length,"رویدادهای Start","blue")}${statCard("◇","BLOCK EVENTS",userEvents.filter(x=>x.event_type==="user_blocked_bot").length,"رویدادهای Block","gold")}</div><div class="panel-card command-table-card"><div class="table-head"><div><b>User Activity</b><small>فعالیت‌های مرتبط با کاربران</small></div></div><div class="command-table">${eventTable(userEvents,"هنوز فعالیت کاربری ثبت نشده")}</div></div>`;
+      } else if(tab==="commands"){
+        const commandEvents=rows.filter(x=>x.event_type==="command_executed"||x.event_type==="command_failed");
+        workspace.innerHTML=`<div class="stats supervision-stats">${statCard("⌘","ACTIVE",s.activeCommands,"دستورات فعال","purple")}${statCard("✓","EXECUTED",commandEvents.filter(x=>x.event_type==="command_executed").length,"اجرای ثبت‌شده","green")}${statCard("!","FAILED",commandEvents.filter(x=>x.event_type==="command_failed").length,"اجرای ناموفق","blue")}</div><div class="panel-card command-table-card"><div class="table-head"><div><b>Command Activity</b><small>اجرای دستورات و خطاها</small></div></div><div class="command-table">${eventTable(commandEvents,"هنوز اجرای دستوری ثبت نشده")}</div></div>`;
+      } else if(tab==="groups"){
+        const groupEvents=rows.filter(x=>["group_joined","group_left","bot_added_to_group","bot_removed_from_group"].includes(x.event_type));
+        workspace.innerHTML=`<div class="stats supervision-stats">${statCard("▣","GROUP EVENTS",groupEvents.length,"رویدادهای گروهی ثبت‌شده","blue")}${statCard("＋","JOINED",groupEvents.filter(x=>x.event_type==="group_joined"||x.event_type==="bot_added_to_group").length,"ورود یا افزودن ربات","green")}${statCard("−","LEFT",groupEvents.filter(x=>x.event_type==="group_left"||x.event_type==="bot_removed_from_group").length,"خروج یا حذف ربات","gold")}</div><div class="panel-card command-table-card"><div class="table-head"><div><b>Group Activity</b><small>ورود، خروج و تغییر وضعیت گروه‌ها</small></div></div><div class="command-table">${eventTable(groupEvents,"هنوز رویداد گروهی ثبت نشده")}</div></div>`;
+      } else if(tab==="admins"){
+        const adminEvents=rows.filter(x=>x.event_type==="admin_action"||x.event_type==="permission_changed"||x.event_type==="settings_changed");
+        workspace.innerHTML=`<div class="stats supervision-stats">${statCard("♜","ADMIN ACTIONS",adminEvents.filter(x=>x.event_type==="admin_action").length,"اقدامات مدیران","purple")}${statCard("♜","PERMISSIONS",adminEvents.filter(x=>x.event_type==="permission_changed").length,"تغییرات دسترسی","gold")}${statCard("⚙","SETTINGS",adminEvents.filter(x=>x.event_type==="settings_changed").length,"تغییرات تنظیمات","blue")}</div><div class="panel-card command-table-card"><div class="table-head"><div><b>Administrator Activity</b><small>اقدامات مدیریتی و تغییرات حساس</small></div></div><div class="command-table">${eventTable(adminEvents,"هنوز فعالیت مدیریتی ثبت نشده")}</div></div>`;
+      } else if(tab==="security"){
+        const sec=rows.filter(x=>["security_alert","permission_denied","user_blocked_bot","api_error","database_error"].includes(x.event_type)||["warning","error","critical"].includes(x.severity));
+        workspace.innerHTML=`<div class="stats supervision-stats">${statCard("◇","ALERTS",s.securityAlerts24h,"هشدارهای امنیتی ۲۴ ساعت اخیر","gold")}${statCard("!","DENIED",sec.filter(x=>x.event_type==="permission_denied").length,"دسترسی‌های ردشده","blue")}${statCard("×","CRITICAL",sec.filter(x=>x.severity==="critical").length,"رویدادهای Critical","purple")}</div><div class="panel-card command-table-card"><div class="table-head"><div><b>Security Events</b><small>رویدادهای حساس و هشدارها</small></div></div><div class="command-table">${eventTable(sec,"هشدار امنیتی ثبت نشده")}</div></div>`;
+      } else if(tab==="events"){
+        workspace.innerHTML=`<div class="panel-card command-table-card"><div class="table-head"><div><b>All Events</b><small>تمام رویدادهای دریافت‌شده از هسته نظارت</small></div><div class="badge">${rows.length} EVENTS</div></div><div class="command-table">${eventTable(rows)}</div></div>`;
+      } else if(tab==="errors"){
+        const errors=rows.filter(x=>["error","critical"].includes(x.severity)||["command_failed","api_error","database_error"].includes(x.event_type));
+        workspace.innerHTML=`<div class="stats supervision-stats">${statCard("!","ERRORS · 24H",s.errors24h,"خطاهای ثبت‌شده","blue")}${statCard("×","CRITICAL",errors.filter(x=>x.severity==="critical").length,"خطاهای بحرانی","purple")}</div><div class="panel-card command-table-card"><div class="table-head"><div><b>Error Center</b><small>خطاهای API، دیتابیس و اجرای دستورات</small></div></div><div class="command-table">${eventTable(errors,"هنوز خطایی ثبت نشده")}</div></div>`;
+      } else if(tab==="health"){
+        workspace.innerHTML=`<div class="stats supervision-stats">${statCard("♥","DATABASE","Connected","وضعیت لایه PostgreSQL","green")}${statCard("◉","API","Online","وضعیت API پنل","blue")}${statCard("✦","SUPERVISION","Active","هسته نظارت","purple")}</div><div class="panel-card"><div class="table-head"><div><b>System Health</b><small>وضعیت فعلی اجزای قابل پایش</small></div><span class="security-badge">● OPERATIONAL</span></div><div class="security-list"><div><span class="check">✓</span><div><b>Supervision API</b><small>Summary + Events endpoints</small></div><em>ACTIVE</em></div><div><span class="check">✓</span><div><b>PostgreSQL</b><small>Persistent supervision storage</small></div><em>CONNECTED</em></div><div><span class="check">✓</span><div><b>Event Stream</b><small>Ready for Bot Runtime events</small></div><em>READY</em></div></div></div>`;
+      } else {
+        workspace.innerHTML=`<div class="stats supervision-stats">${statCard("◉","TOTAL · 24H",s.events24h,"کل رویدادها","blue")}${statCard("♙","USERS",s.users,"کاربران","green")}${statCard("⌘","COMMANDS",s.activeCommands,"دستورات فعال","purple")}${statCard("◇","SECURITY",s.securityAlerts24h,"هشدارهای امنیتی","gold")}${statCard("!","ERRORS",s.errors24h,"خطاها","blue")}</div><div class="panel-card"><div class="table-head"><div><b>Statistics Overview</b><small>نمای فعلی آمار مرکز نظارت</small></div></div><div class="env-row"><span>Event volume</span><b>${s.events24h} / 24h</b></div><div class="env-row"><span>Registered users</span><b>${s.users}</b></div><div class="env-row"><span>Active commands</span><b>${s.activeCommands}</b></div><div class="env-row"><span>Security alerts</span><b>${s.securityAlerts24h}</b></div><div class="env-row"><span>Errors</span><b>${s.errors24h}</b></div></div>`;
+      }
+    }catch(err){workspace.innerHTML='<div class="panel-card"><div class="loading-state error">Supervision API در دسترس نیست.</div></div>';}
   }
-  severity.onchange=load; document.getElementById("supervisionRefresh").onclick=load; await load();
-  setInterval(()=>{if(location.hash==="#supervision")load();},10000);
+  modules.querySelectorAll("[data-supervision-tab]").forEach(btn=>btn.onclick=()=>render(btn.dataset.supervisionTab));
+  await render("monitor");
+  setInterval(()=>{if(location.hash==="#supervision")render(document.querySelector("[data-supervision-tab].active")?.dataset.supervisionTab||"monitor");},10000);
 }
+
 function placeholder(name){
   shell(titles[name]||"Panel","PERSIAN BOT STUDIO · "+String(name).toUpperCase(),'<div class="panel-card coming-card"><span class="eyebrow">CONTROL MODULE</span><h2>این بخش در حال اتصال به هسته مرکزی است</h2><p>ساختار پنل آماده است و در مراحل بعدی به API و PostgreSQL متصل می‌شود.</p></div>');
 }
