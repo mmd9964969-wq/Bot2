@@ -63,6 +63,55 @@ function openEditor(command){
   };
 }
 
+async function usersPage(){
+  shell("مدیریت کاربران","PEOPLE · USER MANAGEMENT",`
+    <div class="command-toolbar"><div class="searchbox">⌕ <input id="userSearch" placeholder="جستجوی نام، Username یا Telegram ID..."></div>
+      <div class="toolbar-actions"><span class="badge" id="userCount">0 USERS</span><button class="ghost" id="userRefresh">↻ بروزرسانی</button></div></div>
+    <div class="panel-card command-table-card"><div class="table-head"><div><b>User Registry</b><small>کاربران شناخته‌شده توسط سیستم</small></div><span class="badge muted">READ ONLY</span></div>
+      <div id="userTable" class="command-table"><div class="loading-state">در حال دریافت کاربران...</div></div></div>`);
+  const table=document.getElementById("userTable"),search=document.getElementById("userSearch"); let all=[];
+  async function load(){try{const r=await fetch("/api/users?limit=500",{cache:"no-store"}),d=await r.json();if(!r.ok)throw Error();all=d.users||[];render();}catch(e){table.innerHTML='<div class="loading-state error">Users API در دسترس نیست.</div>';}}
+  function render(){const q=(search.value||"").toLowerCase().trim(),rows=all.filter(u=>!q||[u.first_name,u.username,u.telegram_id,u.id,u.role].join(" ").toLowerCase().includes(q));document.getElementById("userCount").textContent=rows.length+" USERS";
+    table.innerHTML=rows.length?'<div class="command-row command-header"><span>USER</span><span>TELEGRAM ID</span><span>ROLE</span><span>STATUS</span><span>LAST UPDATE</span></div>'+rows.map(u=>'<div class="command-row"><div><b>'+esc(u.first_name||"بدون نام")+'</b><small>@'+esc(u.username||"—")+'</small></div><span class="alias">'+esc(u.telegram_id||u.id)+'</span><span class="permission-pill">'+esc(String(u.role||"member").toUpperCase())+'</span><span class="status '+(u.is_active?"on":"off")+'">'+(u.is_active?"ACTIVE":"INACTIVE")+'</span><span class="alias">'+new Date(u.updated_at||u.created_at).toLocaleString("fa-IR",{hour:"2-digit",minute:"2-digit",month:"2-digit",day:"2-digit"})+'</span></div>').join(""):'<div class="empty-table"><span>♙</span><b>کاربری ثبت نشده</b><small>با اتصال Bot Runtime کاربران از Telegram وارد این بخش می‌شوند.</small></div>';}
+  search.oninput=render;document.getElementById("userRefresh").onclick=load;await load();
+}
+
+async function responsesPage(){
+  shell("Response Studio","BOT MANAGEMENT · RESPONSES",`
+    <div class="permission-hero"><div><span class="eyebrow">RESPONSE ENGINE</span><h2>استودیو پاسخ‌های ربات</h2><p>مدیریت پیام‌های فارسی و انگلیسی برای دستورات، رویدادها، خطاها و پیام‌های مدیریتی.</p></div><span class="security-badge">FA · EN</span></div>
+    <div class="command-toolbar"><div class="searchbox">⌕ <input id="responseSearch" placeholder="جستجوی پاسخ، رویداد یا کلید..."></div>
+      <div class="toolbar-actions"><select id="responseFilter"><option value="all">همه وضعیت‌ها</option><option value="on">فعال</option><option value="off">غیرفعال</option></select><button class="primary" id="addResponse">+ پاسخ جدید</button></div></div>
+    <div class="panel-card command-table-card"><div class="table-head"><div><b>Response Registry</b><small>قالب‌های پاسخ قابل مدیریت</small></div><span class="badge" id="responseCount">0 RESPONSES</span></div>
+      <div id="responseTable" class="command-table"><div class="loading-state">در حال دریافت پاسخ‌ها...</div></div></div>`);
+  const table=document.getElementById("responseTable"),search=document.getElementById("responseSearch"),filter=document.getElementById("responseFilter");let all=[];
+  async function load(){try{const r=await fetch("/api/responses",{cache:"no-store"}),d=await r.json();if(!r.ok)throw Error();all=d.responses||[];render();}catch(e){table.innerHTML='<div class="loading-state error">Response API در دسترس نیست.</div>';}}
+  function render(){const q=(search.value||"").toLowerCase().trim(),f=filter.value,rows=all.filter(x=>(!q||[x.response_key,x.event_type,x.title,x.message_fa,x.message_en].join(" ").toLowerCase().includes(q))&&(f==="all"||(f==="on"&&x.enabled)||(f==="off"&&!x.enabled)));document.getElementById("responseCount").textContent=rows.length+" RESPONSES";
+    table.innerHTML=rows.length?'<div class="command-row command-header"><span>RESPONSE</span><span>EVENT</span><span>CHANNEL</span><span>STATUS</span><span></span></div>'+rows.map(x=>'<div class="command-row"><div><b>'+esc(x.title||x.response_key)+'</b><small>'+esc(x.response_key)+'</small></div><span class="alias">'+esc(x.event_type)+'</span><span class="permission-pill">'+esc(String(x.channel||"group").toUpperCase())+'</span><span class="status '+(x.enabled?"on":"off")+'">'+(x.enabled?"ACTIVE":"DISABLED")+'</span><button class="row-menu" data-edit-response="'+x.id+'">•••</button></div>').join(""):'<div class="empty-table"><span>◈</span><b>هنوز پاسخی ثبت نشده</b><small>از «پاسخ جدید» اولین Response Template را بسازید.</small></div>';
+    table.querySelectorAll("[data-edit-response]").forEach(b=>b.onclick=()=>openResponseEditor(all.find(x=>String(x.id)===b.dataset.editResponse)));
+  }
+  search.oninput=render;filter.onchange=render;document.getElementById("addResponse").onclick=()=>openResponseEditor(null);await load();
+}
+
+function openResponseEditor(response){
+  const edit=!!response,wrap=document.createElement("div");wrap.className="modal-backdrop";
+  wrap.innerHTML=`<div class="modal"><div class="modal-head"><div><span class="eyebrow">RESPONSE STUDIO</span><h2>${edit?"ویرایش پاسخ":"ساخت پاسخ جدید"}</h2></div><button class="modal-close">×</button></div>
+  <form id="responseForm" class="form-grid">
+    <label>Response Key<input name="response_key" required placeholder="welcome_message" value="${esc(response?.response_key)}"></label>
+    <label>عنوان<input name="title" placeholder="پیام خوش‌آمدگویی" value="${esc(response?.title)}"></label>
+    <label>Event Type<input name="event_type" placeholder="user_started" value="${esc(response?.event_type||"custom")}"></label>
+    <label>Channel<select name="channel"><option value="private" ${response?.channel==="private"?"selected":""}>PRIVATE</option><option value="group" ${!response||response?.channel==="group"?"selected":""}>GROUP</option><option value="admin" ${response?.channel==="admin"?"selected":""}>ADMIN</option><option value="system" ${response?.channel==="system"?"selected":""}>SYSTEM</option></select></label>
+    <label class="full">پیام فارسی<textarea name="message_fa" placeholder="متن پاسخ فارسی...">${esc(response?.message_fa)}</textarea></label>
+    <label class="full">English Message<textarea name="message_en" placeholder="English response...">${esc(response?.message_en)}</textarea></label>
+    <label class="switch-line"><input type="checkbox" name="enabled" ${response?.enabled!==false?"checked":""}> پاسخ فعال باشد</label>
+    <div class="form-actions"><button type="button" class="ghost modal-cancel">انصراف</button><button class="primary" type="submit">${edit?"ذخیره تغییرات":"ایجاد پاسخ"}</button></div>
+  </form></div>`;
+  document.body.appendChild(wrap);const close=()=>wrap.remove();wrap.querySelector(".modal-close").onclick=close;wrap.querySelector(".modal-cancel").onclick=close;
+  wrap.querySelector("#responseForm").onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target),data=Object.fromEntries(f.entries());data.enabled=f.get("enabled")==="on";
+    const r=await fetch(edit?"/api/responses/"+response.id:"/api/responses",{method:edit?"PUT":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});
+    if(!r.ok){alert("ذخیره پاسخ انجام نشد.");return;}close();responsesPage();
+  };
+}
+
 function permissionsPage(){
   shell("Permission Center","BOT MANAGEMENT · PERMISSIONS",`
     <div class="permission-hero"><div><span class="eyebrow">OWNER CONTROL</span><h2>مدیریت دسترسی در سطح قابلیت</h2><p>برای هر نقش، دسترسی هر عملیات را مستقل فعال یا غیرفعال کنید.</p></div><span class="security-badge">OWNER · 100</span></div>
@@ -132,6 +181,8 @@ function page(name){
   location.hash=name; sidebar.classList.remove("open");
   if(name==="dashboard"){location.reload();return;}
   if(name==="commands")return commandsPage();
+  if(name==="responses")return responsesPage();
+  if(name==="users")return usersPage();
   if(name==="permissions")return permissionsPage();
   if(name==="supervision")return supervisionPage();
   placeholder(name);
