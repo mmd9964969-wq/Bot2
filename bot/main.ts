@@ -6,6 +6,7 @@ import type { Lang, Rank } from "../src/lib/bot/registry.ts";
 import { telegramApi } from "../src/lib/telegram/api.ts";
 import { rankAtLeast } from "../src/lib/bot/registry.ts";
 import { runLiveCommand, recordMessage } from "../src/lib/bot/runtime.ts";
+import { isRuntimeMaintenance, startRuntimeControlServer } from "./runtime-control.ts";
 
 const TOKEN = process.env.BOT_TOKEN ?? "";
 if (!TOKEN) { console.error("BOT_TOKEN is missing"); process.exit(1); }
@@ -225,6 +226,11 @@ async function handleMessage(msg: TgMessage) {
     staff: [...adminIds].map((id) => ({ id, name: String(id), rank: rankOf(id, adminIds) })),
   };
 
+  if (isRuntimeMaintenance() && !["owner","sudo"].includes(ctx.userRank)) {
+    await telegramApi("sendMessage", { chat_id: chat.id, text: ctx.lang === "fa" ? "⏸️ ربات موقتاً در حالت تعمیر است. لطفاً بعداً دوباره تلاش کنید." : "⏸️ The bot is temporarily in maintenance mode. Please try again later.", reply_to_message_id: msg.message_id });
+    return;
+  }
+
   const studioResult = await studioReplyLive(ctx);
   if (studioResult !== null) {
     await telegramApi("sendMessage", { chat_id: chat.id, text: studioResult, reply_to_message_id: msg.message_id });
@@ -323,6 +329,7 @@ process.once("SIGINT", async () => { await studioPool?.end().catch(() => {}); pr
     if (me.ok) console.log("[startup] Telegram bot @" + ((me.result as any)?.username ?? "unknown") + " is reachable");
     else console.error("[startup] Telegram getMe failed:", me.description);
 
+    startRuntimeControlServer({ refreshStudio });
     await acquirePollingLock();
     await poll();
   } catch (error) {
