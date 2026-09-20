@@ -260,9 +260,31 @@ async function usersApi(req,res,url){
   return null;
 }
 
+async function ensureCommandAccessSchema() {
+  await query("ALTER TABLE commands ADD COLUMN IF NOT EXISTS required_permission TEXT NOT NULL DEFAULT 'execute'");
+  await query("ALTER TABLE commands ADD COLUMN IF NOT EXISTS minimum_role TEXT NOT NULL DEFAULT 'MEMBER'");
+  await query(`CREATE TABLE IF NOT EXISTS command_permissions (
+    command_id BIGINT NOT NULL REFERENCES commands(id) ON DELETE CASCADE,
+    role TEXT NOT NULL,
+    allowed BOOLEAN NOT NULL DEFAULT FALSE,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY(command_id, role)
+  )`);
+  const roles=["OWNER","SUPER_ADMIN","ADMIN","MODERATOR","SPECIAL_USER","MEMBER"];
+  const rows=(await query("SELECT id,permission_level,minimum_role FROM commands")).rows;
+  const roleForLevel=n=>Number(n)>=100?"OWNER":Number(n)>=90?"SUPER_ADMIN":Number(n)>=80?"ADMIN":Number(n)>=60?"MODERATOR":Number(n)>=40?"SPECIAL_USER":"MEMBER";
+  for(const row of rows){
+    const role=roles.includes(String(row.minimum_role||"").toUpperCase())?String(row.minimum_role).toUpperCase():roleForLevel(row.permission_level);
+    await query("UPDATE commands SET minimum_role=$1,required_permission=COALESCE(NULLIF(required_permission,''),'execute') WHERE id=$2",[role,row.id]);
+    const idx=roles.indexOf(role);
+    for(const r of roles) await query("INSERT INTO command_permissions(command_id,role,allowed) VALUES($1,$2,$3) ON CONFLICT(command_id,role) DO NOTHING",[row.id,r,roles.indexOf(r)<=idx]);
+  }
+}
 async function commandsApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/commands") {
-    const result = await query("SELECT id, command_key, fa_name, en_name, enabled, permission_level, response_fa, response_en, created_at, updated_at FROM commands ORDER BY id DESC");
+    const result = await query("SELECT c.id,c.command_key,c.fa_name,c.en_name,c.enabled,c.permission_level,c.required_permission,c.minimum_role,c.response_fa,c.response_en,c.created_at,c.updated_at,
+COALESCE((SELECT json_agg(json_build_object('role',cp.role,'allowed',cp.allowed)) FROM command_permissions cp WHERE cp.command_id=c.id),'[]'::json) AS permissions
+FROM commands c ORDER BY c.id DESC");
     return send(res, 200, JSON.stringify({commands: result.rows}));
   }
 
@@ -347,7 +369,7 @@ const server = http.createServer(async (req,res) => {
     send(res,500,JSON.stringify({error:error.message}));
   }
 });
-Promise.all([ensurePermissionSchema(), ensureSupervisionSchema(), ensureRuntimeSchema()])
+Promise.all([ensurePermissionSchema(), ensureSupervisionSchema(), ensureRuntimeSchema(), ensureCommandAccessSchema()])
   .then(() => server.listen(PORT, () => console.log(`PERSIAN BOT STUDIO running on port ${PORT}`)))
   .catch(error => {
     console.error("Permission schema initialization failed:", error);
