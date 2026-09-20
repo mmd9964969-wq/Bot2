@@ -282,46 +282,40 @@ async function ensureCommandAccessSchema() {
 }
 async function commandsApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/commands") {
-    const result = await query("SELECT c.id,c.command_key,c.fa_name,c.en_name,c.enabled,c.permission_level,c.required_permission,c.minimum_role,c.response_fa,c.response_en,c.created_at,c.updated_at,
+    const result = await query(`SELECT c.id,c.command_key,c.fa_name,c.en_name,c.enabled,c.permission_level,c.required_permission,c.minimum_role,c.response_fa,c.response_en,c.created_at,c.updated_at,
 COALESCE((SELECT json_agg(json_build_object('role',cp.role,'allowed',cp.allowed)) FROM command_permissions cp WHERE cp.command_id=c.id),'[]'::json) AS permissions
-FROM commands c ORDER BY c.id DESC");
+FROM commands c ORDER BY c.id DESC`);
     return send(res, 200, JSON.stringify({commands: result.rows}));
   }
 
   if (req.method === "POST" && url.pathname === "/api/commands") {
     const body = await readBody(req);
-    if (!body.command_key) return send(res, 400, JSON.stringify({error:"command_key is required"}));
-    const result = await query(
-      "INSERT INTO commands (command_key, fa_name, en_name, enabled, permission_level, response_fa, response_en) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *",
-      [
-        String(body.command_key).trim().toLowerCase().replace(/^\//, ""),
-        body.fa_name || "", body.en_name || "", body.enabled !== false,
-        Number(body.permission_level ?? 10), body.response_fa || "", body.response_en || ""
-      ]
-    );
-    return send(res, 201, JSON.stringify({command:result.rows[0]}));
+    if (!body.command_key) return send(res,400,JSON.stringify({error:"command_key is required"}));
+    const roles=["OWNER","SUPER_ADMIN","ADMIN","MODERATOR","SPECIAL_USER","MEMBER"];
+    const perms=["view","create","edit","delete","manage","configure","execute","sync"];
+    const minimumRole=roles.includes(String(body.minimum_role||"MEMBER").toUpperCase())?String(body.minimum_role||"MEMBER").toUpperCase():"MEMBER";
+    const requiredPermission=perms.includes(body.required_permission)?body.required_permission:"execute";
+    const result=await query("INSERT INTO commands (command_key,fa_name,en_name,enabled,permission_level,required_permission,minimum_role,response_fa,response_en) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *",[String(body.command_key).trim().toLowerCase().replace(/^\\//,""),body.fa_name||"",body.en_name||"",body.enabled!==false,Number(body.permission_level??10),requiredPermission,minimumRole,body.response_fa||"",body.response_en||""]);
+    const allowed=Array.isArray(body.allowed_roles)?body.allowed_roles.map(r=>String(r).toUpperCase()).filter(r=>roles.includes(r)):[minimumRole];
+    for(const role of roles) await query("INSERT INTO command_permissions(command_id,role,allowed,updated_at) VALUES($1,$2,$3,NOW()) ON CONFLICT(command_id,role) DO UPDATE SET allowed=EXCLUDED.allowed,updated_at=NOW()",[result.rows[0].id,role,allowed.includes(role)]);
+    return send(res,201,JSON.stringify({command:result.rows[0]}));
   }
 
-  const match = url.pathname.match(/^\/api\/commands\/(\d+)$/);
+  const match = url.pathname.match(/^\\/api\\/commands\\/(\\d+)$/);
   if (match && (req.method === "PUT" || req.method === "DELETE")) {
-    const id = Number(match[1]);
-    if (req.method === "DELETE") {
-      await query("DELETE FROM commands WHERE id=$1",[id]);
-      return send(res,200,JSON.stringify({success:true}));
-    }
-    const body = await readBody(req);
-    const result = await query(
-      "UPDATE commands SET command_key=$1, fa_name=$2, en_name=$3, enabled=$4, permission_level=$5, response_fa=$6, response_en=$7, updated_at=NOW() WHERE id=$8 RETURNING *",
-      [
-        String(body.command_key || "").trim().toLowerCase().replace(/^\//, ""),
-        body.fa_name || "", body.en_name || "", body.enabled !== false,
-        Number(body.permission_level ?? 10), body.response_fa || "", body.response_en || "", id
-      ]
-    );
-    if (!result.rowCount) return send(res,404,JSON.stringify({error:"Command not found"}));
+    const id=Number(match[1]);
+    if(req.method==="DELETE"){await query("DELETE FROM commands WHERE id=$1",[id]);return send(res,200,JSON.stringify({success:true}));}
+    const body=await readBody(req);
+    const roles=["OWNER","SUPER_ADMIN","ADMIN","MODERATOR","SPECIAL_USER","MEMBER"];
+    const perms=["view","create","edit","delete","manage","configure","execute","sync"];
+    const minimumRole=roles.includes(String(body.minimum_role||"MEMBER").toUpperCase())?String(body.minimum_role||"MEMBER").toUpperCase():"MEMBER";
+    const requiredPermission=perms.includes(body.required_permission)?body.required_permission:"execute";
+    const result=await query("UPDATE commands SET command_key=$1,fa_name=$2,en_name=$3,enabled=$4,permission_level=$5,required_permission=$6,minimum_role=$7,response_fa=$8,response_en=$9,updated_at=NOW() WHERE id=$10 RETURNING *",[String(body.command_key||"").trim().toLowerCase().replace(/^\\//,""),body.fa_name||"",body.en_name||"",body.enabled!==false,Number(body.permission_level??10),requiredPermission,minimumRole,body.response_fa||"",body.response_en||"",id]);
+    if(!result.rowCount)return send(res,404,JSON.stringify({error:"Command not found"}));
+    const allowed=Array.isArray(body.allowed_roles)?body.allowed_roles.map(r=>String(r).toUpperCase()).filter(r=>roles.includes(r)):[minimumRole];
+    for(const role of roles) await query("INSERT INTO command_permissions(command_id,role,allowed,updated_at) VALUES($1,$2,$3,NOW()) ON CONFLICT(command_id,role) DO UPDATE SET allowed=EXCLUDED.allowed,updated_at=NOW()",[id,role,allowed.includes(role)]);
     return send(res,200,JSON.stringify({command:result.rows[0]}));
   }
-
   return null;
 }
 
