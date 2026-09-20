@@ -106,8 +106,8 @@ export const STUDIO_DEFAULTS: StudioDocument = {
     aliasesEn: c.aliasesEn,
     minRank: c.minRank,
     enabled: true,
-    responseFa: "{{live_card}}",
-    responseEn: "{{live_card}}",
+    responseFa: "",
+    responseEn: "",
   })),
 };
 
