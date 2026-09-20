@@ -196,7 +196,7 @@ async function handleMessage(msg: TgMessage) {
   }
   const lang = chatLang.get(chat.id) ?? config.defaultLang;
 
-  await recordMessage(chat.id, msg.message_id);
+  await recordMessage(chat.id, msg.from.id, msg.message_id);
 
   let membersCount = 0;
   if (!isPrivate) {
