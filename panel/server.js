@@ -366,13 +366,15 @@ async function ensureCoreCommandRecords() {
   ];
   const roles=["OWNER","SUPER_ADMIN","ADMIN","MODERATOR","SPECIAL_USER","MEMBER"];
   for (const [key, fa, en] of commands) {
-    const result = await query(
-      "INSERT INTO commands (command_key,fa_name,en_name,enabled,permission_level,required_permission,minimum_role,response_fa,response_en) VALUES($1,$2,$3,TRUE,10,'execute','MEMBER','','') ON CONFLICT DO NOTHING RETURNING id",
-      [key,fa,en]
-    );
-    let id = result.rows[0]?.id;
+    const existing = await query("SELECT id FROM commands WHERE command_key=$1 ORDER BY id ASC LIMIT 1",[key]);
+    let id = existing.rows[0]?.id;
     if (!id) {
-      const existing = await query("SELECT id FROM commands WHERE command_key=$1 ORDER BY id ASC LIMIT 1",[key]);
+      const result = await query(
+        "INSERT INTO commands (command_key,fa_name,en_name,enabled,permission_level,required_permission,minimum_role,response_fa,response_en) VALUES($1,$2,$3,TRUE,10,'execute','MEMBER','','') RETURNING id",
+        [key,fa,en]
+      );
+      id = result.rows[0]?.id;
+    } else {
       id = existing.rows[0]?.id;
       if (id) {
         await query("UPDATE commands SET fa_name=$1,en_name=$2,enabled=TRUE,required_permission='execute',minimum_role='MEMBER',updated_at=NOW() WHERE id=$3",[fa,en,id]);
@@ -381,8 +383,8 @@ async function ensureCoreCommandRecords() {
     if (id) {
       for (const role of roles) {
         await query(
-          "INSERT INTO command_permissions(command_id,role,allowed,updated_at) VALUES($1,$2,$3,NOW()) ON CONFLICT(command_id,role) DO NOTHING",
-          [id,role,role==="MEMBER"]
+          "INSERT INTO command_permissions(command_id,role,allowed,updated_at) VALUES($1,$2,TRUE,NOW()) ON CONFLICT(command_id,role) DO UPDATE SET allowed=TRUE,updated_at=NOW()",
+          [id,role]
         );
       }
     }
