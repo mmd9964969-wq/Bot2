@@ -10,6 +10,7 @@ import { isRuntimeMaintenance, startRuntimeControlServer } from "./runtime-contr
 
 const TOKEN = process.env.BOT_TOKEN ?? "";
 if (!TOKEN) { console.error("BOT_TOKEN is missing"); process.exit(1); }
+if (process.env.LEGACY_DISABLED === "true") { console.log("[legacy] Telegram Bot service disabled; Bot Core owns the runtime"); await new Promise(() => {}); }
 
 const config: BotConfig = {
   ...DEFAULT_CONFIG,
