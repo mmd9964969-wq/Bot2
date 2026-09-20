@@ -106,8 +106,8 @@ export const STUDIO_DEFAULTS: StudioDocument = {
     aliasesEn: c.aliasesEn,
     minRank: c.minRank,
     enabled: true,
-    responseFa: "",
-    responseEn: "",
+    responseFa: fa[c.id] ?? "",
+    responseEn: en[c.id] ?? "",
   })),
 };
 
