@@ -43,9 +43,9 @@ async function canTarget(ctx:LiveContext,id:number){
 }
 function stats(chatId:number){const s=state(chatId);return {warnings:[...s.warnings.values()].reduce((n,x)=>n+x.count,0),recent:s.recent.length};}
 
-export async function runLiveCommand(ctx:LiveContext,token:string,args:string[]):Promise<string>{
+export async function runLiveCommand(ctx:LiveContext,token:string,args:string[],rankOverride?:Rank):Promise<string>{
   const command=resolveCommand(token); if(!command)return fa(ctx.lang,"✗ دستور ناشناخته است.","✗ Unknown command.");
-  const rank=await realRank(ctx,ctx.userId); const s=state(ctx.chatId); const targetId=target(ctx,args);
+  const rank=rankOverride ?? await realRank(ctx,ctx.userId); const s=state(ctx.chatId); const targetId=target(ctx,args);
   const requireGroup=()=>{if(ctx.chatType==="private")throw new Error(fa(ctx.lang,"این دستور فقط در گروه قابل اجراست.","This command works in groups only."));};
   const requireAdmin=()=>{if(!["owner","sudo","admin"].includes(rank))throw new Error(fa(ctx.lang,"✗ دسترسی مدیریتی ندارید.","✗ Administrator access required."));};
   const targetRequired=()=>{if(!targetId)throw new Error(fa(ctx.lang,"✗ روی پیام کاربر ریپلای کن یا شناسه عددی بده.","✗ Reply to a user or provide a numeric ID."));return targetId;};
@@ -77,9 +77,11 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "◈ User information\n\n⛂ - Name : "+ctx.userName+"\n⛂ - ID : "+ctx.userId+"\n⛂ - Username : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - Rank : "+rank+"\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - Messages today : —\n⛂ - Joins today : —\n⛂ - Total messages : —\n⛂ - Total joins : —");
     case "info": {
       requireGroup();
-      const c=await api<any>("getChat",{chat_id:ctx.chatId});
-      const m=await api<number>("getChatMemberCount",{chat_id:ctx.chatId});
-      const a=await adminCount(ctx.chatId);
+      const [c,m]=await Promise.all([
+        api<any>("getChat",{chat_id:ctx.chatId}),
+        api<number>("getChatMemberCount",{chat_id:ctx.chatId}),
+      ]);
+      const a=ctx.staff.length;
       return fa(ctx.lang,
         "◈ اطلاعات گروه\n\n⛂ - نام گروه : "+(c.title??ctx.chatTitle)+"\n⛂ - شناسه گروه : "+ctx.chatId+"\n⛂ - نام کاربری گروه : "+(c.username?"@"+c.username:"ندارد")+"\n⛂ - نوع گروه : "+c.type+"\n⛂ - تعداد اعضا : "+m+"\n⛂ - تعداد مدیران : "+a+"\n⛂ - مالک گروه : —\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - پیام‌های امروز : —\n⛂ - اعضای جدید امروز : —\n⛂ - پیام‌های کل : —\n⛂ - اعضای فعلی : "+m+"\n⛂ - تعداد افراد در لیست سکوت : —\n⛂ - تعداد افراد در لیست ویژه : —\n⛂ - تعداد اخطار های فعال : "+stats(ctx.chatId).warnings+"\n\n★ - تاریخ ساخت گروه : —\n★ - لینک دعوت : —\n★ - وضعیت لینک دعوت : —",
         "◈ Group information\n\n⛂ - Name : "+(c.title??ctx.chatTitle)+"\n⛂ - ID : "+ctx.chatId+"\n⛂ - Username : "+(c.username?"@"+c.username:"None")+"\n⛂ - Type : "+c.type+"\n⛂ - Members : "+m+"\n⛂ - Admins : "+a+"\n⛂ - Owner : —\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - Messages today : —\n⛂ - New members today : —\n⛂ - Total messages : —\n⛂ - Current members : "+m+"\n⛂ - Muted users : —\n⛂ - Special users : —\n⛂ - Active warnings : "+stats(ctx.chatId).warnings+"\n\n★ - Group creation date : —\n★ - Invite link : —\n★ - Invite status : —");
@@ -103,7 +105,7 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
   }
 }
 
-export async function recordMessage(chatId:number,messageId:number){
+export function recordMessage(chatId:number,messageId:number){
   const s=state(chatId);s.recent.push(messageId);if(s.recent.length>100)s.recent.shift();
   const now=Date.now();const times=messageTimes.get(chatId)??[];times.push(now);while(times.length&&now-times[0]>10000)times.shift();messageTimes.set(chatId,times);
 }

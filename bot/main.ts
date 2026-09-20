@@ -93,6 +93,7 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
       { ...ctx, messageId: 0 },
       command.aliasesEn[0] ?? command.id,
       ctx.text.trim().replace(/^[/!.]/, "").trim().split(/\s+/).slice(1),
+      ctx.userRank,
     );
     const values: Record<string, string> = {
       user_name: ctx.userName,
@@ -201,13 +202,32 @@ async function handleMessage(msg: TgMessage) {
   const chat = msg.chat;
   const isPrivate = chat.type === "private";
   if (isPrivate) return;
-  let adminIds = new Set<number>();
-  if (!isPrivate) {
-    try { adminIds = await chatAdmins(chat.id); } catch (error) { console.error("[admins] lookup failed", error); }
-  }
-  const lang = chatLang.get(chat.id) ?? config.defaultLang;
 
-  await recordMessage(chat.id, msg.message_id);
+  const lang = chatLang.get(chat.id) ?? config.defaultLang;
+  const parsed = text.trim().replace(/^[/!.]/, "").split(/\s+/);
+  const token = parsed[0]?.split("@")[0] ?? "";
+  const studioCommand = studio.commands.find((x) =>
+    x.enabled &&
+    x.phase <= 2 &&
+    [...x.aliasesFa, ...x.aliasesEn].some((alias) => normalizeCommand(alias) === normalizeCommand(token)),
+  );
+  const command = resolveCommand(token);
+
+  // Fast path: ordinary messages never need a Telegram admin lookup.
+  if (!studioCommand && !command) {
+    recordMessage(chat.id, msg.message_id);
+    void moderateLive({ chatId: chat.id, userId: msg.from.id, messageId: msg.message_id, text });
+    return;
+  }
+
+  let adminIds = new Set<number>();
+  try {
+    adminIds = await chatAdmins(chat.id);
+  } catch (error) {
+    console.error("[admins] lookup failed", error);
+  }
+
+  recordMessage(chat.id, msg.message_id);
 
   const ctx: BotContext = {
     text,
@@ -232,10 +252,11 @@ async function handleMessage(msg: TgMessage) {
     return;
   }
 
-  const parsed = text.trim().replace(/^[/!.]/, "").split(/\s+/);
-  const token = parsed.shift()?.split("@")[0] ?? "";
-  const command = resolveCommand(token);
-  if (!command) { await moderateLive({ chatId: chat.id, userId: msg.from.id, messageId: msg.message_id, text }); return; }
+  if (!command) {
+    void moderateLive({ chatId: chat.id, userId: msg.from.id, messageId: msg.message_id, text });
+    return;
+  }
+  parsed.shift();
   const studioCommand = studio.commands.find((x) => x.id === command.id);
   if (studioCommand && !studioCommand.enabled) return;
   if (!rankAtLeast(ctx.userRank, command.minRank)) {
@@ -243,7 +264,7 @@ async function handleMessage(msg: TgMessage) {
     return;
   }
   try {
-    const result = await runLiveCommand({ ...ctx, messageId: msg.message_id, replyToUserId: msg.reply_to_message?.from?.id, replyToName: msg.reply_to_message?.from?.username || msg.reply_to_message?.from?.first_name, replyToMessageId: msg.reply_to_message ? (msg as any).reply_to_message.message_id : undefined }, token, parsed);
+    const result = await runLiveCommand({ ...ctx, messageId: msg.message_id, replyToUserId: msg.reply_to_message?.from?.id, replyToName: msg.reply_to_message?.from?.username || msg.reply_to_message?.from?.first_name, replyToMessageId: msg.reply_to_message ? (msg as any).reply_to_message.message_id : undefined }, token, parsed, ctx.userRank);
     await telegramApi("sendMessage", { chat_id: chat.id, text: result, reply_to_message_id: msg.message_id });
   } catch (error) {
     console.error("[command]", error);
