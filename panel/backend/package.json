@@ -1,0 +1,12 @@
+{
+  "name": "persian-bot-studio-backend",
+  "version": "1.0.0",
+  "description": "PERSIAN BOT STUDIO Backend",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
