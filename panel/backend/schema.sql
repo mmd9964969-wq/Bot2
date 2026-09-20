@@ -86,3 +86,20 @@ CREATE TABLE IF NOT EXISTS supervision_events (
 CREATE INDEX IF NOT EXISTS idx_supervision_events_created_at ON supervision_events(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_supervision_events_type ON supervision_events(event_type);
 CREATE INDEX IF NOT EXISTS idx_supervision_events_actor ON supervision_events(actor_id);
+
+
+-- Response Studio
+CREATE TABLE IF NOT EXISTS response_templates (
+  id BIGSERIAL PRIMARY KEY,
+  response_key TEXT NOT NULL UNIQUE,
+  event_type TEXT NOT NULL DEFAULT 'custom',
+  title TEXT NOT NULL DEFAULT '',
+  message_fa TEXT NOT NULL DEFAULT '',
+  message_en TEXT NOT NULL DEFAULT '',
+  channel TEXT NOT NULL DEFAULT 'group',
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_response_templates_event_type ON response_templates(event_type);
+CREATE INDEX IF NOT EXISTS idx_response_templates_enabled ON response_templates(enabled);
