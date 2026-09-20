@@ -67,7 +67,9 @@ function normalizeCommand(text: string) {
 }
 
 function commandMatches(text: string, aliases: string[]) {
-  const normalized = normalizeCommand(text);
+  const raw = text.trim();
+  if (/^[\\/!.]/.test(raw)) return false;
+  const normalized = normalizeCommand(raw);
   const firstToken = normalized.split(" ")[0] ?? "";
   return aliases.some((alias) => {
     const target = normalizeCommand(alias);
