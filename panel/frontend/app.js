@@ -1,4 +1,4 @@
-const titles={dashboard:"Dashboard",commands:"Commands",responses:"Responses",users:"Users",permissions:"Permissions",supervision:"Supervision Center",settings:"Settings",database:"Database",sync:"Sync",audit:"Audit Log",security:"Security Center"};
+const titles={dashboard:"داشبورد",commands:"دستورات",responses:"پاسخ‌ها",runtime:"هسته اجرایی ربات",users:"کاربران",permissions:"دسترسی‌ها",supervision:"مرکز نظارت",settings:"تنظیمات",database:"پایگاه داده",sync:"همگام‌سازی",audit:"گزارش فعالیت‌ها",security:"مرکز امنیت"};
 const contentEl=document.getElementById("content"), pageTitle=document.getElementById("pageTitle"), sidebar=document.getElementById("sidebar");
 
 const esc=v=>String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
@@ -208,6 +208,22 @@ async function supervisionPage(){
   setInterval(()=>{if(location.hash==="#supervision")render(document.querySelector("[data-supervision-tab].active")?.dataset.supervisionTab||"monitor");},10000);
 }
 
+async function runtimePage(){
+  shell("هسته اجرایی ربات","فاز ۲ · BOT RUNTIME",`
+    <div class="runtime-hero"><div><span class="eyebrow">BOT RUNTIME</span><h2>مرکز کنترل هسته اجرایی</h2><p>پایش Runtime، صف پردازش، خطاها، اتصال سرویس‌ها و تنظیمات اجرای ربات.</p></div><span class="runtime-state" id="runtimeState">● در حال بررسی</span></div>
+    <div class="stats" id="runtimeStats"></div>
+    <div class="runtime-grid"><div class="panel-card"><div class="card-head"><div><span class="eyebrow">CONTROL</span><h3>کنترل Runtime</h3></div></div><div class="runtime-actions">
+      <button class="primary" data-runtime-action="health_check">♥ بررسی سلامت</button><button class="ghost" data-runtime-action="reload_config">↻ بارگذاری تنظیمات</button><button class="ghost" data-runtime-action="restart_requested">↻ درخواست راه‌اندازی مجدد</button><button class="ghost" data-runtime-action="maintenance_on">⏸ حالت تعمیر</button><button class="ghost" data-runtime-action="maintenance_off">▶ خروج از تعمیر</button>
+    </div><div class="runtime-note">کنترل مستقیم Bot Core هنوز به این پنل متصل نشده؛ عملیات فعلی به‌صورت امن ثبت می‌شوند تا لایه اتصال Runtime اضافه شود.</div></div>
+    <div class="panel-card"><div class="card-head"><div><span class="eyebrow">HEALTH</span><h3>وضعیت اجزا</h3></div></div><div class="runtime-health" id="runtimeHealth"></div></div></div>
+    <div class="panel-card runtime-settings-card"><div class="card-head"><div><span class="eyebrow">RUNTIME SETTINGS</span><h3>تنظیمات اجرایی</h3></div><span class="badge">قابل ویرایش</span></div>
+    <form id="runtimeForm" class="form-grid"><label>تعداد Worker<input type="number" name="worker_count" min="1" max="32"></label><label>ظرفیت صف<input type="number" name="queue_size" min="10" max="10000"></label><label>پردازش همزمان<input type="number" name="concurrency" min="1" max="500"></label><label>Timeout درخواست (ms)<input type="number" name="request_timeout_ms" min="1000" max="120000"></label><label>تعداد Retry<input type="number" name="max_retries" min="0" max="10"></label><label>Backoff (ms)<input type="number" name="backoff_ms" min="100" max="60000"></label><label>مدت Deduplication (ثانیه)<input type="number" name="deduplication_ttl_seconds" min="30" max="86400"></label><label>سطح لاگ<select name="log_level"><option value="error">خطا</option><option value="warn">هشدار</option><option value="info">اطلاعات</option><option value="debug">اشکال‌زدایی</option></select></label><label class="switch-line"><input type="checkbox" name="auto_restart"> راه‌اندازی مجدد خودکار</label><label class="switch-line"><input type="checkbox" name="graceful_shutdown"> توقف کنترل‌شده</label><label class="switch-line"><input type="checkbox" name="deduplication"> جلوگیری از پردازش تکراری</label><div class="form-actions"><button class="primary" type="submit">ذخیره تنظیمات</button></div></form></div>`);
+  const stats=document.getElementById("runtimeStats"),healthBox=document.getElementById("runtimeHealth"),state=document.getElementById("runtimeState"),form=document.getElementById("runtimeForm");
+  async function load(){try{const r=await fetch("/api/runtime/overview",{cache:"no-store"}),d=await r.json();if(!r.ok)throw Error();state.textContent=d.runtime.status==="ready"?"● آماده":"● "+d.runtime.status;state.className="runtime-state "+(d.runtime.status==="ready"?"ok":"warn");stats.innerHTML=[["✦","RUNTIME","آماده","هسته پنل"],["◉","TELEGRAM","متصل نشده","اتصال Runtime"],["◌","EVENTS 24H",d.metrics.events24h,"رویدادها"],["!","ERRORS 24H",d.metrics.errors24h,"خطاها"]].map((x,i)=>`<div class="stat-card"><div class="stat-top"><span class="stat-icon ${["green","blue","purple","gold"][i]}">${x[0]}</span><span class="stat-kicker">${x[1]}</span></div><strong>${esc(x[2])}</strong><span>${esc(x[3])}</span></div>`).join("");const db=d.database?.connected;healthBox.innerHTML=[["هسته Runtime","آماده","on"],["پایگاه داده",db?"متصل":"قطع",db?"on":"off"],["Telegram Runtime","در انتظار اتصال","off"],["مرکز نظارت","فعال","on"],["ثبت رویداد","آماده","on"]].map(x=>`<div class="runtime-health-row"><span class="check">${x[2]==="on"?"✓":"!"}</span><div><b>${x[0]}</b><small>${x[1]}</small></div><em class="${x[2]}">${x[2]==="on"?"فعال":"در انتظار"}</em></div>`).join("");const s=d.settings||{};for(const [k,v] of Object.entries(s)){const el=form.elements[k];if(!el)continue;if(el.type==="checkbox")el.checked=!!v;else el.value=v??"";}}catch(e){state.textContent="● خطا در دریافت وضعیت";state.className="runtime-state warn";}}
+  document.querySelectorAll("[data-runtime-action]").forEach(btn=>btn.onclick=async()=>{if(!confirm("این عملیات در مرکز Runtime ثبت شود؟"))return;const r=await fetch("/api/runtime/action",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:btn.dataset.runtimeAction})});const d=await r.json();alert(r.ok?"عملیات ثبت شد.":(d.error||"عملیات انجام نشد."));await load();});
+  form.onsubmit=async e=>{e.preventDefault();const f=new FormData(form),data=Object.fromEntries(f.entries());for(const n of ["auto_restart","graceful_shutdown","deduplication"])data[n]=f.get(n)==="on";for(const n of ["worker_count","queue_size","concurrency","request_timeout_ms","max_retries","backoff_ms","deduplication_ttl_seconds"])data[n]=Number(data[n]);const r=await fetch("/api/runtime/settings",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});const d=await r.json();alert(r.ok?"تنظیمات Runtime ذخیره شد.":(d.error||"ذخیره انجام نشد."));if(r.ok)load();};await load();
+}
+
 function placeholder(name){
   shell(titles[name]||"Panel","PERSIAN BOT STUDIO · "+String(name).toUpperCase(),'<div class="panel-card coming-card"><span class="eyebrow">CONTROL MODULE</span><h2>این بخش در حال اتصال به هسته مرکزی است</h2><p>ساختار پنل آماده است و در مراحل بعدی به API و PostgreSQL متصل می‌شود.</p></div>');
 }
@@ -223,6 +239,7 @@ function page(name){
   if(name==="users")return usersPage();
   if(name==="permissions")return permissionsPage();
   if(name==="supervision")return supervisionPage();
+  if(name==="runtime")return runtimePage();
   if(name==="security")return;
   placeholder(name);
 }
