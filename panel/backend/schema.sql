@@ -68,3 +68,21 @@ INSERT INTO role_permissions (role, permission_key, allowed) VALUES
 ('SPECIAL_USER','view',TRUE),('SPECIAL_USER','create',FALSE),('SPECIAL_USER','edit',FALSE),('SPECIAL_USER','delete',FALSE),('SPECIAL_USER','manage',FALSE),('SPECIAL_USER','configure',FALSE),('SPECIAL_USER','execute',TRUE),('SPECIAL_USER','sync',FALSE),
 ('MEMBER','view',TRUE),('MEMBER','create',FALSE),('MEMBER','edit',FALSE),('MEMBER','delete',FALSE),('MEMBER','manage',FALSE),('MEMBER','configure',FALSE),('MEMBER','execute',FALSE),('MEMBER','sync',FALSE)
 ON CONFLICT (role, permission_key) DO NOTHING;
+
+
+-- Supervision Center / Event Engine
+CREATE TABLE IF NOT EXISTS supervision_events (
+  id BIGSERIAL PRIMARY KEY,
+  event_type TEXT NOT NULL,
+  severity TEXT NOT NULL DEFAULT 'info',
+  actor_id TEXT,
+  target_type TEXT,
+  target_id TEXT,
+  command_key TEXT,
+  group_id BIGINT,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_supervision_events_created_at ON supervision_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_supervision_events_type ON supervision_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_supervision_events_actor ON supervision_events(actor_id);
