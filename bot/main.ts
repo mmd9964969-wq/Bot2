@@ -167,7 +167,7 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
         ? configuredTemplate
         : (ctx.lang==="fa"?studioCommand.responseFa:studioCommand.responseEn);
       if(!template.trim()) return liveCard;
-      return template.replace(/{{\\s*([a-z0-9_]+)\\s*}}/gi,(_,key)=>values[key]??"—");
+      return template.replace(/{{\s*([a-z0-9_]+)\s*}}/gi,(_,key)=>values[key]??"—");
     }catch(error){
       console.error("[studio-command]",error);
       return ctx.lang==="fa"?"✗ اجرای دستور ناموفق بود؛ دسترسی ربات یا هدف را بررسی کنید.":"✗ Command failed; check bot permissions or target.";
@@ -210,7 +210,7 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
     live_card:"—"
   };
   await logCommandAccess(ctx,panelCommand.command_key,"command_executed","allowed",role);
-  return template.replace(/{{\\s*([a-z0-9_]+)\\s*}}/gi,(_,key)=>values[key]??"—");
+  return template.replace(/{{\s*([a-z0-9_]+)\s*}}/gi,(_,key)=>values[key]??"—");
 }
 
 function render(template: string, ctx: BotContext) {
