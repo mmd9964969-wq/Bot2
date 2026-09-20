@@ -1,67 +1,109 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PERSIAN BOT STUDIO — Control Center</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Vazirmatn:wght@400;500;600;700&display=swap" rel="stylesheet">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0a0b0e">
+<title>PERSIAN BOT STUDIO</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/frontend/style.css">
 </head>
 <body>
 <div class="app-shell">
-<aside class="sidebar">
-  <div class="brand"><div class="brand-mark">PB</div><div><strong>PERSIAN BOT</strong><small>STUDIO / CONTROL</small></div></div>
-  <div class="profile-mini"><div class="avatar">O</div><div><b>Owner</b><span>مالک اصلی</span></div><i></i></div>
-  <nav id="nav">
-    <p class="nav-title">MAIN / اصلی</p>
-    <button class="nav-item active" data-page="dashboard"><span class="ico">⌂</span><span>داشبورد<small>Dashboard</small></span></button>
-    <button class="nav-item" data-page="commands"><span class="ico">⌘</span><span>دستورات<small>Commands</small></span></button>
-    <button class="nav-item" data-page="responses"><span class="ico">◈</span><span>پاسخ‌ها<small>Responses</small></span></button>
-    <p class="nav-title">MANAGEMENT / مدیریت</p>
-    <button class="nav-item" data-page="users"><span class="ico">♙</span><span>کاربران<small>Users</small></span></button>
-    <button class="nav-item" data-page="permissions"><span class="ico">⚿</span><span>دسترسی‌ها<small>Permissions</small></span></button>
-    <button class="nav-item" data-page="settings"><span class="ico">⚙</span><span>تنظیمات<small>Settings</small></span></button>
-    <p class="nav-title">SYSTEM / سیستم</p>
-    <button class="nav-item" data-page="database"><span class="ico">◉</span><span>دیتابیس<small>Database</small></span></button>
-    <button class="nav-item" data-page="sync"><span class="ico">↔</span><span>همگام‌سازی<small>Sync</small></span></button>
-    <button class="nav-item" data-page="audit"><span class="ico">⌁</span><span>گزارش فعالیت<small>Audit Log</small></span></button>
-  </nav>
-  <div class="system-foot"><span class="status-dot"></span><div><b>System Online</b><small>v1.0.0 / Phase 03</small></div></div>
-</aside>
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-mark">PB</div>
+      <div><strong>PERSIAN BOT</strong><span>STUDIO</span></div>
+    </div>
+    <div class="workspace">
+      <span class="live-dot"></span><span>Production</span><b>v1.0</b>
+    </div>
+    <nav class="nav">
+      <div class="nav-label">MAIN</div>
+      <button class="nav-item active" data-page="dashboard"><i>⌂</i><span>داشبورد</span><em>01</em></button>
+      <button class="nav-item" data-page="commands"><i>⌘</i><span>دستورات</span><em>02</em></button>
+      <button class="nav-item" data-page="responses"><i>◈</i><span>پاسخ‌ها</span><em>03</em></button>
+      <div class="nav-label">MANAGEMENT</div>
+      <button class="nav-item" data-page="users"><i>♙</i><span>کاربران</span><em>04</em></button>
+      <button class="nav-item" data-page="permissions"><i>♜</i><span>دسترسی‌ها</span><em>05</em></button>
+      <button class="nav-item" data-page="settings"><i>⚙</i><span>تنظیمات</span><em>06</em></button>
+      <div class="nav-label">SYSTEM</div>
+      <button class="nav-item" data-page="database"><i>▦</i><span>پایگاه داده</span><em>07</em></button>
+      <button class="nav-item" data-page="sync"><i>↻</i><span>همگام‌سازی</span><em>08</em></button>
+      <button class="nav-item" data-page="audit"><i>◉</i><span>گزارش امنیتی</span><em>09</em></button>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="secure-box"><span>●</span><div><b>Secure session</b><small>Connection protected</small></div></div>
+      <div class="owner"><div class="avatar">J</div><div><b>Owner</b><small>Control Center</small></div><span>•••</span></div>
+    </div>
+  </aside>
 
-<main class="content">
-<header class="topbar">
-  <div class="mobile-brand"><div class="brand-mark">PB</div><strong>PERSIAN BOT</strong></div>
-  <div class="heading"><span>CONTROL CENTER / مرکز کنترل</span><h1 id="pageTitle">داشبورد مدیریت ربات</h1></div>
-  <div class="top-actions"><button class="ghost-btn" id="langBtn">FA / EN</button><button class="owner-btn"><b>O</b><span>Owner<small>مالک اصلی</small></span></button></div>
-</header>
+  <main class="main">
+    <header class="topbar">
+      <button class="mobile-menu" id="mobileMenu">☰</button>
+      <div class="breadcrumbs"><span>PERSIAN BOT STUDIO</span><b>/</b><strong id="pageTitle">Dashboard</strong></div>
+      <div class="top-actions">
+        <button class="icon-btn" id="langBtn" title="Language">FA</button>
+        <button class="icon-btn">⌕</button>
+        <button class="profile-btn"><span class="avatar sm">J</span><span>Jowati</span><b>⌄</b></button>
+      </div>
+    </header>
 
-<div id="pageContent">
-<section class="hero">
-  <div class="hero-copy"><div class="eyebrow">PERSIAN BOT STUDIO <span>•</span> COMMAND CENTER</div><h2>مرکز فرمان حرفه‌ای ربات</h2><p>کنترل متمرکز ربات، دستورات، کاربران، تنظیمات و سرویس‌های زیرساختی در یک محیط یکپارچه.</p><div class="hero-actions"><button class="primary" data-page-action="commands">مدیریت دستورات <span>→</span></button><button class="secondary" data-page-action="settings">تنظیمات سیستم</button></div></div>
-  <div class="hero-status"><div class="pulse-ring"><span></span></div><b id="systemStatus">ONLINE</b><small>API STATUS</small></div>
-</section>
+    <section id="content" class="content">
+      <div class="page dashboard-page">
+        <div class="hero">
+          <div>
+            <div class="eyebrow"><span class="pulse"></span> SYSTEM ONLINE · CONTROL CENTER</div>
+            <h1>مدیریت هوشمند <span>PERSIAN BOT</span></h1>
+            <p>مرکز کنترل حرفه‌ای برای مدیریت ربات، کاربران، دستورات و زیرساخت سیستم.</p>
+            <div class="hero-actions"><button class="primary" data-page="commands">مدیریت دستورات <span>→</span></button><button class="ghost" data-page="settings">تنظیمات سیستم</button></div>
+          </div>
+          <div class="hero-orbit"><div class="orbit o1"></div><div class="orbit o2"></div><div class="core"><b>PB</b><small>ONLINE</small></div></div>
+        </div>
 
-<section class="stat-grid">
-<article class="stat-card"><div class="stat-icon">◉</div><div><small>BOT STATUS</small><strong id="botStat">ONLINE</strong><span>وضعیت ربات</span></div><em class="up">● Active</em></article>
-<article class="stat-card"><div class="stat-icon gold">◈</div><div><small>DATABASE</small><strong id="dbStatus">CHECKING</strong><span>PostgreSQL</span></div><em id="dbBadge">Checking</em></article>
-<article class="stat-card"><div class="stat-icon">⌘</div><div><small>COMMANDS</small><strong id="commandStat">—</strong><span>دستورات فعال</span></div><em>Panel</em></article>
-<article class="stat-card"><div class="stat-icon">↔</div><div><small>SYNC</small><strong id="syncStatus">READY</strong><span>وضعیت همگام‌سازی</span></div><em class="up">● Ready</em></article>
-</section>
+        <div class="section-head"><div><span class="eyebrow">LIVE MONITOR</span><h2>وضعیت سیستم</h2></div><span class="refresh" id="lastRefresh">● Live</span></div>
+        <div class="stats">
+          <div class="stat-card"><div class="stat-icon green">⌁</div><div><small>BOT STATUS</small><strong id="botStatus">Online</strong><span>Operational</span></div><b class="trend">●</b></div>
+          <div class="stat-card"><div class="stat-icon gold">▦</div><div><small>DATABASE</small><strong id="dbStatus">Checking</strong><span id="dbDetail">PostgreSQL</span></div><b class="trend">●</b></div>
+          <div class="stat-card"><div class="stat-icon purple">⌘</div><div><small>COMMANDS</small><strong>Ready</strong><span>Command engine</span></div><b class="trend">—</b></div>
+          <div class="stat-card"><div class="stat-icon blue">↻</div><div><small>SYNC</small><strong>Ready</strong><span>Live architecture</span></div><b class="trend">●</b></div>
+        </div>
 
-<section class="section-grid">
-<article class="panel-card wide"><div class="card-head"><div><span class="kicker">SYSTEM / OVERVIEW</span><h3>نمای کلی سیستم</h3></div><b class="live">● LIVE</b></div><div class="system-list">
-<div><span>Telegram Bot</span><b class="ok">Connected</b></div><div><span>Panel API</span><b class="ok">Running</b></div><div><span>PostgreSQL</span><b id="dbText">Checking...</b></div><div><span>Language</span><b>FA / EN</b></div><div><span>Permission</span><b>Owner</b></div><div><span>Version</span><b>v1.0.0</b></div></div></article>
-<article class="panel-card"><div class="card-head"><div><span class="kicker">QUICK ACCESS</span><h3>دسترسی سریع</h3></div></div><div class="quick-actions">
-<button data-page-action="commands"><span>⌘</span><div><b>افزودن دستور</b><small>Add Command</small></div><i>→</i></button>
-<button data-page-action="settings"><span>⚙</span><div><b>تنظیمات ربات</b><small>Bot Settings</small></div><i>→</i></button>
-<button data-page-action="sync"><span>↔</span><div><b>همگام‌سازی</b><small>Sync Center</small></div><i>→</i></button>
-</div></article>
-</section>
-<section class="bottom-grid"><article class="panel-card"><div class="card-head"><div><span class="kicker">ARCHITECTURE</span><h3>ساختار مرکزی</h3></div></div><div class="architecture"><span>WEB PANEL</span><b>↓</b><span>REST API</span><b>↓</b><span>POSTGRESQL</span><b>↓</b><span>TELEGRAM BOT</span></div></article><article class="panel-card"><div class="card-head"><div><span class="kicker">SECURITY</span><h3>وضعیت امنیت</h3></div></div><div class="security-row"><span class="shield">◆</span><div><b>Owner Access</b><small>دسترسی سطح مالک فعال است</small></div><strong>SECURE</strong></div></article></section>
-</div>
-<footer>© 2026 PERSIAN BOT STUDIO <span>•</span> Professional Control System</footer>
-</main>
+        <div class="grid-2">
+          <div class="panel-card">
+            <div class="card-head"><div><span class="eyebrow">ARCHITECTURE</span><h3>معماری PERSIAN BOT STUDIO</h3></div><span class="badge">ACTIVE</span></div>
+            <div class="architecture">
+              <div class="arch-node active"><b>WEB PANEL</b><small>Control Interface</small></div><div class="connector">↓</div>
+              <div class="arch-node"><b>REST API</b><small>Application Layer</small></div><div class="connector">↓</div>
+              <div class="arch-node"><b>POSTGRESQL</b><small>Persistent Data</small></div><div class="connector">↓</div>
+              <div class="arch-node"><b>TELEGRAM BOT</b><small>Execution Layer</small></div>
+            </div>
+          </div>
+          <div class="panel-card">
+            <div class="card-head"><div><span class="eyebrow">SECURITY</span><h3>امنیت و کنترل</h3></div><span class="shield">◇</span></div>
+            <div class="security-list">
+              <div><span class="check">✓</span><div><b>Protected Session</b><small>Panel connection is active</small></div><em>ACTIVE</em></div>
+              <div><span class="check">✓</span><div><b>Database Layer</b><small>Persistent storage architecture</small></div><em>READY</em></div>
+              <div><span class="check">✓</span><div><b>Audit System</b><small>Action history infrastructure</small></div><em>READY</em></div>
+              <div><span class="check">✓</span><div><b>Sync Layer</b><small>Bot synchronization module</small></div><em>READY</em></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-head compact"><div><span class="eyebrow">QUICK ACCESS</span><h2>دسترسی سریع</h2></div></div>
+        <div class="quick-grid">
+          <button class="quick" data-page="commands"><span>⌘</span><b>Command Manager</b><small>مدیریت دستورات و Alias</small><i>→</i></button>
+          <button class="quick" data-page="users"><span>♙</span><b>User Management</b><small>مدیریت کاربران و نقش‌ها</small><i>→</i></button>
+          <button class="quick" data-page="permissions"><span>♜</span><b>Permissions</b><small>سطوح دسترسی سیستم</small><i>→</i></button>
+          <button class="quick" data-page="audit"><span>◉</span><b>Audit Log</b><small>تاریخچه فعالیت‌ها</small><i>→</i></button>
+        </div>
+      </div>
+    </section>
+    <footer><span>© 2026 PERSIAN BOT STUDIO</span><span>Professional Telegram Management System · <b>Phase 03</b></span></footer>
+  </main>
 </div>
 <script src="/frontend/app.js"></script>
-</body></html>
+</body>
+</html>
