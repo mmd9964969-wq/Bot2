@@ -23,7 +23,7 @@ async function main() {
   if (migrationCode !== 0) process.exit(migrationCode);
 
   const port = process.env.PORT || "8080";
-  const web = run("npx", ["--no-install", "nitro", "preview", "--host", "0.0.0.0", "--port", port]);
+  const web = run("node", [".output/server/index.mjs"], { PORT: port, HOST: "0.0.0.0" });
   const bot = run("node", ["--experimental-strip-types", "bot/main.ts"]);
 
   let stopping = false;
