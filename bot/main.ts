@@ -51,7 +51,16 @@ function mergeStudio(value: Partial<StudioDocument>): StudioDocument {
 }
 
 function normalizeCommand(text: string) {
-  return text.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
+  return text.trim().replace(/^[\\/!.]+/, "").replace(/\\s+/g, " ").toLowerCase();
+}
+
+function commandMatches(text: string, aliases: string[]) {
+  const normalized = normalizeCommand(text);
+  const firstToken = normalized.split(" ")[0] ?? "";
+  return aliases.some((alias) => {
+    const target = normalizeCommand(alias);
+    return normalized === target || firstToken === target;
+  });
 }
 
 async function studioReplyLive(ctx: BotContext): Promise<string | null> {
@@ -62,7 +71,7 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
   const command = studio.commands.find((item) =>
     item.enabled &&
     item.phase <= 2 &&
-    [...item.aliasesFa, ...item.aliasesEn].some((alias) => normalizeCommand(alias) === token),
+    commandMatches(token, [...item.aliasesFa, ...item.aliasesEn]),
   );
   if (!command) return null;
   if (!rankAtLeast(ctx.userRank, command.minRank)) {
@@ -189,12 +198,22 @@ async function handleMessage(msg: TgMessage) {
 
   await recordMessage(chat.id, msg.message_id);
 
+  let membersCount = 0;
+  if (!isPrivate) {
+    try {
+      const count = await telegramApi<number>("getChatMemberCount", { chat_id: chat.id });
+      if (count.ok) membersCount = Number(count.result ?? 0);
+    } catch (error) {
+      console.error("[members] count lookup failed", error);
+    }
+  }
+
   const ctx: BotContext = {
     text,
     chatType: isPrivate ? "private" : chat.type === "group" ? "group" : "supergroup",
     chatId: chat.id,
     chatTitle: chat.title || (isPrivate ? msg.from.first_name || "pm" : "chat"),
-    membersCount: 0,
+    membersCount,
     userId: msg.from.id,
     userName: msg.from.username || msg.from.first_name || String(msg.from.id),
     userRank: rankOf(msg.from.id, adminIds),
