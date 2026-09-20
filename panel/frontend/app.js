@@ -65,11 +65,27 @@ function openEditor(command){
 
 function permissionsPage(){
   shell("Permission Center","BOT MANAGEMENT · PERMISSIONS",`
-    <div class="permission-hero"><div><span class="eyebrow">OWNER CONTROL</span><h2>مدیریت دسترسی در سطح قابلیت</h2><p>هر نقش می‌تواند برای هر عملیات دسترسی مستقل داشته باشد.</p></div><span class="security-badge">100% OWNER</span></div>
-    <div class="panel-card permission-card"><div class="permission-grid">
-      <div class="permission-grid-head"><span>ROLE</span><span>VIEW</span><span>CREATE</span><span>EDIT</span><span>DELETE</span><span>MANAGE</span></div>
-      ${["OWNER","SUPER ADMIN","ADMIN","MODERATOR","SPECIAL USER","MEMBER"].map((r,i)=>`<div class="permission-grid-row"><b>${r}</b>${["VIEW","CREATE","EDIT","DELETE","MANAGE"].map((_,j)=>`<span class="perm-check ${i===5&&j>0?"disabled":""}">${i===5&&j>0?"—":"✓"}</span>`).join("")}</div>`).join("")}
-    </div></div>`);
+    <div class="permission-hero"><div><span class="eyebrow">OWNER CONTROL</span><h2>مدیریت دسترسی در سطح قابلیت</h2><p>برای هر نقش، دسترسی هر عملیات را مستقل فعال یا غیرفعال کنید.</p></div><span class="security-badge">OWNER · 100</span></div>
+    <div class="panel-card permission-card"><div class="permission-grid" id="permissionGrid"><div class="loading-state">در حال دریافت Permission Engine...</div></div></div>`);
+  const grid=document.getElementById("permissionGrid");
+  const roles=["OWNER","SUPER_ADMIN","ADMIN","MODERATOR","SPECIAL_USER","MEMBER"];
+  const roleNames={"OWNER":"مالک","SUPER_ADMIN":"سوپر ادمین","ADMIN":"مدیر","MODERATOR":"ناظر","SPECIAL_USER":"کاربر ویژه","MEMBER":"عضو"};
+  const keys=["view","create","edit","delete","manage","configure","execute","sync"];
+  const keyNames={"view":"VIEW","create":"CREATE","edit":"EDIT","delete":"DELETE","manage":"MANAGE","configure":"CONFIGURE","execute":"EXECUTE","sync":"SYNC"};
+  async function load(){
+    try{
+      const r=await fetch("/api/permissions",{cache:"no-store"}),d=await r.json(); if(!r.ok)throw Error(d.error);
+      const map={}; (d.permissions||[]).forEach(x=>(map[x.role]??={})[x.permission_key]=x.allowed);
+      grid.innerHTML=`<div class="permission-grid-head"><span>ROLE</span>${keys.map(k=>`<span>${keyNames[k]}</span>`).join("")}</div>`+
+        roles.map(role=>`<div class="permission-grid-row"><div><b>${role}</b><small>${roleNames[role]}</small></div>${keys.map(k=>`<button class="perm-check ${map[role]?.[k]?"allowed":"disabled"}" data-role="${role}" data-key="${k}" ${role==="OWNER"?"disabled":""}>${map[role]?.[k]?"✓":"—"}</button>`).join("")}</div>`).join("");
+      grid.querySelectorAll("[data-role]").forEach(btn=>btn.onclick=async()=>{
+        const allowed=btn.classList.contains("disabled");
+        const r=await fetch("/api/permissions",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({role:btn.dataset.role,permission_key:btn.dataset.key,allowed})});
+        if(r.ok){btn.classList.toggle("disabled",!allowed);btn.classList.toggle("allowed",allowed);btn.textContent=allowed?"✓":"—";} else alert("تغییر دسترسی انجام نشد.");
+      });
+    }catch(e){grid.innerHTML='<div class="loading-state error">Permission API در دسترس نیست.</div>';}
+  }
+  load();
 }
 
 function placeholder(name){
