@@ -19,7 +19,7 @@ const config: BotConfig = {
   defaultLang: process.env.DEFAULT_LANG === "en" ? "en" : "fa",
   ownerIds: splitIds(process.env.OWNER_IDS),
   sudoIds: splitIds(process.env.SUDO_IDS),
-  prefixes: (process.env.PREFIXES || "/!.").split("").filter((c) => "/!.".includes(c)),
+  prefixes: [],
 };
 
 let studio = cloneStudioDefaults();
@@ -63,7 +63,7 @@ function mergeStudio(value: Partial<StudioDocument>): StudioDocument {
 }
 
 function normalizeCommand(text: string) {
-  return text.trim().replace(/^[/!.]+/, "").replace(/\s+/g, " ").toLowerCase();
+  return text.trim().replace(/^\s+|\s+$/g, "").replace(/\s+/g, " ").toLowerCase();
 }
 
 function commandMatches(text: string, aliases: string[]) {
