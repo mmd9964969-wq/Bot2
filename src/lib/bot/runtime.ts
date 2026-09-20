@@ -14,6 +14,9 @@ type GroupState = {
   welcome:string; goodbye:string; rules:string; filters:Set<string>; notes:Map<string,string>;
   warnings:Map<number,{count:number;reasons:string[]}>; recent:number[];
   language:Lang;
+  muted:Set<number>; special:Set<number>;
+  joins:Map<number,number>; firstSeen:Map<number,number>;
+  groupMessageTotal:number; groupDaily:{day:string;count:number};
 };
 const groups=new Map<number,GroupState>();
 let robotIndex=0;
@@ -21,16 +24,47 @@ const chatLang=new Map<number,Lang>();
 const messageTimes=new Map<number,number[]>();
 const userMessageCounts=new Map<string, number>();
 const userMessageDailyCounts=new Map<string, { day:string; count:number }>();
+const groupMessageTotals=new Map<number,number>();
+const groupMessageDailyCounts=new Map<number,{day:string;count:number}>();
+const memberJoins=new Map<string,number[]>();
+const memberJoinDates=new Map<string,number>();
 function userKey(chatId:number,userId:number){ return chatId+":"+userId; }
 function dayKey(){ return new Date().toISOString().slice(0,10); }
 function userStats(chatId:number,userId:number){
+  if(!s.firstSeen.has(userId)) s.firstSeen.set(userId,Date.now());
   const key=userKey(chatId,userId);
   const daily=userMessageDailyCounts.get(key);
   return { total:userMessageCounts.get(key)??0, today:daily?.day===dayKey()?daily.count:0 };
 }
+function groupStats(chatId:number){
+  const daily=groupMessageDailyCounts.get(chatId);
+  const joins=memberJoins.get(String(chatId))??[];
+  const today=dayKey();
+  return {
+    messagesTotal:groupMessageTotals.get(chatId)??0,
+    messagesToday:daily?.day===today?daily.count:0,
+    joinsTotal:joins.length,
+    joinsToday:joins.filter(t=>new Date(t).toISOString().slice(0,10)===today).length
+  };
+}
+function formatDate(ts:number|undefined,l:Lang){
+  if(!ts)return "ثبت نشده";
+  return new Intl.DateTimeFormat(l==="fa"?"fa-IR":"en-GB",{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",timeZone:"Asia/Tehran"}).format(new Date(ts));
+}
+export async function recordMemberJoin(chatId:number,userId:number,ts:number){
+  const key=String(chatId);
+  const list=memberJoins.get(key)??[];
+  list.push(ts);
+  memberJoins.set(key,list);
+  const user=userKey(chatId,userId);
+  if(!memberJoinDates.has(user)) memberJoinDates.set(user,ts);
+  const s=state(chatId);
+  if(!s.joins.has(userId)) s.joins.set(userId,ts);
+  if(!s.firstSeen.has(userId)) s.firstSeen.set(userId,ts);
+}
 function state(id:number):GroupState{
   let s=groups.get(id);
-  if(!s){s={locks:new Set(),floodOn:false,floodMax:6,spamOn:false,nightOn:false,welcome:"",goodbye:"",rules:"",filters:new Set(),notes:new Map(),warnings:new Map(),recent:[],language:"fa"};groups.set(id,s)}
+  if(!s){s={locks:new Set(),floodOn:false,floodMax:6,spamOn:false,nightOn:false,welcome:"",goodbye:"",rules:"",filters:new Set(),notes:new Map(),warnings:new Map(),recent:[],language:"fa",muted:new Set(),special:new Set(),joins:new Map(),firstSeen:new Map(),groupMessageTotal:0,groupDaily:{day:dayKey(),count:0}};groups.set(id,s)}
   return s;
 }
 const fa=(l:Lang,a:string,e:string)=>l==="fa"?a:e;
@@ -50,7 +84,7 @@ async function realRank(ctx:LiveContext,userId:number):Promise<Rank>{
 async function canTarget(ctx:LiveContext,id:number){
   try{const m=await api<any>("getChatMember",{chat_id:ctx.chatId,user_id:id});if(m.status==="creator")return false;if(m.status==="administrator"&&ctx.userRank!=="owner")return false;return true}catch{return false}
 }
-function stats(chatId:number){const s=state(chatId);return {warnings:[...s.warnings.values()].reduce((n,x)=>n+x.count,0),recent:s.recent.length};}
+function stats(chatId:number){const s=state(chatId);return {warnings:[...s.warnings.values()].reduce((n,x)=>n+x.count,0),recent:s.recent.length,muted:s.muted.size,special:s.special.size};}
 
 export async function runLiveCommand(ctx:LiveContext,token:string,args:string[]):Promise<string>{
   const command=resolveCommand(token); if(!command)return fa(ctx.lang,"✗ دستور ناشناخته است.","✗ Unknown command.");
@@ -82,28 +116,41 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
     }
     case "id": {
       const us=userStats(ctx.chatId,ctx.userId);
+      const joined=memberJoinDates.get(userKey(ctx.chatId,ctx.userId));
+      const gs=groupStats(ctx.chatId);
       return fa(ctx.lang,
         "◈ اطلاعات کاربر\n\n⛂ - نام : "+ctx.userName+"\n⛂ - شناسه : "+ctx.userId+"\n⛂ - نام کاربری : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - مقام : "+rankLabel(ctx.lang,rank)+"\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - تعداد پیام امروز : "+us.today+"\n⛂ - تعداد عضویت امروز : —\n⛂ - تعداد پیام کل : "+us.total+"\n⛂ - تعداد عضویت کل : —",
-        "◈ User information\n\n⛂ - Name : "+ctx.userName+"\n⛂ - ID : "+ctx.userId+"\n⛂ - Username : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - Rank : "+rank+"\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - Messages today : "+us.today+"\n⛂ - Joins today : —\n⛂ - Total messages : "+us.total+"\n⛂ - Total joins : —");
+        "◈ User information\n\n⛂ - Name : "+ctx.userName+"\n⛂ - ID : "+ctx.userId+"\n⛂ - Username : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - Rank : "+rank+"\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - Messages today : "+us.today+"\n⛂ - Joins today : —\n⛂ - Total messages : "+us.total+"\n⛂ - Total joins : "+gs.joinsTotal);
     }
     case "info": {
       requireGroup();
       const c=await api<any>("getChat",{chat_id:ctx.chatId});
       const m=await api<number>("getChatMemberCount",{chat_id:ctx.chatId});
       const a=await adminCount(ctx.chatId);
+      const gs=groupStats(ctx.chatId);
+      const admins=await api<any[]>("getChatAdministrators",{chat_id:ctx.chatId});
+      const owner=admins.find(x=>x.status==="creator")?.user;
+      const invite=c.invite_link ?? null;
+      const st=state(ctx.chatId);
       return fa(ctx.lang,
-        "◈ اطلاعات گروه\n\n⛂ - نام گروه : "+(c.title??ctx.chatTitle)+"\n⛂ - شناسه گروه : "+ctx.chatId+"\n⛂ - نام کاربری گروه : "+(c.username?"@"+c.username:"ندارد")+"\n⛂ - نوع گروه : "+c.type+"\n⛂ - تعداد اعضا : "+m+"\n⛂ - تعداد مدیران : "+a+"\n⛂ - مالک گروه : —\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - پیام‌های امروز : —\n⛂ - اعضای جدید امروز : —\n⛂ - پیام‌های کل : —\n⛂ - اعضای فعلی : "+m+"\n⛂ - تعداد افراد در لیست سکوت : —\n⛂ - تعداد افراد در لیست ویژه : —\n⛂ - تعداد اخطار های فعال : "+stats(ctx.chatId).warnings+"\n\n★ - تاریخ ساخت گروه : —\n★ - لینک دعوت : —\n★ - وضعیت لینک دعوت : —",
-        "◈ Group information\n\n⛂ - Name : "+(c.title??ctx.chatTitle)+"\n⛂ - ID : "+ctx.chatId+"\n⛂ - Username : "+(c.username?"@"+c.username:"None")+"\n⛂ - Type : "+c.type+"\n⛂ - Members : "+m+"\n⛂ - Admins : "+a+"\n⛂ - Owner : —\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - Messages today : —\n⛂ - New members today : —\n⛂ - Total messages : —\n⛂ - Current members : "+m+"\n⛂ - Muted users : —\n⛂ - Special users : —\n⛂ - Active warnings : "+stats(ctx.chatId).warnings+"\n\n★ - Group creation date : —\n★ - Invite link : —\n★ - Invite status : —");
+        "◈ اطلاعات گروه\n\n⛂ - نام گروه : "+(c.title??ctx.chatTitle)+"\n⛂ - شناسه گروه : "+ctx.chatId+"\n⛂ - نام کاربری گروه : "+(c.username?"@"+c.username:"ندارد")+"\n⛂ - نوع گروه : "+c.type+"\n⛂ - تعداد اعضا : "+m+"\n⛂ - تعداد مدیران : "+a+"\n⛂ - مالک گروه : "+(owner?.username?("@"+owner.username):(owner?.first_name??"ثبت نشده"))\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - پیام‌های امروز : —\n⛂ - اعضای جدید امروز : —\n⛂ - پیام‌های کل : —\n⛂ - اعضای فعلی : "+m+"\n⛂ - تعداد افراد در لیست سکوت : —\n⛂ - تعداد افراد در لیست ویژه : —\n⛂ - تعداد اخطار های فعال : "+stats(ctx.chatId).warnings+"\n\n★ - تاریخ ساخت گروه : —\n★ - لینک دعوت : —\n★ - وضعیت لینک دعوت : —",
+        "◈ Group information\n\n⛂ - Name : "+(c.title??ctx.chatTitle)+"\n⛂ - ID : "+ctx.chatId+"\n⛂ - Username : "+(c.username?"@"+c.username:"None")+"\n⛂ - Type : "+c.type+"\n⛂ - Members : "+m+"\n⛂ - Admins : "+a+"\n⛂ - Owner : "+(owner?.username?("@"+owner.username):(owner?.first_name??"Not recorded"))\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - Messages today : —\n⛂ - New members today : —\n⛂ - Total messages : —\n⛂ - Current members : "+m+"\n⛂ - Muted users : —\n⛂ - Special users : —\n⛂ - Active warnings : "+stats(ctx.chatId).warnings+"\n\n★ - Group creation date : —\n★ - Invite link : —\n★ - Invite status : —");
     }
-    case "rank":
+    case "rank": {
+      const rankStart=memberJoinDates.get(userKey(ctx.chatId,ctx.userId));
+      const responsibility=rank==="owner"?"تصمیم‌گیری نهایی و مدیریت کامل گروه":rank==="sudo"?"مدیریت ارشد و نظارت کامل":rank==="admin"?"اجرای مدیریت و کنترل گروه":"عضویت و استفاده از امکانات گروه";
+      const responsibilityEn=rank==="owner"?"Final group management and decisions":rank==="sudo"?"Senior management and oversight":rank==="admin"?"Group management and moderation":"Group membership and normal use";
       return fa(ctx.lang,
         "◈ سیستم پیشرفته مدیران\n\n★ - "+rankLabel(ctx.lang,rank)+"\n\n⛂ - نام : "+ctx.userName+"\n⛂ - نام کاربری : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - شناسه : "+ctx.userId+"\n⛂ - مقام : "+rankLabel(ctx.lang,rank)+"\n⛂ - تاریخ شروع : —\n⛂ - دسترسی‌ها : "+(rank==="owner"?"کامل":rank==="admin"?"مدیریتی":"عادی")+"\n⛂ - مسئولیت اصلی : —",
         "◈ Advanced manager system\n\n★ - "+rank+"\n\n⛂ - Name : "+ctx.userName+"\n⛂ - Username : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - ID : "+ctx.userId+"\n⛂ - Rank : "+rank+"\n⛂ - Start date : —\n⛂ - Access : "+(rank==="owner"?"Full":rank==="admin"?"Management":"Standard"));
     case "me": {
       const us=userStats(ctx.chatId,ctx.userId);
+      const joined=memberJoinDates.get(userKey(ctx.chatId,ctx.userId));
+      const muted=state(ctx.chatId).muted.has(ctx.userId);
+      const special=state(ctx.chatId).special.has(ctx.userId);
       return fa(ctx.lang,
-        "◈ اطلاعات کاربر\n\n⛂ - نام : "+ctx.userName+"\n⛂ - نام کاربری : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - شناسه : "+ctx.userId+"\n⛂ - مقام : "+rankLabel(ctx.lang,rank)+"\n⛂ - تاریخ عضویت : —\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - تعداد پیام امروز : "+us.today+"\n⛂ - تعداد پیام کل : "+us.total+"\n⛂ - تعداد اخطار فعال : "+(s.warnings.get(ctx.userId)?.count??0)+"\n⛂ - وضعیت سکوت : —\n⛂ - وضعیت لیست ویژه : —",
-        "◈ User information\n\n⛂ - Name : "+ctx.userName+"\n⛂ - Username : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - ID : "+ctx.userId+"\n⛂ - Rank : "+rank+"\n⛂ - Join date : —\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - Messages today : "+us.today+"\n⛂ - Total messages : "+us.total+"\n⛂ - Active warnings : "+(s.warnings.get(ctx.userId)?.count??0)+"\n⛂ - Mute status : —\n⛂ - Special status : —");
+        "◈ اطلاعات کاربر\n\n⛂ - نام : "+ctx.userName+"\n⛂ - نام کاربری : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - شناسه : "+ctx.userId+"\n⛂ - مقام : "+rankLabel(ctx.lang,rank)+"\n⛂ - تاریخ عضویت : "+formatDate(joined,ctx.lang)\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - تعداد پیام امروز : "+us.today+"\n⛂ - تعداد پیام کل : "+us.total+"\n⛂ - تعداد اخطار فعال : "+(s.warnings.get(ctx.userId)?.count??0)+"\n⛂ - وضعیت سکوت : —\n⛂ - وضعیت لیست ویژه : —",
+        "◈ User information\n\n⛂ - Name : "+ctx.userName+"\n⛂ - Username : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - ID : "+ctx.userId+"\n⛂ - Rank : "+rank+"\n⛂ - Join date : "+formatDate(joined,ctx.lang)\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - Messages today : "+us.today+"\n⛂ - Total messages : "+us.total+"\n⛂ - Active warnings : "+(s.warnings.get(ctx.userId)?.count??0)+"\n⛂ - Mute status : —\n⛂ - Special status : —");
     }
     case "bot": {
       const me=await api<any>("getMe",{});
@@ -112,7 +159,8 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "◈ اطلاعات فنی ربات\n\n⛂ - نام ربات : "+(ctx.config.botName||"نظم")+"\n⛂ - نام کاربری : "+(ctx.config.botUsername||"—")+"\n⛂ - شناسه ربات : "+botId+"\n⛂ - نسخه ربات : v"+(process.env.BOT_VERSION??"2.0.0")+"\n⛂ - وضعیت ربات : آنلاین\n⛂ - اتصال دیتابیس : "+(process.env.DATABASE_URL?"متصل":"محلی")+"\n⛂ - روش ارتباط تلگرام : Polling\n⛂ - وضعیت سرویس : فعال\n⛂ - سیستم‌عامل : "+process.platform+"\n⛂ - نسخه Node.js : "+process.version+"\n⛂ - uptime : "+Math.floor(process.uptime())+" ثانیه",
         "◈ Bot technical information\n\n⛂ - Bot name : "+(ctx.config.botName||"Nizam")+"\n⛂ - Username : "+(ctx.config.botUsername||"—")+"\n⛂ - Bot ID : "+botId+"\n⛂ - Version : v"+(process.env.BOT_VERSION??"2.0.0")+"\n⛂ - Status : Online\n⛂ - Database : "+(process.env.DATABASE_URL?"Connected":"Local")+"\n⛂ - Telegram connection : Polling\n⛂ - Service : Active\n⛂ - OS : "+process.platform+"\n⛂ - Node.js : "+process.version+"\n⛂ - Uptime : "+Math.floor(process.uptime())+"s");
     }
-    case "status":
+    case "status": {
+      const gs=groupStats(ctx.chatId); const st=state(ctx.chatId);
       return fa(ctx.lang,
         "◈ وضعیت گروه\n\n⛂ - وضعیت ربات : ● فعال\n⛂ - وضعیت مدیریت : ● فعال\n⛂ - وضعیت دیتابیس : ● "+(process.env.DATABASE_URL?"متصل":"محلی")+"\n⛂ - وضعیت ضد اسپم : ● فعال\n⛂ - وضعیت ضد فلود : ● فعال\n⛂ - وضعیت امنیت : ● فعال\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - تعداد اعضا : "+ctx.membersCount+"\n⛂ - تعداد مدیران : "+ctx.staff.length+"\n⛂ - پیام‌های امروز : —\n⛂ - اخطارهای فعال : "+stats(ctx.chatId).warnings+"\n⛂ - افراد در لیست سکوت : —\n⛂ - افراد در لیست ویژه : —\n\n★ - وضعیت کلی گروه : پایدار",
         "◈ Group status\n\n⛂ - Bot : ● Active\n⛂ - Management : ● Active\n⛂ - Database : ● "+(process.env.DATABASE_URL?"Connected":"Local")+"\n⛂ - Anti-spam : ● Active\n⛂ - Anti-flood : ● Active\n⛂ - Security : ● Active\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - Members : "+ctx.membersCount+"\n⛂ - Admins : "+ctx.staff.length+"\n⛂ - Messages today : —\n⛂ - Active warnings : "+stats(ctx.chatId).warnings+"\n⛂ - Muted users : —\n⛂ - Special users : —\n\n★ - Overall group status : Stable");
@@ -123,6 +171,9 @@ export async function recordMessage(chatId:number,userId:number,messageId:number
   const s=state(chatId);s.recent.push(messageId);if(s.recent.length>100)s.recent.shift();
   const key=userKey(chatId,userId);
   userMessageCounts.set(key,(userMessageCounts.get(key)??0)+1);
+  groupMessageTotals.set(chatId,(groupMessageTotals.get(chatId)??0)+1);
+  const gd=groupMessageDailyCounts.get(chatId); const d=dayKey();
+  groupMessageDailyCounts.set(chatId,{day:d,count:(gd?.day===d?gd.count:0)+1});
   const day=dayKey();
   const daily=userMessageDailyCounts.get(key);
   userMessageDailyCounts.set(key,{day,count:(daily?.day===day?daily.count:0)+1});
