@@ -39,6 +39,7 @@ async function refreshStudio() {
     const result=await studioPool.query<PanelCommand>(`
       SELECT c.id,c.command_key,COALESCE(c.fa_name,'') AS fa_name,COALESCE(c.en_name,'') AS en_name,c.enabled,
       COALESCE(c.required_permission,'execute') AS required_permission,UPPER(COALESCE(c.minimum_role,'MEMBER')) AS minimum_role,
+      COALESCE(c.response_fa,'') AS response_fa,COALESCE(c.response_en,'') AS response_en,
       COALESCE(json_agg(json_build_object('role',cp.role,'allowed',cp.allowed) ORDER BY cp.role) FILTER(WHERE cp.role IS NOT NULL),'[]'::json) AS permissions
       FROM commands c LEFT JOIN command_permissions cp ON cp.command_id=c.id GROUP BY c.id ORDER BY c.id
     `);
@@ -76,7 +77,7 @@ function commandMatches(text: string, aliases: string[]) {
 
 const PANEL_ROLE_ORDER: PanelRole[] = ["MEMBER","SPECIAL_USER","MODERATOR","ADMIN","SUPER_ADMIN","OWNER"];
 type PanelRole = typeof PANEL_ROLE_ORDER[number];
-type PanelCommand = { id:number; command_key:string; fa_name:string; en_name:string; enabled:boolean; required_permission:string; minimum_role:PanelRole; permissions:Array<{role:PanelRole;allowed:boolean}> };
+type PanelCommand = { id:number; command_key:string; fa_name:string; en_name:string; enabled:boolean; required_permission:string; minimum_role:PanelRole; response_fa:string; response_en:string; permissions:Array<{role:PanelRole;allowed:boolean}> };
 
 function panelRoleForRank(rank: Rank): PanelRole {
   if(rank==="owner") return "OWNER";
@@ -133,26 +134,83 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
   const raw=ctx.text.trim();
   if(!raw)return null;
   const token=normalizeCommand(raw);
-  const command=studio.commands.find(item=>item.enabled&&item.phase<=2&&commandMatches(token,[...item.aliasesFa,...item.aliasesEn]));
-  if(!command)return null;
+  const studioCommand=studio.commands.find(item=>item.enabled&&item.phase<=2&&commandMatches(token,[...item.aliasesFa,...item.aliasesEn]));
+  const panelCommand=panelCommands.find(item=>commandMatches(token,[item.command_key,item.fa_name,item.en_name]));
+  if(!studioCommand && !panelCommand)return null;
 
-  const auth=await authorizeStudioCommand(ctx,command);
-  if(!auth.allowed){
-    await logCommandAccess(ctx,command.id,"permission_denied",auth.reason,auth.role);
+  if(studioCommand){
+    const auth=await authorizeStudioCommand(ctx,studioCommand);
+    if(!auth.allowed){
+      await logCommandAccess(ctx,studioCommand.id,"permission_denied",auth.reason,auth.role);
+      return ctx.lang==="fa"?"✗ دسترسی کافی برای اجرای این دستور را ندارید.":"✗ You do not have permission to execute this command.";
+    }
+
+    try{
+      const liveCard=await runLiveCommand({...ctx,messageId:0},studioCommand.aliasesEn[0]??studioCommand.id,raw.split(/\\s+/).slice(1));
+      await logCommandAccess(ctx,studioCommand.id,"command_executed","allowed",auth.role);
+      const values:Record<string,string>={
+        user_name:ctx.userName,
+        username:ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName,
+        user_id:String(ctx.userId),
+        rank:ctx.userRank,
+        chat_title:ctx.chatTitle,
+        chat_id:String(ctx.chatId),
+        chat_type:ctx.chatType,
+        members_count:String(ctx.membersCount),
+        admins_count:String(ctx.staff.length),
+        live_card:liveCard,
+        messages_today:"—",
+        messages_total:"—"
+      };
+      const configuredTemplate=ctx.lang==="fa"?panelCommand?.response_fa:panelCommand?.response_en;
+      const template=(configuredTemplate && configuredTemplate.trim() && !configuredTemplate.includes("{{live_card}}"))
+        ? configuredTemplate
+        : (ctx.lang==="fa"?studioCommand.responseFa:studioCommand.responseEn);
+      if(!template.trim()) return liveCard;
+      return template.replace(/{{\\s*([a-z0-9_]+)\\s*}}/gi,(_,key)=>values[key]??"—");
+    }catch(error){
+      console.error("[studio-command]",error);
+      return ctx.lang==="fa"?"✗ اجرای دستور ناموفق بود؛ دسترسی ربات یا هدف را بررسی کنید.":"✗ Command failed; check bot permissions or target.";
+    }
+  }
+
+  const role=await resolvePanelRole(ctx);
+  if(panelCommand && !panelCommand.enabled){
+    await logCommandAccess(ctx,panelCommand.command_key,"permission_denied","disabled",role);
+    return ctx.lang==="fa"?"✗ این دستور غیرفعال است.":"✗ This command is disabled.";
+  }
+  const minimum=panelCommand?normalizeRole(panelCommand.minimum_role):"MEMBER";
+  if(!panelRoleAtLeast(role,minimum)){
+    await logCommandAccess(ctx,panelCommand.command_key,"permission_denied","minimum_role",role);
     return ctx.lang==="fa"?"✗ دسترسی کافی برای اجرای این دستور را ندارید.":"✗ You do not have permission to execute this command.";
   }
-
-  try{
-    const liveCard=await runLiveCommand({...ctx,messageId:0},command.aliasesEn[0]??command.id,raw.split(/\\s+/).slice(1));
-    await logCommandAccess(ctx,command.id,"command_executed","allowed",auth.role);
-    const values:Record<string,string>={user_name:ctx.userName,username:ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName,user_id:String(ctx.userId),rank:ctx.userRank,chat_title:ctx.chatTitle,chat_id:String(ctx.chatId),chat_type:ctx.chatType,members_count:String(ctx.membersCount),admins_count:String(ctx.staff.length),live_card:liveCard};
-    const template=ctx.lang==="fa"?command.responseFa:command.responseEn;
-    if(!template.trim()) return liveCard;
-    return template.replace(/{{\\s*([a-z0-9_]+)\\s*}}/gi,(_,key)=>values[key]??"—");
-  }catch(error){
-    console.error("[studio-command]",error);
-    return ctx.lang==="fa"?"✗ اجرای دستور ناموفق بود؛ دسترسی ربات یا هدف را بررسی کنید.":"✗ Command failed; check bot permissions or target.";
+  const row=panelCommand.permissions.find(x=>normalizeRole(x.role)===role);
+  if(row && row.allowed!==true){
+    await logCommandAccess(ctx,panelCommand.command_key,"permission_denied","command_role",role);
+    return ctx.lang==="fa"?"✗ دسترسی کافی برای اجرای این دستور را ندارید.":"✗ You do not have permission to execute this command.";
   }
+  if(!(await hasPanelPermission(ctx,role,panelCommand.required_permission))){
+    await logCommandAccess(ctx,panelCommand.command_key,"permission_denied","permission",role);
+    return ctx.lang==="fa"?"✗ دسترسی کافی برای اجرای این دستور را ندارید.":"✗ You do not have permission to execute this command.";
+  }
+  const template=ctx.lang==="fa"?panelCommand.response_fa:panelCommand.response_en;
+  if(!template.trim()) return ctx.lang==="fa"?"✓ دستور شناسایی شد، اما پاسخ آن در پنل تنظیم نشده است.":"✓ Command recognized, but its response is not configured in the panel.";
+  const values:Record<string,string>={
+    user_name:ctx.userName,
+    username:ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName,
+    user_id:String(ctx.userId),
+    rank:ctx.userRank,
+    chat_title:ctx.chatTitle,
+    chat_id:String(ctx.chatId),
+    chat_type:ctx.chatType,
+    members_count:String(ctx.membersCount),
+    admins_count:String(ctx.staff.length),
+    messages_today:"—",
+    messages_total:"—",
+    live_card:"—"
+  };
+  await logCommandAccess(ctx,panelCommand.command_key,"command_executed","allowed",role);
+  return template.replace(/{{\\s*([a-z0-9_]+)\\s*}}/gi,(_,key)=>values[key]??"—");
 }
 
 function render(template: string, ctx: BotContext) {
