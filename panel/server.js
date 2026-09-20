@@ -4,6 +4,31 @@ const path = require("path");
 const { checkConnection, query } = require("./backend/database");
 
 const PORT = process.env.PORT || 3000;
+
+async function ensurePermissionSchema() {
+  await query(`CREATE TABLE IF NOT EXISTS role_permissions (
+    role TEXT NOT NULL,
+    permission_key TEXT NOT NULL,
+    allowed BOOLEAN NOT NULL DEFAULT FALSE,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (role, permission_key)
+  )`);
+  const defaults = {
+    OWNER: {view:true,create:true,edit:true,delete:true,manage:true,configure:true,execute:true,sync:true},
+    SUPER_ADMIN: {view:true,create:true,edit:true,delete:true,manage:true,configure:true,execute:true,sync:true},
+    ADMIN: {view:true,create:true,edit:true,delete:false,manage:true,configure:true,execute:true,sync:false},
+    MODERATOR: {view:true,create:false,edit:true,delete:false,manage:true,configure:false,execute:true,sync:false},
+    SPECIAL_USER: {view:true,create:false,edit:false,delete:false,manage:false,configure:false,execute:true,sync:false},
+    MEMBER: {view:true,create:false,edit:false,delete:false,manage:false,configure:false,execute:false,sync:false}
+  };
+  for (const [role, perms] of Object.entries(defaults)) {
+    for (const [key, allowed] of Object.entries(perms)) {
+      await query(`INSERT INTO role_permissions (role, permission_key, allowed)
+        VALUES ($1,$2,$3)
+        ON CONFLICT (role, permission_key) DO NOTHING`, [role,key,allowed]);
+    }
+  }
+}
 const FRONTEND = path.join(__dirname, "frontend");
 
 const types = {
@@ -132,4 +157,10 @@ http.createServer(async (req,res) => {
   } catch(error) {
     send(res,500,JSON.stringify({error:error.message}));
   }
-}).listen(PORT,() => console.log(`PERSIAN BOT STUDIO running on port ${PORT}`));
+});
+ensurePermissionSchema()
+  .then(() => server.listen(PORT, () => console.log(`PERSIAN BOT STUDIO running on port ${PORT}`)))
+  .catch(error => {
+    console.error("Permission schema initialization failed:", error);
+    process.exit(1);
+  });
