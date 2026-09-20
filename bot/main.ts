@@ -174,11 +174,14 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
         messages_total:"—"
       };
       const configuredTemplate=ctx.lang==="fa"?panelCommand?.response_fa:panelCommand?.response_en;
-      const template=(configuredTemplate && configuredTemplate.trim() && !configuredTemplate.includes("{{live_card}}"))
+      const coreCardPlaceholders=["{{robot_line}}","{{admin_result}}","{{rank_card}}","{{me_card}}","{{ping_card}}","{{bot_card}}","{{status_card}}"];
+      const selected=(configuredTemplate && configuredTemplate.trim() && !configuredTemplate.includes("{{live_card}}"))
         ? configuredTemplate
         : (ctx.lang==="fa"?studioCommand.responseFa:studioCommand.responseEn);
-      if(!template.trim()) return liveCard;
-      return template.replace(/{{\s*([a-z0-9_]+)\s*}}/gi,(_,key)=>values[key]??"—");
+      if(!selected.trim()) return liveCard;
+      const normalizedSelected=selected.trim();
+      if(coreCardPlaceholders.includes(normalizedSelected)) return liveCard;
+      return selected.replace(/{{\s*([a-z0-9_]+)\s*}}/gi,(_,key)=>values[key]??"—");
     }catch(error){
       console.error("[studio-command]",error);
       return ctx.lang==="fa"?"✗ اجرای دستور ناموفق بود؛ دسترسی ربات یا هدف را بررسی کنید.":"✗ Command failed; check bot permissions or target.";
