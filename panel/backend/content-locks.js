@@ -57,6 +57,7 @@ function defaultRules(){
   add("interactions","hashtag_limit","محدودیت هشتگ","تعداد هشتگ هر پیام کنترل شود.",false,{max_hashtags:5,action:"delete"});
   add("interactions","mention_limit","محدودیت منشن","تعداد @mention هر پیام کنترل شود.",false,{max_mentions:5,action:"delete"});
   add("interactions","web_preview_lock","قفل پیش‌نمایش لینک","در صورت قابل تشخیص بودن Web Preview، آن پیام مسدود شود.",false,{action:"delete"});
+  add("interactions","story_share_lock","قفل اشتراک‌گذاری Story","اشتراک‌گذاری Story که در Message توسط Telegram قابل تشخیص باشد.",false,{action:"delete_notify"});
   add("advanced","contact_lock","قفل Contact","ارسال شماره/Contact در گروه ممنوع شود.",false,{action:"delete_notify"});
   add("advanced","location_lock","قفل Location","ارسال Location و Venue ممنوع شود.",false,{action:"delete_notify"});
   add("advanced","poll_lock","قفل Poll","ارسال Poll ممنوع شود.",false,{action:"delete"});
