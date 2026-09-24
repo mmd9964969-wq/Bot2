@@ -24,6 +24,7 @@ const defs: CommandDef[] = [
   { id:"ping", phase:2, minRank:"member", aliasesEn:["ping"], aliasesFa:["پینگ"], usageEn:"ping", usageFa:"پینگ", descEn:"System status", descFa:"وضعیت سیستم" },
   { id:"bot", phase:2, minRank:"member", aliasesEn:["bot"], aliasesFa:["بات"], usageEn:"bot", usageFa:"بات", descEn:"Technical bot information", descFa:"اطلاعات فنی ربات" },
   { id:"status", phase:2, minRank:"member", aliasesEn:["status"], aliasesFa:["وضعیت"], usageEn:"status", usageFa:"وضعیت", descEn:"Group status", descFa:"وضعیت گروه" },
+  { id:"advertising-lock", phase:1, minRank:"admin", aliasesEn:["advertising lock"], aliasesFa:["قفل تبلیغات"], usageEn:"advertising lock on|off|status", usageFa:"قفل تبلیغات روشن|خاموش|وضعیت", descEn:"Group advertising protection", descFa:"قفل و کنترل پیام‌های تبلیغاتی گروه" },
 ];
 
 export const COMMANDS = defs;
