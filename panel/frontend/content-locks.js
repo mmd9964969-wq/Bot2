@@ -1,5 +1,5 @@
 
-function contentLocksPage(){
+async function contentLocksPage(){
   const state={groupId:localStorage.getItem("pbs_lock_group")||"",groups:[],rules:[],settings:null,exceptions:[],domains:[],logsPage:1,logType:"",logQ:"",logFrom:"",logTo:"",tab:"links"};
   const actorId=()=>localStorage.getItem("pbs_actor_id")||"PANEL_OWNER";
   const faDate=v=>v?new Date(v).toLocaleString("fa-IR",{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"}):"—";
