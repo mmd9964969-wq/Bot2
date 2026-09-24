@@ -244,6 +244,15 @@ async function act(input:Input,rule:Rule,contentType:string,reason:string){
 async function block(input:Input,data:any,key:string,contentType:string,reason:string,sourceId?:number){
   const rule=getRule(data,key);if(!rule?.enabled)return false;
   if(exceptionMatches(data,input,rule.section,key,sourceId))return false;
+  const behavior:any={links:["links_auto_delete","links_notify"],forwarding:["forward_auto_delete","forward_notify"],files:["file_auto_delete",null]}[rule.section];
+  if(behavior&&enabled(data,behavior[0])===false){
+    if(behavior[1]&&enabled(data,behavior[1])){
+      const n=await telegramApi("sendMessage",{chat_id:input.groupId,text:"⚠️ این پیام با سیاست قفل محتوا مغایرت دارد."});
+      if(!n.ok)console.warn("[content-locks] notification failed:",n.description);
+    }
+    await log(input,key,contentType,"detected_no_delete",{reason});
+    return false;
+  }
   return act(input,rule,contentType,reason);
 }
 
@@ -306,8 +315,8 @@ export async function enforceContentLocks(input:Input):Promise<boolean>{
     }
   }
 
-  if(enabled(data,"message_min_length")&&text.length<Number(config(data,"message_min_length").min_chars||2)&&await block(input,data,"message_min_length","text","طول کمتر از حداقل"))return true;
-  if(enabled(data,"message_max_length")&&text.length>Number(config(data,"message_max_length").max_chars||4000)&&await block(input,data,"message_max_length","text","طول بیشتر از حداکثر"))return true;
+  const hasText=Boolean(text);\n  if(hasText&&enabled(data,"message_min_length")&&text.length<Number(config(data,"message_min_length").min_chars||2)&&await block(input,data,"message_min_length","text","طول کمتر از حداقل"))return true;
+  if(hasText&&enabled(data,"message_max_length")&&text.length>Number(config(data,"message_max_length").max_chars||4000)&&await block(input,data,"message_max_length","text","طول بیشتر از حداکثر"))return true;
   const rateRule=getRule(data,"message_rate_limit");
   if(rateRule?.enabled&&track(windows,input.groupId+":"+input.userId+":messages",Number(rateRule.config?.window_seconds||60)*1000)>Number(rateRule.config?.count||10)&&await block(input,data,"message_rate_limit","text","نرخ پیام"))return true;
 
@@ -324,18 +333,18 @@ export async function enforceContentLocks(input:Input):Promise<boolean>{
   if(input.message.game&&await block(input,data,"game_lock","game","Game"))return true;
   if(input.message.web_app_data&&await block(input,data,"web_app_lock","web_app","Web App"))return true;
 
-  const lower=text;
+  const raw=text;
   const base=input.groupId+":"+input.userId;
   if(enabled(data,"attack_flood")){
     const r=config(data,"attack_flood");
     if(track(windows,base+":flood",Number(r.window_seconds||5)*1000)>Number(r.count||8)&&await block(input,data,"attack_flood","attack","Flood"))return true;
   }
-  if(enabled(data,"attack_duplicate")&&text){
+  if(enabled(data,"attack_duplicate")&&hasText){
     const r=config(data,"attack_duplicate"),v=text.replace(/\s+/g," ").trim().slice(0,500);
     if(duplicateTrack(base,v,Number(r.window_seconds||30)*1000)>Number(r.count||3)&&await block(input,data,"attack_duplicate","attack","Duplicate"))return true;
   }
-  if(enabled(data,"attack_caps")){
-    const r=config(data,"attack_caps"),letters=lower.match(/[a-z]/gi)||[],caps=(lower.match(/[A-Z]/g)||[]).length,pct=letters.length?caps/letters.length*100:0;
+  if(enabled(data,"attack_caps")&&hasText){
+    const r=config(data,"attack_caps"),letters=raw.match(/[a-z]/gi)||[],caps=(raw.match(/[A-Z]/g)||[]).length,pct=letters.length?caps/letters.length*100:0;
     if(letters.length>=Number(r.min_letters||20)&&pct>=Number(r.percent||90)&&await block(input,data,"attack_caps","attack","CAPS"))return true;
   }
   if(linkList.length&&enabled(data,"attack_link_burst")){
