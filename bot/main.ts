@@ -6,6 +6,7 @@ import type { Lang, Rank } from "../src/lib/bot/registry.ts";
 import { telegramApi } from "../src/lib/telegram/api.ts";
 import { rankAtLeast } from "../src/lib/bot/registry.ts";
 import { runLiveCommand, recordMessage } from "../src/lib/bot/runtime.ts";
+import { enforceContentLocks, type ContentLockMessage } from "../src/lib/bot/content-locks.ts";
 import { isRuntimeMaintenance, startRuntimeControlServer } from "./runtime-control.ts";
 
 const TOKEN = process.env.BOT_TOKEN ?? "";
@@ -588,9 +589,9 @@ const adminCache = new Map<number, { at: number; ids: Set<number> }>();
 
 type TgUser = { id: number; first_name?: string; username?: string };
 type TgChat = { id: number; type: string; title?: string; username?: string };
-type TgMessage = { message_id: number; chat: TgChat; from?: TgUser; text?: string; reply_to_message?: { from?: TgUser }; new_chat_members?: TgUser[]; left_chat_member?: TgUser };
+type TgMessage = ContentLockMessage & { chat: TgChat; from?: TgUser; reply_to_message?: { from?: TgUser }; new_chat_members?: TgUser[]; left_chat_member?: TgUser };
 type TgChatMemberUpdate = { chat: TgChat; from?: TgUser; new_chat_member?: { status?: string; user?: TgUser } };
-type TgUpdate = { update_id: number; message?: TgMessage; my_chat_member?: TgChatMemberUpdate; chat_member?: TgChatMemberUpdate };
+type TgUpdate = { update_id: number; message?: TgMessage; edited_message?: TgMessage; my_chat_member?: TgChatMemberUpdate; chat_member?: TgChatMemberUpdate };
 
 function splitIds(raw: string | undefined): string[] {
   return (raw ?? "").split(/[,\s]+/).map((s) => s.trim()).filter(Boolean);
@@ -618,9 +619,9 @@ async function chatAdmins(chatId: number): Promise<Set<number>> {
   return ids;
 }
 
-async function handleMessage(msg: TgMessage) {
-  const text = msg.text?.trim();
-  if (!text || !msg.from) return;
+async function handleMessage(msg: TgMessage, edited = false) {
+  const text = (msg.text || msg.caption || "").trim();
+  if (!msg.from) return;
 
   const chat = msg.chat;
   const isPrivate = chat.type === "private";
@@ -659,6 +660,21 @@ async function handleMessage(msg: TgMessage) {
     now: Date.now(),
     staff: [...adminIds].map((id) => ({ id, name: String(id), rank: rankOf(id, adminIds) })),
   };
+
+  if (!isPrivate && studioPool) {
+    const blocked = await enforceContentLocks({
+      pool: studioPool,
+      groupId: chat.id,
+      userId: msg.from.id,
+      firstName: msg.from.first_name,
+      username: msg.from.username,
+      userRank: ctx.userRank,
+      text,
+      message: msg,
+      edited,
+    });
+    if (blocked) return;
+  }
 
   if (isRuntimeMaintenance() && !["owner","sudo"].includes(ctx.userRank)) {
     await telegramApi("sendMessage", { chat_id: chat.id, text: ctx.lang === "fa" ? "⏸️ ربات موقتاً در حالت تعمیر است. لطفاً بعداً دوباره تلاش کنید." : "⏸️ The bot is temporarily in maintenance mode. Please try again later.", reply_to_message_id: msg.message_id });
@@ -723,7 +739,7 @@ async function poll() {
       const data = await telegramApi("getUpdates", {
         offset,
         timeout: 30,
-        allowed_updates: ["message", "my_chat_member", "chat_member"],
+        allowed_updates: ["message", "edited_message", "my_chat_member", "chat_member"],
       });
       if (!data.ok || !Array.isArray(data.result)) {
         console.error(data.description ?? "getUpdates failed");
@@ -734,8 +750,13 @@ async function poll() {
       for (const upd of data.result as TgUpdate[]) {
         offset = upd.update_id + 1;
         if (upd.message) {
-          void handleMessage(upd.message).catch((error) => {
+          void handleMessage(upd.message, false).catch((error) => {
             console.error("[update] message handler failed", error);
+          });
+        }
+        if (upd.edited_message) {
+          void handleMessage(upd.edited_message, true).catch((error) => {
+            console.error("[update] edited message handler failed", error);
           });
         }
         if (upd.my_chat_member) {
