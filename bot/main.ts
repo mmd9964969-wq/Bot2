@@ -5,7 +5,7 @@ import { cloneStudioDefaults, type StudioDocument } from "../src/lib/bot/studio.
 import type { Lang, Rank } from "../src/lib/bot/registry.ts";
 import { telegramApi } from "../src/lib/telegram/api.ts";
 import { rankAtLeast } from "../src/lib/bot/registry.ts";
-import { runLiveCommand, recordMessage } from "../src/lib/bot/runtime.ts";
+import { runLiveCommand, recordMessage, moderateLive, setGroupAdvertisingPolicy } from "../src/lib/bot/runtime.ts";
 import { isRuntimeMaintenance, startRuntimeControlServer } from "./runtime-control.ts";
 
 const TOKEN = process.env.BOT_TOKEN ?? "";
@@ -26,6 +26,32 @@ let studio = cloneStudioDefaults();
 let studioPool: Pool | null = null;
 let pollLockClient: Client | null = null;
 let panelCommands: PanelCommand[] = [];
+
+const advertisingSettingsCache = new Map<number,{at:number;enabled:boolean;mode:"standard"|"strict";exemptAdmins:boolean;exemptSpecialUsers:boolean}>();
+
+async function syncGroupAdvertisingSettings(chatId:number,userId:number){
+  if(!studioPool){
+    setGroupAdvertisingPolicy(chatId,{enabled:false});
+    return false;
+  }
+  const now=Date.now();
+  let policy=advertisingSettingsCache.get(chatId);
+  if(!policy || now-policy.at>10_000){
+    const r=await studioPool.query<{enabled:boolean;mode:"standard"|"strict";exempt_admins:boolean;exempt_special_users:boolean}>(
+      "SELECT enabled,mode,exempt_admins,exempt_special_users FROM group_security_settings WHERE chat_id=$1 LIMIT 1",[chatId]
+    );
+    const row=r.rows[0];
+    policy={at:now,enabled:row?.enabled===true,mode:row?.mode==="strict"?"strict":"standard",exemptAdmins:row?.exempt_admins!==false,exemptSpecialUsers:row?.exempt_special_users!==false};
+    advertisingSettingsCache.set(chatId,policy);
+  }
+  setGroupAdvertisingPolicy(chatId,{enabled:policy.enabled,mode:policy.mode,exemptAdmins:policy.exemptAdmins,exemptSpecialUsers:policy.exemptSpecialUsers});
+  if(!policy.exemptSpecialUsers) return false;
+  try{
+    const u=await studioPool.query<{role:string}>("SELECT role FROM users WHERE telegram_id=$1 AND is_active=TRUE LIMIT 1",[userId]);
+    return String(u.rows[0]?.role||"").toLowerCase()==="special_user";
+  }catch{return false;}
+}
+
 
 async function refreshStudio() {
   const url=process.env.DATABASE_URL;
@@ -344,6 +370,14 @@ async function handleMessage(msg: TgMessage) {
     now: Date.now(),
     staff: [...adminIds].map((id) => ({ id, name: String(id), rank: rankOf(id, adminIds) })),
   };
+
+  if (!isPrivate) {
+    try{
+      const isSpecial=await syncGroupAdvertisingSettings(chat.id,msg.from.id);
+      const blocked=await moderateLive({chatId:chat.id,userId:msg.from.id,messageId:(msg as any).message_id,text,userRank:ctx.userRank,isSpecial});
+      if(blocked)return;
+    }catch(error){console.error("[advertising-lock] moderation failed",error);}
+  }
 
   if (isRuntimeMaintenance() && !["owner","sudo"].includes(ctx.userRank)) {
     await telegramApi("sendMessage", { chat_id: chat.id, text: ctx.lang === "fa" ? "⏸️ ربات موقتاً در حالت تعمیر است. لطفاً بعداً دوباره تلاش کنید." : "⏸️ The bot is temporarily in maintenance mode. Please try again later.", reply_to_message_id: msg.message_id });
