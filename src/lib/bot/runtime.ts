@@ -167,20 +167,30 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
 }
 
 export async function recordMessage(chatId:number,userId:number,messageId:number){
-  const s=state(chatId);s.recent.push(messageId);if(s.recent.length>100)s.recent.shift();
+  const s=state(chatId);
+  s.recent.push(messageId);
+  if(s.recent.length>100)s.recent.shift();
+
   const key=userKey(chatId,userId);
   if(!s.firstSeen.has(userId)) s.firstSeen.set(userId,Date.now());
+
   userMessageCounts.set(key,(userMessageCounts.get(key)??0)+1);
-  groupMessageTotals.set(chatId,(groupMessageTotals.get(chatId)??0)+1);
-  const gd=groupMessageDailyCounts.get(chatId); const d=dayKey();
-  groupMessageDailyCounts.set(chatId,{day:d,count:(gd?.day===d?gd.count:0)+1});
-  groupMessageTotals.set(chatId,(groupMessageTotals.get(chatId)??0)+1);
-  const gd=groupMessageDailyCounts.get(chatId); const d=dayKey();
-  groupMessageDailyCounts.set(chatId,{day:d,count:(gd?.day===d?gd.count:0)+1});
+
   const day=dayKey();
   const daily=userMessageDailyCounts.get(key);
   userMessageDailyCounts.set(key,{day,count:(daily?.day===day?daily.count:0)+1});
-  const now=Date.now();const times=messageTimes.get(chatId)??[];times.push(now);while(times.length&&now-times[0]>10000)times.shift();messageTimes.set(chatId,times);
+
+  const total=(groupMessageTotals.get(chatId)??0)+1;
+  groupMessageTotals.set(chatId,total);
+
+  const gd=groupMessageDailyCounts.get(chatId);
+  groupMessageDailyCounts.set(chatId,{day,count:(gd?.day===day?gd.count:0)+1});
+
+  const now=Date.now();
+  const times=messageTimes.get(chatId)??[];
+  times.push(now);
+  while(times.length&&now-times[0]>10000)times.shift();
+  messageTimes.set(chatId,times);
 }
 
 export async function moderateLive(ctx:{chatId:number;userId:number;messageId:number;text:string}){
