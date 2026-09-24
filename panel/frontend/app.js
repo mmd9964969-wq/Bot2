@@ -1,4 +1,43 @@
-const titles={dashboard:"داشبورد",commands:"دستورات",responses:"پاسخ‌ها",runtime:"هسته اجرایی ربات",users:"کاربران",permissions:"دسترسی‌ها",supervision:"مرکز نظارت",settings:"تنظیمات",database:"پایگاه داده",sync:"همگام‌سازی",audit:"گزارش فعالیت‌ها",security:"مرکز امنیت"};
+const titles={dashboard:"داشبورد",commands:"دستورات",responses:"پاسخ‌ها",runtime:"هسته اجرایی ربات",group:"مدیریت گروه",users:"کاربران",permissions:"دسترسی‌ها",supervision:"مرکز نظارت",settings:"تنظیمات",database:"پایگاه داده",sync:"همگام‌سازی",audit:"گزارش فعالیت‌ها",security:"مرکز امنیت"};
+
+const GROUP_COMMANDS=[
+  [
+    ["panel","پنل مدیریت","Management panel"],["locks","قفل‌ها","Locks"],["members","اعضا","Members"],
+    ["warnings","اخطار","Warnings"],["warning-remove","حذف اخطار","Remove warning"]
+  ],
+  [
+    ["warning-history","سوابق اخطار","Warning history"],["media-lock","قفل رسانه","Media lock"],["language-lock","قفل زبان","Language lock"],
+    ["sharing-lock","قفل اشتراک‌گذاری","Sharing lock"],["edit-lock","قفل ویرایش","Edit lock"]
+  ],
+  [
+    ["identity-lock","قفل هویت","Identity lock"],["advertising-lock","قفل تبلیغات","Advertising lock"],["security","امنیت","Security"],
+    ["anti-attacker","ضد حمله","Anti-attacker"],["anti-flood","ضد فلود","Anti-flood"]
+  ],
+  [
+    ["anti-spam","ضد اسپم","Anti-spam"],["anti-mention","ضد منشن انبوه","Anti-mass-mention"],["anti-link-attack","ضد حمله لینک","Anti-link attack"],
+    ["reports","گزارش‌ها","Reports"],["deleted-reports","گزارش حذف پیام","Deleted message reports"]
+  ],
+  [
+    ["security-reports","گزارش امنیتی","Security reports"],["audit-log","گزارش حسابرسی","Audit log"],["user-history","سوابق کاربر","User history"],
+    ["member-search","جستجوی عضو","Member search"],["member-list","فهرست اعضا","Member list"]
+  ],
+  [
+    ["new-members","اعضای جدید","New members"],["active-members","اعضای فعال","Active members"],["manager-list","مدیران","Managers"],
+    ["special-users","کاربران ویژه","Special users"],["muted-users","لیست سکوت","Muted users"]
+  ],
+  [
+    ["restricted-users","لیست محدود","Restricted users"],["blacklist","لیست سیاه","Blacklist"],["bulk-members","عملیات گروهی اعضا","Bulk member actions"],
+    ["member-history","تاریخچه عضو","Member history"],["manager-management","مدیریت مدیران","Manager management"]
+  ],
+  [
+    ["custom-permissions","دسترسی سفارشی","Custom permissions"],["lock-exceptions","استثناهای قفل","Lock exceptions"],["reports-search","جستجوی گزارش","Report search"],
+    ["today-stats","آمار امروز","Today statistics"],["security-history","تاریخچه امنیتی","Security history"]
+  ]
+].map((section,si)=>section.map((x,ii)=>({id:x[0],fa:x[1],en:x[2],number:si*5+ii+1,section:si+1})));
+
+const GROUP_SECTIONS=[
+  "هسته مدیریت","کنترل محتوا","محافظت و امنیت","ضد سوءاستفاده","گزارش و جستجو","اعضای فعال","مدیریت پیشرفته اعضا","دسترسی و تحلیل"
+];
 const contentEl=document.getElementById("content"), pageTitle=document.getElementById("pageTitle"), sidebar=document.getElementById("sidebar");
 
 const esc=v=>String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
@@ -38,6 +77,107 @@ function openCommandEditor(command){
   </form></div>`;document.body.appendChild(w);const close=()=>w.remove();w.querySelector(".modal-close").onclick=close;w.querySelector(".cancel").onclick=close;
   if(edit)w.querySelector("#deleteCmd").onclick=async()=>{if(!confirm("حذف این دستور؟"))return;const r=await fetch("/api/commands/"+command.id,{method:"DELETE"});if(!r.ok)return alert("حذف ناموفق بود");close();commandsPage();};
   w.querySelector("#cmdForm").onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target),data=Object.fromEntries(f.entries());data.enabled=f.get("enabled")==="on";data.permission_level=Number(data.permission_level);data.allowed_roles=f.getAll("allowed_roles");const r=await fetch(edit?"/api/commands/"+command.id:"/api/commands",{method:edit?"PUT":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});if(!r.ok){const d=await r.json().catch(()=>({}));return alert(d.error||"ذخیره ناموفق بود");}close();commandsPage();};
+}
+
+async function groupPage(){
+  const selectedId="advertising-lock";
+  const flat=GROUP_COMMANDS.flat();
+  const completed=new Set(flat.filter(x=>x.number<=11).map(x=>x.id));
+  const feature=flat.find(x=>x.id===selectedId);
+  shell("مدیریت گروه","GROUP COMMAND CENTER · 12 / 40",`
+    <div class="group-hero">
+      <div class="group-hero-copy">
+        <span class="eyebrow">GROUP COMMAND CENTER</span>
+        <h2>مدیریت گروه · ۴۰ قابلیت در ۸ بخش</h2>
+        <p>یک لایه منظم برای کنترل محتوا، اعضا، امنیت، گزارش‌ها و دسترسی‌های گروه؛ هر قابلیت با وضعیت و جایگاه مشخص در نقشه توسعه.</p>
+        <div class="group-hero-meta"><span class="badge">12 / 40</span><span class="security-badge">SECTION 03 · 08</span><span class="live-pill">● LIVE CONFIG</span></div>
+      </div>
+      <div class="group-progress">
+        <div class="progress-orbit"><strong>30%</strong><small>12 از 40</small></div>
+        <div><div class="progress-title"><b>پیشرفت رجیستری قابلیت‌ها</b><span>۱۲ / ۴۰</span></div><div class="progress-track"><i style="width:30%"></i></div><small>قابلیت ۱۲ انتخاب شده · قفل تبلیغات</small></div>
+      </div>
+    </div>
+
+    <div class="group-layout">
+      <section class="group-command-map panel-card">
+        <div class="table-head"><div><span class="eyebrow">FEATURE MAP</span><b>نقشه ۴۰ دستور</b><small>۸ بخش × ۵ قابلیت · ترتیب ثابت و قابل پیگیری</small></div><span class="badge">40 FEATURES</span></div>
+        <div class="group-sections">
+          ${GROUP_COMMANDS.map((section,si)=>`
+            <div class="group-section">
+              <div class="group-section-head"><div><span class="section-index">0${si+1}</span><div><b>${esc(GROUP_SECTIONS[si])}</b><small>بخش ${si+1} از ۸ · قابلیت‌های ${section[0].number}–${section[4].number}</small></div></div><span>${section.filter(x=>completed.has(x.id)).length}/5</span></div>
+              <div class="group-feature-grid">
+                ${section.map(item=>`
+                  <button class="group-feature ${item.id===selectedId?"selected":""} ${completed.has(item.id)?"complete":item.id===selectedId?"current":"planned"}" data-feature-id="${item.id}">
+                    <span class="feature-number">${String(item.number).padStart(2,"0")}</span>
+                    <span class="feature-copy"><b>${esc(item.fa)}</b><small>${esc(item.en)}</small></span>
+                    <span class="feature-status">${completed.has(item.id)?"✓":item.id===selectedId?"◈":"•"}</span>
+                  </button>`).join("")}
+              </div>
+            </div>`).join("")}
+        </div>
+      </section>
+
+      <aside class="group-detail panel-card">
+        <div class="group-detail-head">
+          <div><span class="eyebrow">CAPABILITY 12 · SECTION 03</span><h3>قفل تبلیغات</h3><p>Advertising Lock · کنترل پیام‌های تبلیغاتی و لینک‌های ترویجی.</p></div>
+          <span class="status on">CONFIGURABLE</span>
+        </div>
+        <div class="feature-spec">
+          <div><span>هدف</span><b>کاهش پیام‌های تبلیغاتی ناخواسته</b><small>تشخیص بر اساس الگوهای لینک، دعوت و نشانه‌های تبلیغاتی</small></div>
+          <div><span>دامنه</span><b>Group Messages</b><small>فقط گروه و سوپرگروه؛ پیام خصوصی تحت تأثیر نیست</small></div>
+          <div><span>استاندارد</span><b>Standard / Strict</b><small>در حالت Strict هر لینک خارجی مشمول بررسی تبلیغاتی می‌شود</small></div>
+        </div>
+
+        <div class="group-config-card">
+          <div class="group-config-head"><div><b>اتصال به گروه</b><small>شناسه عددی گروه را وارد کنید</small></div><span class="module-badge">GROUP SCOPE</span></div>
+          <div class="group-id-row"><input id="groupFeatureChatId" inputmode="numeric" placeholder="-1001234567890"><button class="ghost" id="groupFeatureLoad">بارگذاری</button></div>
+          <small class="form-hint">تنظیمات برای هر Group ID جداگانه ذخیره می‌شود و به Bot Core منتقل خواهد شد.</small>
+        </div>
+
+        <form id="advertisingFeatureForm" class="group-config-form">
+          <div class="group-setting-row"><div><b>قفل تبلیغات</b><small>حذف خودکار پیام‌های تشخیص‌داده‌شده</small></div><label class="switch"><input type="checkbox" id="adEnabled"><span></span></label></div>
+          <div class="group-setting-row"><div><b>حالت تشخیص</b><small>شدت فیلتر تبلیغات را انتخاب کنید</small></div><select id="adMode"><option value="standard">Standard · متعادل</option><option value="strict">Strict · سختگیرانه</option></select></div>
+          <div class="group-setting-row"><div><b>استثنای مدیران</b><small>مدیر، سودو و مالک از فیلتر تبلیغات عبور کنند</small></div><label class="switch"><input type="checkbox" id="adAdmins" checked><span></span></label></div>
+          <div class="group-setting-row"><div><b>استثنای کاربران ویژه</b><small>نقش SPECIAL_USER در فیلتر لحاظ نشود</small></div><label class="switch"><input type="checkbox" id="adSpecial" checked><span></span></label></div>
+          <div class="group-form-footer"><div><span class="live-dot"></span><div><b id="adStateLabel">در انتظار اتصال</b><small id="adUpdated">هیچ تنظیمی برای گروه بارگذاری نشده است.</small></div></div><button class="primary" type="submit">ذخیره قابلیت ۱۲ <span>→</span></button></div>
+        </form>
+
+        <div class="feature-preview">
+          <div><span class="eyebrow">BEHAVIOR PREVIEW</span><b>نمونه پیام قابل تشخیص</b></div>
+          <div class="preview-message"><span>ADS</span><p>برای سفارش و تخفیف امروز به لینک کانال ما مراجعه کنید: t.me/example</p><small>در حالت فعال → پیام حذف می‌شود</small></div>
+        </div>
+      </aside>
+    </div>`);
+  const input=document.getElementById("groupFeatureChatId"),loadBtn=document.getElementById("groupFeatureLoad"),form=document.getElementById("advertisingFeatureForm");
+  const enabled=document.getElementById("adEnabled"),mode=document.getElementById("adMode"),admins=document.getElementById("adAdmins"),special=document.getElementById("adSpecial"),stateLabel=document.getElementById("adStateLabel"),updated=document.getElementById("adUpdated");
+  const setState=(ok,textValue,detail)=>{stateLabel.textContent=textValue;stateLabel.parentElement.className="group-live-state "+(ok?"ok":"wait");updated.textContent=detail||"";};
+  async function load(){
+    const chatId=(input.value||"").trim();
+    if(!/^-?\d+$/.test(chatId)){setState(false,"شناسه گروه وارد نشده","برای شروع Group ID را وارد کنید.");return;}
+    loadBtn.disabled=true;
+    try{
+      const r=await fetch("/api/group-features/advertising-lock?chat_id="+encodeURIComponent(chatId),{cache:"no-store"}),d=await r.json();
+      if(!r.ok)throw Error(d.error||"API error");
+      const s=d.settings||{};enabled.checked=!!s.enabled;mode.value=s.mode==="strict"?"strict":"standard";admins.checked=s.exempt_admins!==false;special.checked=s.exempt_special_users!==false;
+      setState(enabled.checked,"قابلیت "+(enabled.checked?"فعال":"غیرفعال"),s.updated_at?"آخرین تغییر · "+new Date(s.updated_at).toLocaleString("fa-IR"):"تنظیم اولیه");
+    }catch(e){setState(false,"خطا در بارگذاری","Group Feature API در دسترس نیست.");}
+    finally{loadBtn.disabled=false;}
+  }
+  loadBtn.onclick=load;
+  form.onsubmit=async e=>{
+    e.preventDefault();
+    const chatId=(input.value||"").trim();
+    if(!/^-?\d+$/.test(chatId)){alert("شناسه گروه معتبر وارد کنید.");return;}
+    const r=await fetch("/api/group-features/advertising-lock",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:chatId,enabled:enabled.checked,mode:mode.value,exempt_admins:admins.checked,exempt_special_users:special.checked})});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok){alert(d.error||"ذخیره قابلیت ناموفق بود.");return;}
+    setState(true,"قابلیت "+(enabled.checked?"فعال":"غیرفعال"),"آخرین تغییر · "+new Date().toLocaleString("fa-IR"));
+  };
+  document.querySelectorAll("[data-feature-id]").forEach(btn=>btn.onclick=()=>{
+    const id=btn.dataset.featureId;
+    if(id!=="advertising-lock"){document.querySelectorAll("[data-feature-id]").forEach(x=>x.classList.remove("selected"));btn.classList.add("selected");return;}
+    document.querySelectorAll("[data-feature-id]").forEach(x=>x.classList.toggle("selected",x.dataset.featureId===id));
+  });
 }
 
 async function usersPage(){
@@ -249,6 +389,7 @@ function page(name){
   location.hash=name; sidebar.classList.remove("open");
   if(name==="dashboard"){location.reload();return;}
   if(name==="commands")return commandsPage();
+  if(name==="group")return groupPage();
   if(name==="responses")return responsesPage();
   if(name==="users")return usersPage();
   if(name==="permissions")return permissionsPage();
