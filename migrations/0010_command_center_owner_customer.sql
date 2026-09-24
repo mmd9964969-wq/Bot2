@@ -35,6 +35,11 @@ CREATE TABLE IF NOT EXISTS bot_blacklist (
   reason TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE TABLE IF NOT EXISTS bot_system_settings (
+  key TEXT PRIMARY KEY,
+  value JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 CREATE TABLE IF NOT EXISTS bot_broadcasts (
   id BIGSERIAL PRIMARY KEY,
   owner_id BIGINT NOT NULL,
