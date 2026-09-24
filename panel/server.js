@@ -402,6 +402,22 @@ async function ensureCoreCommandRecords() {
       }
     }
   }
+  const panelCommands = [
+    ["owner","مالک","owner","OWNER",100,"execute","◈ پنل مالک بات"],
+    ["panel","پنل","panel","MEMBER",10,"view","◈ پنل مشتری"]
+  ];
+  for (const [key,fa,en,minRole,level,perm,faResponse] of panelCommands) {
+    const existing=await query("SELECT id FROM commands WHERE command_key=$1 LIMIT 1",[key]);
+    let id=existing.rows[0]?.id;
+    if(!id){
+      const result=await query("INSERT INTO commands(command_key,fa_name,en_name,enabled,permission_level,required_permission,minimum_role,response_fa,response_en) VALUES($1,$2,$3,TRUE,$4,$5,$6,$7,$8) RETURNING id",[key,fa,en,level,perm,minRole,faResponse,faResponse]);
+      id=result.rows[0]?.id;
+    }else{
+      await query("UPDATE commands SET fa_name=$2,en_name=$3,enabled=TRUE,permission_level=$4,required_permission=$5,minimum_role=$6,response_fa=$7,response_en=$8,updated_at=NOW() WHERE id=$1",[id,fa,en,level,perm,minRole,faResponse,faResponse]);
+    }
+    const allowed=minRole==="OWNER"?["OWNER"]:["OWNER","SUPER_ADMIN","ADMIN","MODERATOR","SPECIAL_USER","MEMBER"];
+    for(const role of roles) await query("INSERT INTO command_permissions(command_id,role,allowed,updated_at) VALUES($1,$2,$3,NOW()) ON CONFLICT(command_id,role) DO UPDATE SET allowed=EXCLUDED.allowed,updated_at=NOW()",[id,role,allowed.includes(role)]);
+  }
 }
 
 async function commandsApi(req, res, url) {
