@@ -2,7 +2,8 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const { checkConnection, query } = require("./backend/database");
-const { ensureWarningsSchema, warningsApi } = require("./backend/warnings");\nconst { ensureContentLocksSchema, contentLocksApi } = require("./backend/content-locks");
+const { ensureWarningsSchema, warningsApi } = require("./backend/warnings");
+const { ensureContentLocksSchema, contentLocksApi } = require("./backend/content-locks");
 
 const PORT = process.env.PORT || 3000;
 
@@ -454,7 +455,8 @@ const server = http.createServer(async (req,res) => {
       }));
     }
 
-    if (url.pathname.startsWith("/api/warnings")) { const handled = await warningsApi(req,res,url); if (handled !== null) return handled; }\n    if (url.pathname.startsWith("/api/content-locks")) { const handled = await contentLocksApi(req,res,url); if (handled !== null) return handled; }
+    if (url.pathname.startsWith("/api/warnings")) { const handled = await warningsApi(req,res,url); if (handled !== null) return handled; }
+    if (url.pathname.startsWith("/api/content-locks")) { const handled = await contentLocksApi(req,res,url); if (handled !== null) return handled; }
     if (url.pathname.startsWith("/api/runtime")) { const handled = await runtimeApi(req,res,url); if (handled !== null) return handled; }
     if (url.pathname.startsWith("/api/responses")) { const handled = await responseStudioApi(req,res,url); if (handled !== null) return handled; }
     if (url.pathname.startsWith("/api/users")) { const handled = await usersApi(req,res,url); if (handled !== null) return handled; }
@@ -493,7 +495,8 @@ ensureBaseSchema()
     ensureSupervisionSchema(),
     ensureRuntimeSchema(),
     ensureCommandAccessSchema(),
-    ensureWarningsSchema()
+    ensureWarningsSchema(),
+    ensureContentLocksSchema()
   ]))
   .then(() => ensureCoreCommandRecords())
   .then(() => server.listen(PORT, () => console.log(`PERSIAN BOT STUDIO running on port ${PORT}`)))
