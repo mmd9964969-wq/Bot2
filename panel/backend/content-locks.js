@@ -87,7 +87,7 @@ async function ensureGroup(groupId){
   await query("INSERT INTO bot_groups(id,title,username,type,is_active,updated_at) VALUES($1,'',NULL,'supergroup',TRUE,NOW()) ON CONFLICT(id) DO UPDATE SET is_active=TRUE,updated_at=NOW()",[groupId]);
   await query("INSERT INTO content_lock_settings(group_id) VALUES($1) ON CONFLICT(group_id) DO NOTHING",[groupId]);
   for(const rule of defaultRules()){
-    await query("INSERT INTO content_lock_rules(group_id,section,rule_key,title,description,enabled,config) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb) ON CONFLICT(group_id,rule_key) DO NOTHING",[groupId,rule.section,rule.rule_key,rule.title,rule.description,rule.enabled,json(rule.config)]);
+    await query("INSERT INTO content_lock_rules(group_id,section,rule_key,title,description,enabled,config) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb) ON CONFLICT(group_id,rule_key) DO UPDATE SET section=EXCLUDED.section,title=EXCLUDED.title,description=EXCLUDED.description",[groupId,rule.section,rule.rule_key,rule.title,rule.description,rule.enabled,json(rule.config)]);
   }
 }
 
