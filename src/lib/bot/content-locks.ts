@@ -32,6 +32,7 @@ export type ContentLockMessage={
   dice?:unknown;
   game?:unknown;
   web_app_data?:unknown;
+  story?:{chat?:{id?:number;type?:string};id?:number};
   link_preview_options?:unknown;
 };
 type Rule={rule_key:string;section:string;enabled:boolean;config:any};
@@ -52,6 +53,7 @@ type Input={
 const cache=new Map<number,{at:number;settings:any;rules:Rule[];exceptions:Exception[];domains:Domain[]}>();
 const windows=new Map<string,number[]>();
 const duplicateWindows=new Map<string,string[]>();
+const customRoleCache=new Map<number,{at:number;role:string}>();
 
 const defaultRules=[
   ["links","links_all",false,{action:"delete_notify"}],
@@ -86,6 +88,7 @@ const defaultRules=[
   ["interactions","hashtag_limit",false,{max_hashtags:5,action:"delete"}],
   ["interactions","mention_limit",false,{max_mentions:5,action:"delete"}],
   ["interactions","web_preview_lock",false,{action:"delete"}],
+  ["interactions","story_share_lock",false,{action:"delete_notify"}],
   ["advanced","contact_lock",false,{action:"delete_notify"}],
   ["advanced","location_lock",false,{action:"delete_notify"}],
   ["advanced","poll_lock",false,{action:"delete"}],
@@ -141,12 +144,27 @@ function getRule(data:any,key:string){return data.rules.find((r:Rule)=>r.rule_ke
 function enabled(data:any,key:string){return !!getRule(data,key)?.enabled;}
 function config(data:any,key:string){return getRule(data,key)?.config??{};}
 function scopeMatches(scope:string[],section:string,key:string){return scope.includes("all")||scope.includes(section)||scope.includes(key);}
-function exceptionMatches(data:any,input:Input,section:string,key:string,sourceId?:number){
+async function effectiveRole(pool:Pool|null,userId:number,userRank:Rank){
+  const hit=customRoleCache.get(userId);
+  if(hit&&Date.now()-hit.at<30_000)return hit.role;
+  if(!pool)return userRank;
+  try{
+    const r=await pool.query<{role:string}>("SELECT role FROM users WHERE telegram_id=$1 AND is_active=TRUE LIMIT 1",[userId]);
+    const role=String(r.rows[0]?.role||userRank);
+    customRoleCache.set(userId,{at:Date.now(),role});
+    return role;
+  }catch{
+    customRoleCache.set(userId,{at:Date.now(),role:userRank});
+    return userRank;
+  }
+}
+async function exceptionMatches(data:any,input:Input,section:string,key:string,sourceId?:number){
   if(data.settings.exempt_admins&&["owner","sudo","admin"].includes(input.userRank))return true;
+  const role=String(await effectiveRole(input.pool,input.userId,input.userRank)).toLowerCase();
   return data.exceptions.some((e:Exception)=>{
     if(!e.enabled||!scopeMatches(e.scope,section,key))return false;
     if(e.exception_type==="user"&&e.target_id===String(input.userId))return true;
-    if(e.exception_type==="role"&&e.target_id.toLowerCase()===String(input.userRank).toLowerCase())return true;
+    if(e.exception_type==="role"&&e.target_id.toLowerCase()===role)return true;
     return e.exception_type==="forward_source"&&sourceId!=null&&e.target_id===String(sourceId);
   });
 }
@@ -243,7 +261,7 @@ async function act(input:Input,rule:Rule,contentType:string,reason:string){
 }
 async function block(input:Input,data:any,key:string,contentType:string,reason:string,sourceId?:number){
   const rule=getRule(data,key);if(!rule?.enabled)return false;
-  if(exceptionMatches(data,input,rule.section,key,sourceId))return false;
+  if(await exceptionMatches(data,input,rule.section,key,sourceId))return false;
   const behavior:any={links:["links_auto_delete","links_notify"],forwarding:["forward_auto_delete","forward_notify"],files:["file_auto_delete",null]}[rule.section];
   if(behavior&&enabled(data,behavior[0])===false){
     if(behavior[1]&&enabled(data,behavior[1])){
@@ -268,8 +286,9 @@ export async function enforceContentLocks(input:Input):Promise<boolean>{
 
   const fwd=forwarded(input.message);
   if(fwd){
-    const key=fwd.kind==="channel"?"forward_channels":fwd.kind==="group"?"forward_groups":fwd.kind==="private"?"forward_private":"forward_all";
-    if((enabled(data,"forward_all")||enabled(data,key))&&await block(input,data,key,"forward","فوروارد از "+fwd.kind,fwd.sourceId))return true;
+    const specific=fwd.kind==="channel"?"forward_channels":fwd.kind==="group"?"forward_groups":fwd.kind==="private"?"forward_private":"forward_all";
+    const key=enabled(data,"forward_all")?"forward_all":specific;
+    if(enabled(data,key)&&await block(input,data,key,"forward","فوروارد از "+fwd.kind,fwd.sourceId))return true;
   }
 
   const linkList=urls(text,entities);
@@ -325,6 +344,7 @@ export async function enforceContentLocks(input:Input):Promise<boolean>{
   if(enabled(data,"hashtag_limit")&&hashtags>Number(config(data,"hashtag_limit").max_hashtags||5)&&await block(input,data,"hashtag_limit","text","تعداد هشتگ"))return true;
   const mentions=(text.match(/@[A-Za-z0-9_]{3,64}/g)||[]).length;
   if(enabled(data,"mention_limit")&&mentions>Number(config(data,"mention_limit").max_mentions||5)&&await block(input,data,"mention_limit","text","تعداد منشن"))return true;
+  if(input.message.story&&await block(input,data,"story_share_lock","story","اشتراک‌گذاری Story"))return true;
   if(enabled(data,"web_preview_lock")&&input.message.link_preview_options&&await block(input,data,"web_preview_lock","web_preview","پیش‌نمایش لینک"))return true;
 
   if(input.message.contact&&await block(input,data,"contact_lock","contact","Contact"))return true;
