@@ -17,26 +17,9 @@ type GroupState = {
   muted:Set<number>; special:Set<number>;
   joins:Map<number,number>; firstSeen:Map<number,number>;
   groupMessageTotal:number; groupDaily:{day:string;count:number};
-  advertising:{enabled:boolean;mode:"standard"|"strict";exemptAdmins:boolean;exemptSpecialUsers:boolean};
 };
 const groups=new Map<number,GroupState>();
 let robotIndex=0;
-
-const DEFAULT_ADVERTISING_POLICY={enabled:false,mode:"standard" as const,exemptAdmins:true,exemptSpecialUsers:true};
-
-export function setGroupAdvertisingPolicy(chatId:number, policy:Partial<typeof DEFAULT_ADVERTISING_POLICY>){
-  const s=state(chatId);
-  s.advertising={
-    ...DEFAULT_ADVERTISING_POLICY,
-    ...s.advertising,
-    ...policy,
-  };
-  return s.advertising;
-}
-
-export function getGroupAdvertisingPolicy(chatId:number){
-  return {...state(chatId).advertising};
-}
 const chatLang=new Map<number,Lang>();
 const messageTimes=new Map<number,number[]>();
 const userMessageCounts=new Map<string, number>();
@@ -80,7 +63,7 @@ export async function recordMemberJoin(chatId:number,userId:number,ts:number){
 }
 function state(id:number):GroupState{
   let s=groups.get(id);
-  if(!s){s={locks:new Set(),floodOn:false,floodMax:6,spamOn:false,nightOn:false,welcome:"",goodbye:"",rules:"",filters:new Set(),notes:new Map(),warnings:new Map(),recent:[],language:"fa",muted:new Set(),special:new Set(),joins:new Map(),firstSeen:new Map(),groupMessageTotal:0,groupDaily:{day:dayKey(),count:0},advertising:{...DEFAULT_ADVERTISING_POLICY}};groups.set(id,s)}
+  if(!s){s={locks:new Set(),floodOn:false,floodMax:6,spamOn:false,nightOn:false,welcome:"",goodbye:"",rules:"",filters:new Set(),notes:new Map(),warnings:new Map(),recent:[],language:"fa",muted:new Set(),special:new Set(),joins:new Map(),firstSeen:new Map(),groupMessageTotal:0,groupDaily:{day:dayKey(),count:0}};groups.set(id,s)}
   return s;
 }
 const fa=(l:Lang,a:string,e:string)=>l==="fa"?a:e;
@@ -282,37 +265,6 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "◈ اطلاعات فنی ربات\n\n⛂ - نام ربات : "+(ctx.config.botName||"نظم")+"\n⛂ - نام کاربری : "+(ctx.config.botUsername||"—")+"\n⛂ - شناسه ربات : "+botId+"\n⛂ - نسخه ربات : v"+(process.env.BOT_VERSION??"2.0.0")+"\n⛂ - وضعیت ربات : آنلاین\n⛂ - اتصال دیتابیس : "+(process.env.DATABASE_URL?"متصل":"محلی")+"\n⛂ - روش ارتباط تلگرام : Polling\n⛂ - وضعیت سرویس : فعال\n⛂ - سیستم‌عامل : "+process.platform+"\n⛂ - نسخه Node.js : "+process.version+"\n⛂ - uptime : "+Math.floor(process.uptime())+" ثانیه",
         "◈ Bot technical information\n\n⛂ - Bot name : "+(ctx.config.botName||"Nizam")+"\n⛂ - Username : "+(ctx.config.botUsername||"—")+"\n⛂ - Bot ID : "+botId+"\n⛂ - Version : v"+(process.env.BOT_VERSION??"2.0.0")+"\n⛂ - Status : Online\n⛂ - Database : "+(process.env.DATABASE_URL?"Connected":"Local")+"\n⛂ - Telegram connection : Polling\n⛂ - Service : Active\n⛂ - OS : "+process.platform+"\n⛂ - Node.js : "+process.version+"\n⛂ - Uptime : "+Math.floor(process.uptime())+"s");
     }
-    case "advertising-lock": {
-      requireGroup();
-      requireAdmin();
-      const value=normalizeToken(args[0]??"status");
-      if(["on","enable","enabled","روشن","فعال"].includes(value)){
-        setGroupAdvertisingPolicy(ctx.chatId,{enabled:true});
-        return fa(ctx.lang,
-          "◈ قفل تبلیغات\n\n⛂ - وضعیت : ● فعال\n⛂ - حالت تشخیص : استاندارد\n⛂ - مدیران : مستثنی\n⛂ - کاربران ویژه : مستثنی\n\n★ - محافظت تبلیغاتی گروه فعال شد.",
-          "◈ Advertising lock\n\n⛂ - Status : ● Active\n⛂ - Detection : Standard\n⛂ - Administrators : Exempt\n⛂ - Special users : Exempt\n\n★ - Advertising protection is now active."
-        );
-      }
-      if(["off","disable","disabled","خاموش","غیرفعال"].includes(value)){
-        setGroupAdvertisingPolicy(ctx.chatId,{enabled:false});
-        return fa(ctx.lang,
-          "◈ قفل تبلیغات\n\n⛂ - وضعیت : ○ غیرفعال\n\n★ - محافظت تبلیغاتی گروه خاموش شد.",
-          "◈ Advertising lock\n\n⛂ - Status : ○ Inactive\n\n★ - Advertising protection is disabled."
-        );
-      }
-      if(["strict","سختگیر","سختگیرانه"].includes(value)){
-        setGroupAdvertisingPolicy(ctx.chatId,{enabled:true,mode:"strict"});
-        return fa(ctx.lang,
-          "◈ قفل تبلیغات\n\n⛂ - وضعیت : ● فعال\n⛂ - حالت تشخیص : سختگیرانه\n⛂ - مدیران : مستثنی\n⛂ - کاربران ویژه : مستثنی",
-          "◈ Advertising lock\n\n⛂ - Status : ● Active\n⛂ - Detection : Strict\n⛂ - Administrators : Exempt\n⛂ - Special users : Exempt"
-        );
-      }
-      const p=getGroupAdvertisingPolicy(ctx.chatId);
-      return fa(ctx.lang,
-        "◈ قفل تبلیغات\n\n⛂ - وضعیت : "+(p.enabled?"● فعال":"○ غیرفعال")+"\n⛂ - حالت تشخیص : "+(p.mode==="strict"?"سختگیرانه":"استاندارد")+"\n⛂ - مدیران : "+(p.exemptAdmins?"مستثنی":"مشمول")+"\n⛂ - کاربران ویژه : "+(p.exemptSpecialUsers?"مستثنی":"مشمول")+"\n\n★ - استفاده : قفل تبلیغات روشن | خاموش | وضعیت | سختگیرانه",
-        "◈ Advertising lock\n\n⛂ - Status : "+(p.enabled?"● Active":"○ Inactive")+"\n⛂ - Detection : "+(p.mode==="strict"?"Strict":"Standard")+"\n⛂ - Administrators : "+(p.exemptAdmins?"Exempt":"Included")+"\n⛂ - Special users : "+(p.exemptSpecialUsers?"Exempt":"Included")+"\n\n★ - Usage: advertising lock on | off | status | strict"
-      );
-    }
     case "status": {
       const gs=groupStats(ctx.chatId);
       const st=state(ctx.chatId);
@@ -382,26 +334,9 @@ export async function recordMessage(chatId:number,userId:number,messageId:number
   messageTimes.set(chatId,times);
 }
 
-function looksAdvertising(text:string, mode:"standard"|"strict"){
-  const t=text.toLowerCase();
-  const hasUrl=/(https?:\/\/|www\.|t\.me\/|telegram\.me\/|wa\.me\/)/i.test(t);
-  const invite=/(t\.me\/\+|t\.me\/joinchat|telegram\.me\/joinchat)/i.test(t);
-  const promo=/(تبلیغ|فروش|خرید|تخفیف|سفارش|درآمد|عضو\s*شو|عضو\s*بشید|کانال\s*ما|پیج\s*ما|قیمت|promo|sale|discount|shop|join\s+us|advertis)/i.test(t);
-  if(invite)return true;
-  if(mode==="strict")return hasUrl || (promo&&/@[a-z0-9_]{4,}/i.test(t));
-  return (hasUrl&&promo) || (promo&&/(لینک|دایرکت|سفارش|رایگان)/i.test(t));
-}
-
-export async function moderateLive(ctx:{chatId:number;userId:number;messageId:number;text:string;userRank?:Rank;isSpecial?:boolean}){
+export async function moderateLive(ctx:{chatId:number;userId:number;messageId:number;text:string}){
   const s=state(ctx.chatId);const now=Date.now();
   const times=messageTimes.get(ctx.chatId)??[];while(times.length&&now-times[0]>10000)times.shift();messageTimes.set(ctx.chatId,times);
-  if(s.advertising.enabled){
-    const privilegedAdmin=s.advertising.exemptAdmins && ctx.userRank && ctx.userRank!=="member";
-    const privilegedSpecial=s.advertising.exemptSpecialUsers && ctx.isSpecial===true;
-    if(!privilegedAdmin && !privilegedSpecial && looksAdvertising(ctx.text,s.advertising.mode)){
-      try{await api("deleteMessage",{chat_id:ctx.chatId,message_id:ctx.messageId});return true}catch{}
-    }
-  }
   if(s.nightOn){const h=new Date().getHours();if(h>=0&&h<6){try{await api("deleteMessage",{chat_id:ctx.chatId,message_id:ctx.messageId});return true}catch{}}}
   if(s.floodOn&&times.length>s.floodMax){try{await api("deleteMessage",{chat_id:ctx.chatId,message_id:ctx.messageId});return true}catch{}}
   if(s.spamOn&&/(https?:\/\/|t\.me\/|telegram\.me\/)/i.test(ctx.text)){try{await api("deleteMessage",{chat_id:ctx.chatId,message_id:ctx.messageId});return true}catch{}}

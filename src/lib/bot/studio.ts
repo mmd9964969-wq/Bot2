@@ -22,7 +22,6 @@ const fa: Record<string, string> = {
   ping: "{{ping_card}}",
   bot: "{{bot_card}}",
   status: "{{status_card}}",
-  "advertising-lock": "{{live_card}}",
 };
 
 
@@ -88,7 +87,6 @@ const en: Record<string, string> = {
   ping: "{{ping_card}}",
   bot: "{{bot_card}}",
   status: "{{status_card}}",
-  "advertising-lock": "{{live_card}}",
 };
 
 export { responseTemplates };
