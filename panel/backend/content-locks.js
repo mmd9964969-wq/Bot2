@@ -118,7 +118,7 @@ async function contentLocksApi(req,res,url){
       const settings=(await query("SELECT * FROM content_lock_settings WHERE group_id=$1",[groupId])).rows[0];
       const [rules,blocked,exceptions]=await Promise.all([
         query("SELECT COUNT(*)::int AS count FROM content_lock_rules WHERE group_id=$1 AND enabled=TRUE",[groupId]),
-        query("SELECT COUNT(*)::int AS count FROM content_lock_logs WHERE group_id=$1 AND created_at>=CURRENT_DATE AND action NOT LIKE '%failed%'",[groupId]),
+        query("SELECT COUNT(*)::int AS count FROM content_lock_logs WHERE group_id=$1 AND created_at>=CURRENT_DATE AND action LIKE 'delete%' AND action NOT LIKE '%failed%'",[groupId]),
         query("SELECT COUNT(*)::int AS count FROM content_lock_exceptions WHERE group_id=$1 AND enabled=TRUE",[groupId])
       ]);
       return send(res,200,json({settings,stats:{activeRules:rules.rows[0].count,blockedToday:blocked.rows[0].count,exceptions:exceptions.rows[0].count}}));
