@@ -216,6 +216,10 @@ async function handleCustomer(pool:Pool,msg:TgMessage,ownerIds:string[]){
   if(!["panel","پنل"].includes(raw)&&!getSession(uid))return false;
   await customerEnsure(pool,uid,msg.from);
   if(["panel","پنل"].includes(raw)){
+    if(await isOwner(pool,uid,ownerIds)){
+      await audit(pool,String(uid),"owner_panel_opened",String(uid),{entry:"panel"});
+      return renderOwner(pool,uid,msg.chat.id);
+    }
     const targetGroup=isPrivate?null:msg.chat.id;const lic=targetGroup?await customerAllowedForChat(pool,uid,targetGroup):await validLicense(pool,uid);
     if(!lic){
       const latest=(await pool.query("SELECT * FROM bot_licenses WHERE customer_id=$1 ORDER BY id DESC LIMIT 1",[uid])).rows[0];
