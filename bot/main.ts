@@ -8,6 +8,7 @@ import { rankAtLeast } from "../src/lib/bot/registry.ts";
 import { runLiveCommand, recordMessage } from "../src/lib/bot/runtime.ts";
 import { enforceContentLocks, type ContentLockMessage } from "../src/lib/bot/content-locks.ts";
 import { isRuntimeMaintenance, startRuntimeControlServer } from "./runtime-control.ts";
+import { dispatchPanelMessage, dispatchPanelCallback } from "./panel-system.ts";
 
 const TOKEN = process.env.BOT_TOKEN ?? "";
 if (!TOKEN) { console.error("BOT_TOKEN is missing"); process.exit(1); }
@@ -591,7 +592,7 @@ type TgUser = { id: number; first_name?: string; username?: string };
 type TgChat = { id: number; type: string; title?: string; username?: string };
 type TgMessage = ContentLockMessage & { chat: TgChat; from?: TgUser; reply_to_message?: { from?: TgUser }; new_chat_members?: TgUser[]; left_chat_member?: TgUser };
 type TgChatMemberUpdate = { chat: TgChat; from?: TgUser; new_chat_member?: { status?: string; user?: TgUser } };
-type TgUpdate = { update_id: number; message?: TgMessage; edited_message?: TgMessage; my_chat_member?: TgChatMemberUpdate; chat_member?: TgChatMemberUpdate };
+type TgUpdate = { update_id: number; message?: TgMessage; edited_message?: TgMessage; callback_query?: {id:string;from?:TgUser;message?:TgMessage;data?:string}; my_chat_member?: TgChatMemberUpdate; chat_member?: TgChatMemberUpdate };
 
 function splitIds(raw: string | undefined): string[] {
   return (raw ?? "").split(/[,\s]+/).map((s) => s.trim()).filter(Boolean);
@@ -660,6 +661,8 @@ async function handleMessage(msg: TgMessage, edited = false) {
     now: Date.now(),
     staff: [...adminIds].map((id) => ({ id, name: String(id), rank: rankOf(id, adminIds) })),
   };
+
+  if (studioPool && await dispatchPanelMessage(studioPool, msg, config.ownerIds)) return;
 
   if (!isPrivate && studioPool) {
     const blocked = await enforceContentLocks({
@@ -739,7 +742,7 @@ async function poll() {
       const data = await telegramApi("getUpdates", {
         offset,
         timeout: 30,
-        allowed_updates: ["message", "edited_message", "my_chat_member", "chat_member"],
+        allowed_updates: ["message", "edited_message", "callback_query", "my_chat_member", "chat_member"],
       });
       if (!data.ok || !Array.isArray(data.result)) {
         console.error(data.description ?? "getUpdates failed");
@@ -752,6 +755,11 @@ async function poll() {
         if (upd.message) {
           void handleMessage(upd.message, false).catch((error) => {
             console.error("[update] message handler failed", error);
+          });
+        }
+        if (upd.callback_query?.from && upd.callback_query.message) {
+          void dispatchPanelCallback(studioPool!, upd.callback_query as any, config.ownerIds).catch((error) => {
+            console.error("[update] callback handler failed", error);
           });
         }
         if (upd.edited_message) {
