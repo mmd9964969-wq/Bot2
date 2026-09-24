@@ -115,11 +115,39 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
     }
     case "id": {
       const us=userStats(ctx.chatId,ctx.userId);
-      const joined=memberJoinDates.get(userKey(ctx.chatId,ctx.userId));
       const gs=groupStats(ctx.chatId);
-      return fa(ctx.lang,
-        "◈ اطلاعات کاربر\n\n⛂ - نام : "+ctx.userName+"\n⛂ - شناسه : "+ctx.userId+"\n⛂ - نام کاربری : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - مقام : "+rankLabel(ctx.lang,rank)+"\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - تعداد پیام امروز : "+us.today+"\n⛂ - تعداد عضویت امروز : "+gs.joinsToday+"\n⛂ - تعداد پیام کل : "+us.total+"\n⛂ - تعداد عضویت کل : "+gs.joinsTotal",
-        "◈ User information\n\n⛂ - Name : "+ctx.userName+"\n⛂ - ID : "+ctx.userId+"\n⛂ - Username : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - Rank : "+rank+"\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - Messages today : "+us.today+"\n⛂ - Joins today : "+gs.joinsToday+"\n⛂ - Total messages : "+us.total+"\n⛂ - Total joins : "+gs.joinsTotal);
+      const username=ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName;
+      const faText=[
+        "◈ اطلاعات کاربر",
+        "",
+        "⛂ - نام : "+ctx.userName,
+        "⛂ - شناسه : "+ctx.userId,
+        "⛂ - نام کاربری : "+username,
+        "⛂ - مقام : "+rankLabel(ctx.lang,rank),
+        "",
+        "─────━━───── ◈ ─────━━─────",
+        "",
+        "⛂ - تعداد پیام امروز : "+us.today,
+        "⛂ - تعداد عضویت امروز : "+gs.joinsToday,
+        "⛂ - تعداد پیام کل : "+us.total,
+        "⛂ - تعداد عضویت کل : "+gs.joinsTotal
+      ].join("\n");
+      const enText=[
+        "◈ User information",
+        "",
+        "⛂ - Name : "+ctx.userName,
+        "⛂ - ID : "+ctx.userId,
+        "⛂ - Username : "+username,
+        "⛂ - Rank : "+rank,
+        "",
+        "─────━━───── ◈ ─────━━─────",
+        "",
+        "⛂ - Messages today : "+us.today,
+        "⛂ - Joins today : "+gs.joinsToday,
+        "⛂ - Total messages : "+us.total,
+        "⛂ - Total joins : "+gs.joinsTotal
+      ].join("\n");
+      return fa(ctx.lang,faText,enText);
     }
     case "info": {
       requireGroup();
