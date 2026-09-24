@@ -221,9 +221,42 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
       const joined=memberJoinDates.get(userKey(ctx.chatId,ctx.userId));
       const muted=state(ctx.chatId).muted.has(ctx.userId);
       const special=state(ctx.chatId).special.has(ctx.userId);
-      return fa(ctx.lang,
-        "◈ اطلاعات کاربر\n\n⛂ - نام : "+ctx.userName+"\n⛂ - نام کاربری : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - شناسه : "+ctx.userId+"\n⛂ - مقام : "+rankLabel(ctx.lang,rank)+"\n⛂ - تاریخ عضویت : "+formatDate(joined,ctx.lang)\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - تعداد پیام امروز : "+us.today+"\n⛂ - تعداد پیام کل : "+us.total+"\n⛂ - تعداد اخطار فعال : "+(s.warnings.get(ctx.userId)?.count??0)+"\n⛂ - وضعیت سکوت : "+(muted?"فعال":"غیرفعال")+"\n⛂ - وضعیت لیست ویژه : "+(special?"فعال":"غیرفعال")",
-        "◈ User information\n\n⛂ - Name : "+ctx.userName+"\n⛂ - Username : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - ID : "+ctx.userId+"\n⛂ - Rank : "+rank+"\n⛂ - Join date : "+formatDate(joined,ctx.lang)\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - Messages today : "+us.today+"\n⛂ - Total messages : "+us.total+"\n⛂ - Active warnings : "+(s.warnings.get(ctx.userId)?.count??0)+"\n⛂ - Mute status : "+(muted?"Active":"Inactive")+"\n⛂ - Special status : "+(special?"Active":"Inactive")");
+      const warnings=s.warnings.get(ctx.userId)?.count??0;
+      const faText=[
+        "◈ اطلاعات کاربر",
+        "",
+        "⛂ - نام : "+ctx.userName,
+        "⛂ - نام کاربری : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName),
+        "⛂ - شناسه : "+ctx.userId,
+        "⛂ - مقام : "+rankLabel(ctx.lang,rank),
+        "⛂ - تاریخ عضویت : "+formatDate(joined,ctx.lang),
+        "",
+        "─────━━───── ◈ ─────━━─────",
+        "",
+        "⛂ - تعداد پیام امروز : "+us.today,
+        "⛂ - تعداد پیام کل : "+us.total,
+        "⛂ - تعداد اخطار فعال : "+warnings,
+        "⛂ - وضعیت سکوت : "+(muted?"فعال":"غیرفعال"),
+        "⛂ - وضعیت لیست ویژه : "+(special?"فعال":"غیرفعال")
+      ].join("\n");
+      const enText=[
+        "◈ User information",
+        "",
+        "⛂ - Name : "+ctx.userName,
+        "⛂ - Username : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName),
+        "⛂ - ID : "+ctx.userId,
+        "⛂ - Rank : "+rank,
+        "⛂ - Join date : "+formatDate(joined,ctx.lang),
+        "",
+        "─────━━───── ◈ ─────━━─────",
+        "",
+        "⛂ - Messages today : "+us.today,
+        "⛂ - Total messages : "+us.total,
+        "⛂ - Active warnings : "+warnings,
+        "⛂ - Mute status : "+(muted?"Active":"Inactive"),
+        "⛂ - Special status : "+(special?"Active":"Inactive")
+      ].join("\n");
+      return fa(ctx.lang,faText,enText);
     }
     case "bot": {
       const me=await api<any>("getMe",{});
