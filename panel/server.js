@@ -68,6 +68,15 @@ async function ensureBaseSchema() {
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`);
 
+  await query(`CREATE TABLE IF NOT EXISTS group_security_settings (
+    chat_id BIGINT PRIMARY KEY,
+    enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    mode TEXT NOT NULL DEFAULT 'standard',
+    exempt_admins BOOLEAN NOT NULL DEFAULT TRUE,
+    exempt_special_users BOOLEAN NOT NULL DEFAULT TRUE,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+
   await query(`CREATE TABLE IF NOT EXISTS user_permissions (
     user_id TEXT NOT NULL,
     permission_key TEXT NOT NULL,
@@ -135,6 +144,32 @@ async function botCoreRequest(path, method="GET", body=null){
   if(!base || !token) throw new Error("Bot Core control connection is not configured");
   const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),10000);
   try{const response=await fetch(base.replace(/\/$/,"")+path,{method,headers:{"content-type":"application/json","x-runtime-control-token":token},body:body?JSON.stringify(body):undefined,signal:controller.signal}); const text=await response.text(); let data={}; try{data=text?JSON.parse(text):{};}catch{data={error:text};} if(!response.ok)throw new Error(data.error||data.message||("Bot Core HTTP "+response.status)); return data;} finally{clearTimeout(timer);}
+}
+
+async function groupFeaturesApi(req,res,url){
+  if(url.pathname==="/api/group-features/advertising-lock" && req.method==="GET"){
+    const chatId=String(url.searchParams.get("chat_id")||"").trim();
+    if(!/^-?\d+$/.test(chatId))return send(res,400,JSON.stringify({error:"chat_id is required"}));
+    const result=await query("SELECT chat_id,enabled,mode,exempt_admins,exempt_special_users,updated_at FROM group_security_settings WHERE chat_id=$1 LIMIT 1",[chatId]);
+    const row=result.rows[0]||{chat_id:Number(chatId),enabled:false,mode:"standard",exempt_admins:true,exempt_special_users:true,updated_at:null};
+    return send(res,200,JSON.stringify({feature:"advertising-lock",settings:{chat_id:String(row.chat_id),enabled:row.enabled===true,mode:row.mode==="strict"?"strict":"standard",exempt_admins:row.exempt_admins!==false,exempt_special_users:row.exempt_special_users!==false,updated_at:row.updated_at}}));
+  }
+  if(url.pathname==="/api/group-features/advertising-lock" && req.method==="PUT"){
+    const body=await readBody(req),chatId=String(body.chat_id||"").trim();
+    if(!/^-?\d+$/.test(chatId))return send(res,400,JSON.stringify({error:"chat_id is required"}));
+    const mode=body.mode==="strict"?"strict":"standard";
+    const enabled=body.enabled===true;
+    const exemptAdmins=body.exempt_admins!==false;
+    const exemptSpecial=body.exempt_special_users!==false;
+    const result=await query(`INSERT INTO group_security_settings(chat_id,enabled,mode,exempt_admins,exempt_special_users,updated_at)
+      VALUES($1,$2,$3,$4,$5,NOW())
+      ON CONFLICT(chat_id) DO UPDATE SET enabled=EXCLUDED.enabled,mode=EXCLUDED.mode,exempt_admins=EXCLUDED.exempt_admins,exempt_special_users=EXCLUDED.exempt_special_users,updated_at=NOW()
+      RETURNING chat_id,enabled,mode,exempt_admins,exempt_special_users,updated_at`,
+      [chatId,enabled,mode,exemptAdmins,exemptSpecial]);
+    await audit("group_advertising_lock_changed",body.actor_id||"panel",chatId,null,result.rows[0],"panel");
+    return send(res,200,JSON.stringify({success:true,settings:{chat_id:String(result.rows[0].chat_id),enabled:result.rows[0].enabled===true,mode:result.rows[0].mode,exempt_admins:result.rows[0].exempt_admins!==false,exempt_special_users:result.rows[0].exempt_special_users!==false,updated_at:result.rows[0].updated_at}}));
+  }
+  return null;
 }
 
 async function runtimeApi(req,res,url){
@@ -354,15 +389,16 @@ async function ensureCommandAccessSchema() {
 }
 async function ensureCoreCommandRecords() {
   const commands = [
-    ["robot","ربات","robot"],
-    ["id","آیدی","id"],
-    ["admin","ادمین","admin"],
-    ["info","اطلاعات","info"],
-    ["rank","مقام / اطلاعات مقام","rank"],
-    ["me","من","me"],
-    ["ping","پینگ","ping"],
-    ["bot","بات","bot"],
-    ["status","وضعیت","status"]
+    ["robot","ربات","robot","MEMBER","execute",10],
+    ["id","آیدی","id","MEMBER","execute",10],
+    ["admin","ادمین","admin","MEMBER","execute",10],
+    ["info","اطلاعات","info","MEMBER","execute",10],
+    ["rank","مقام / اطلاعات مقام","rank","MEMBER","execute",10],
+    ["me","من","me","MEMBER","execute",10],
+    ["ping","پینگ","ping","MEMBER","execute",10],
+    ["bot","بات","bot","MEMBER","execute",10],
+    ["status","وضعیت","status","MEMBER","execute",10],
+    ["advertising-lock","قفل تبلیغات","Advertising lock","ADMIN","execute",80]
   ];
   const roles=["OWNER","SUPER_ADMIN","ADMIN","MODERATOR","SPECIAL_USER","MEMBER"];
   const responses = {
@@ -374,21 +410,22 @@ async function ensureCoreCommandRecords() {
     me: { fa: "{{me_card}}", en: "{{me_card}}" },
     ping: { fa: "{{ping_card}}", en: "{{ping_card}}" },
     bot: { fa: "{{bot_card}}", en: "{{bot_card}}" },
-    status: { fa: "{{status_card}}", en: "{{status_card}}" }
+    status: { fa: "{{status_card}}", en: "{{status_card}}" },
+    "advertising-lock": { fa: "{{live_card}}", en: "{{live_card}}" }
   };
-  for (const [key, fa, en] of commands) {
+  for (const [key, fa, en, minimumRole, requiredPermission, permissionLevel] of commands) {
     const existing = await query("SELECT id FROM commands WHERE command_key=$1 ORDER BY id ASC LIMIT 1",[key]);
     let id = existing.rows[0]?.id;
     if (!id) {
       const result = await query(
-        "INSERT INTO commands (command_key,fa_name,en_name,enabled,permission_level,required_permission,minimum_role,response_fa,response_en) VALUES($1,$2,$3,TRUE,10,'execute','MEMBER',$4,$5) RETURNING id",
-        [key,fa,en,responses[key]?.fa??"",responses[key]?.en??""]
+        "INSERT INTO commands (command_key,fa_name,en_name,enabled,permission_level,required_permission,minimum_role,response_fa,response_en) VALUES($1,$2,$3,TRUE,$4,$5,$6,$7,$8) RETURNING id",
+        [key,fa,en,permissionLevel,requiredPermission,minimumRole,responses[key]?.fa??"",responses[key]?.en??""]
       );
       id = result.rows[0]?.id;
     } else {
       id = existing.rows[0]?.id;
       if (id) {
-        await query("UPDATE commands SET fa_name=$1,en_name=$2,enabled=TRUE,required_permission='execute',minimum_role='MEMBER',response_fa=CASE WHEN COALESCE(response_fa,'')='' OR response_fa LIKE '%{{live_card}}%' THEN $4 ELSE response_fa END,response_en=CASE WHEN COALESCE(response_en,'')='' OR response_en LIKE '%{{live_card}}%' THEN $5 ELSE response_en END,updated_at=NOW() WHERE id=$3",[fa,en,id,responses[key]?.fa??"",responses[key]?.en??""]);
+        await query("UPDATE commands SET fa_name=$1,en_name=$2,enabled=TRUE,permission_level=$4,required_permission=$5,minimum_role=$6,response_fa=CASE WHEN COALESCE(response_fa,'')='' OR response_fa LIKE '%{{live_card}}%' THEN $7 ELSE response_fa END,response_en=CASE WHEN COALESCE(response_en,'')='' OR response_en LIKE '%{{live_card}}%' THEN $8 ELSE response_en END,updated_at=NOW() WHERE id=$3",[fa,en,id,permissionLevel,requiredPermission,minimumRole,responses[key]?.fa??"",responses[key]?.en??""]);
       }
     }
     if (id) {
@@ -453,6 +490,7 @@ const server = http.createServer(async (req,res) => {
       }));
     }
 
+    if (url.pathname.startsWith("/api/group-features")) { const handled = await groupFeaturesApi(req,res,url); if (handled !== null) return handled; }
     if (url.pathname.startsWith("/api/runtime")) { const handled = await runtimeApi(req,res,url); if (handled !== null) return handled; }
     if (url.pathname.startsWith("/api/responses")) { const handled = await responseStudioApi(req,res,url); if (handled !== null) return handled; }
     if (url.pathname.startsWith("/api/users")) { const handled = await usersApi(req,res,url); if (handled !== null) return handled; }
