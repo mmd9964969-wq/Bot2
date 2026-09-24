@@ -27,6 +27,320 @@ let studioPool: Pool | null = null;
 let pollLockClient: Client | null = null;
 let panelCommands: PanelCommand[] = [];
 
+
+async function upsertWarningGroup(chat: TgChat) {
+  if (!process.env.DATABASE_URL || chat.type === "private") return;
+  try {
+    studioPool ??= new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
+    await studioPool.query(
+      "INSERT INTO bot_groups (id,title,username,type,is_active,updated_at) VALUES ($1,$2,$3,$4,TRUE,NOW()) ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title,username=EXCLUDED.username,type=EXCLUDED.type,is_active=TRUE,updated_at=NOW()",
+      [String(chat.id), chat.title ?? "", chat.username ?? null, chat.type ?? "supergroup"],
+    );
+    await studioPool.query(
+      "INSERT INTO warning_system_settings (group_id) VALUES ($1) ON CONFLICT (group_id) DO NOTHING",
+      [String(chat.id)],
+    );
+  } catch (error) {
+    console.error("[warnings] group registry update failed:", error);
+  }
+}
+
+async function warningSettingsFor(chatId: string) {
+  if (!studioPool) return null;
+  const r = await studioPool.query(
+    "SELECT group_id,auto_expire_enabled,expire_after_days,notify_private,exempt_admins,permanent_threshold FROM warning_system_settings WHERE group_id=$1 LIMIT 1",
+    [chatId],
+  );
+  return r.rows[0] ?? null;
+}
+
+function warningDurationSeconds(value: unknown, unit: unknown) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.max(30, Math.round(n * (String(unit) === "days" ? 86400 : 3600)));
+}
+
+async function warningTargetIsExempt(groupId: string, userId: string) {
+  const settings = await warningSettingsFor(groupId);
+  if (!settings?.exempt_admins) return false;
+  try {
+    const r = await telegramApi<any>("getChatMember", { chat_id: groupId, user_id: userId });
+    return r.ok && ["administrator", "creator"].includes(String(r.result?.status ?? ""));
+  } catch {
+    return false;
+  }
+}
+
+async function recalcWarningCase(groupId: string, userId: string) {
+  if (!studioPool) return;
+  const count = Number(
+    (await studioPool.query(
+      "SELECT COUNT(*)::int AS count FROM warning_events WHERE group_id=$1 AND user_id=$2 AND action_type='warning' AND status='active'",
+      [groupId, userId],
+    )).rows[0]?.count ?? 0,
+  );
+  const level = Number(
+    (await studioPool.query(
+      "SELECT COALESCE(MAX(level_no),0)::int AS level_no FROM warning_events WHERE group_id=$1 AND user_id=$2 AND action_type='warning' AND status='active'",
+      [groupId, userId],
+    )).rows[0]?.level_no ?? 0,
+  );
+  const penalized = (await studioPool.query(
+    "SELECT 1 FROM warning_penalties WHERE group_id=$1 AND user_id=$2 AND status='active' LIMIT 1",
+    [groupId, userId],
+  )).rowCount > 0;
+  await studioPool.query(
+    "UPDATE warning_cases SET warning_count=$3,current_level=$4,status=$5,updated_at=NOW() WHERE group_id=$1 AND user_id=$2",
+    [groupId, userId, count, level, penalized ? "penalized" : count > 0 ? "active" : "cleared"],
+  );
+}
+
+async function warningQueueFail(row: any, error: unknown) {
+  if (!studioPool) return;
+  const attempts = Number(row.attempts ?? 0);
+  const retry = attempts < 4;
+  const message = String((error as any)?.message ?? error);
+  await studioPool.query(
+    "UPDATE warning_action_queue SET status=$1,last_error=$2,available_at=CASE WHEN $3 THEN NOW()+INTERVAL '30 seconds' ELSE available_at END,processed_at=CASE WHEN $3 THEN NULL ELSE NOW() END WHERE id=$4",
+    [retry ? "pending" : "failed", message, retry, row.id],
+  );
+  if (row.penalty_id) {
+    await studioPool.query(
+      "UPDATE warning_penalties SET status=$1 WHERE id=$2",
+      [retry ? "pending" : "failed", row.penalty_id],
+    );
+  }
+  if (row.event_id) {
+    await studioPool.query(
+      "UPDATE warning_events SET result=$1 WHERE id=$2",
+      [retry ? "retry_pending" : "failed", row.event_id],
+    );
+  }
+}
+
+async function executeWarningQueue(row: any) {
+  if (!studioPool) return;
+
+  if (row.action_type === "warning_notify") {
+    if (await warningTargetIsExempt(String(row.group_id), String(row.user_id))) {
+      await studioPool.query(
+        "UPDATE warning_events SET status='exempted',result='admin_exempted' WHERE id=$1",
+        [row.event_id],
+      );
+      await recalcWarningCase(String(row.group_id), String(row.user_id));
+      return;
+    }
+
+    const sent = await telegramApi("sendMessage", {
+      chat_id: row.group_id,
+      text: row.message || "اخطار برای این کاربر ثبت شد.",
+    });
+    if (!sent.ok) throw new Error(sent.description || "Telegram sendMessage failed");
+
+    const settings = await warningSettingsFor(String(row.group_id));
+    if (settings?.notify_private) {
+      try {
+        const privateSent = await telegramApi("sendMessage", {
+          chat_id: row.user_id,
+          text: row.message || "اخطار جدید برای شما ثبت شد.",
+        });
+        if (!privateSent.ok) {
+          console.warn("[warnings] private notice skipped:", privateSent.description);
+        }
+      } catch (error) {
+        console.warn("[warnings] private notice failed:", (error as any)?.message ?? error);
+      }
+    }
+
+    await studioPool.query(
+      "UPDATE warning_events SET result='sent' WHERE id=$1",
+      [row.event_id],
+    );
+    return;
+  }
+
+  if (row.action_type !== "penalty_apply") return;
+
+  if (await warningTargetIsExempt(String(row.group_id), String(row.user_id))) {
+    if (row.penalty_id) {
+      await studioPool.query(
+        "UPDATE warning_penalties SET status='skipped' WHERE id=$1",
+        [row.penalty_id],
+      );
+    }
+    if (row.event_id) {
+      await studioPool.query(
+        "UPDATE warning_events SET status='exempted',result='admin_exempted' WHERE id=$1",
+        [row.event_id],
+      );
+    }
+    await recalcWarningCase(String(row.group_id), String(row.user_id));
+    return;
+  }
+
+  const type = String(row.penalty_type || "");
+  const args: Record<string, unknown> = {
+    chat_id: Number(row.group_id),
+    user_id: Number(row.user_id),
+  };
+  const seconds = warningDurationSeconds(row.duration_value, row.duration_unit);
+  const untilDate = seconds ? Math.floor(Date.now() / 1000) + seconds : null;
+
+  if (type === "mute" || type === "restrict") {
+    if (untilDate) args.until_date = untilDate;
+    args.permissions = {
+      can_send_messages: false,
+      can_send_audios: false,
+      can_send_documents: false,
+      can_send_photos: false,
+      can_send_videos: false,
+      can_send_video_notes: false,
+      can_send_voice_notes: false,
+      can_send_polls: false,
+      can_send_other_messages: false,
+      can_add_web_page_previews: false,
+    };
+    args.use_independent_chat_permissions = true;
+    const r = await telegramApi("restrictChatMember", args);
+    if (!r.ok) throw new Error(r.description || "Telegram restrictChatMember failed");
+  } else if (type === "temp_ban" || type === "permanent_ban") {
+    if (untilDate && type === "temp_ban") args.until_date = untilDate;
+    const r = await telegramApi("banChatMember", args);
+    if (!r.ok) throw new Error(r.description || "Telegram banChatMember failed");
+  } else {
+    throw new Error("Unsupported penalty type: " + type);
+  }
+
+  const expires = seconds && type !== "permanent_ban" ? new Date(Date.now() + seconds * 1000) : null;
+  if (row.penalty_id) {
+    await studioPool.query(
+      "UPDATE warning_penalties SET status='active',expires_at=$1,applied_at=NOW() WHERE id=$2",
+      [expires, row.penalty_id],
+    );
+  }
+  if (row.event_id) {
+    await studioPool.query(
+      "UPDATE warning_events SET result='applied',status='active',expires_at=COALESCE($1,expires_at) WHERE id=$2",
+      [expires, row.event_id],
+    );
+  }
+  await recalcWarningCase(String(row.group_id), String(row.user_id));
+}
+
+async function processWarningQueue() {
+  if (!studioPool || !process.env.BOT_TOKEN) return;
+
+  const client = await studioPool.connect();
+  let row: any = null;
+  try {
+    await client.query("BEGIN");
+    const r = await client.query(
+      "SELECT * FROM warning_action_queue WHERE status='pending' AND available_at<=NOW() ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1",
+    );
+    if (!r.rows[0]) {
+      await client.query("COMMIT");
+      return;
+    }
+    row = r.rows[0];
+    await client.query(
+      "UPDATE warning_action_queue SET status='processing',attempts=attempts+1 WHERE id=$1",
+      [row.id],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[warnings] queue claim failed:", error);
+    return;
+  } finally {
+    client.release();
+  }
+
+  try {
+    await executeWarningQueue(row);
+    await studioPool.query(
+      "UPDATE warning_action_queue SET status='success',processed_at=NOW(),last_error=NULL WHERE id=$1",
+      [row.id],
+    );
+  } catch (error) {
+    console.error("[warnings] action failed:", error);
+    await warningQueueFail(row, error);
+  }
+}
+
+async function restoreExpiredPenalty(groupId: string, userId: string, penaltyType: string) {
+  if (penaltyType === "temp_ban") {
+    const r = await telegramApi("unbanChatMember", {
+      chat_id: Number(groupId),
+      user_id: Number(userId),
+      only_if_banned: true,
+    });
+    if (!r.ok) throw new Error(r.description || "Telegram unbanChatMember failed");
+    return;
+  }
+  if (penaltyType === "mute" || penaltyType === "restrict") {
+    const r = await telegramApi("restrictChatMember", {
+      chat_id: Number(groupId),
+      user_id: Number(userId),
+      permissions: {
+        can_send_messages: true,
+        can_send_audios: true,
+        can_send_documents: true,
+        can_send_photos: true,
+        can_send_videos: true,
+        can_send_video_notes: true,
+        can_send_voice_notes: true,
+        can_send_polls: true,
+        can_send_other_messages: true,
+        can_add_web_page_previews: true,
+      },
+      use_independent_chat_permissions: true,
+    });
+    if (!r.ok) throw new Error(r.description || "Telegram restore permissions failed");
+  }
+}
+
+async function expireWarningState() {
+  if (!studioPool) return;
+
+  const expiredPenalties = (await studioPool.query(
+    "SELECT id,group_id,user_id,penalty_type FROM warning_penalties WHERE status='active' AND expires_at IS NOT NULL AND expires_at<=NOW() ORDER BY id LIMIT 50",
+  )).rows;
+
+  for (const row of expiredPenalties) {
+    try {
+      await restoreExpiredPenalty(String(row.group_id), String(row.user_id), String(row.penalty_type));
+      await studioPool.query(
+        "UPDATE warning_penalties SET status='expired' WHERE id=$1",
+        [row.id],
+      );
+    } catch (error) {
+      console.error("[warnings] expiry restore failed:", error);
+      continue;
+    }
+    await recalcWarningCase(String(row.group_id), String(row.user_id));
+  }
+
+  const expiredWarnings = (await studioPool.query(
+    "UPDATE warning_events SET status='expired',result='expired' WHERE action_type='warning' AND status='active' AND expires_at IS NOT NULL AND expires_at<=NOW() RETURNING group_id,user_id",
+  )).rows;
+
+  const keys = new Map<string, [string, string]>();
+  for (const row of expiredWarnings) {
+    keys.set(String(row.group_id) + ":" + String(row.user_id), [String(row.group_id), String(row.user_id)]);
+  }
+  for (const [groupId, userId] of keys.values()) {
+    await recalcWarningCase(groupId, userId);
+  }
+}
+
+function startWarningWorker() {
+  void processWarningQueue();
+  void expireWarningState();
+  setInterval(() => void processWarningQueue(), 2000);
+  setInterval(() => void expireWarningState(), 30000);
+}
+
+
 async function refreshStudio() {
   const url=process.env.DATABASE_URL;
   if(!url)return;
@@ -273,7 +587,7 @@ const chatLang = new Map<number, Lang>();
 const adminCache = new Map<number, { at: number; ids: Set<number> }>();
 
 type TgUser = { id: number; first_name?: string; username?: string };
-type TgChat = { id: number; type: string; title?: string };
+type TgChat = { id: number; type: string; title?: string; username?: string };
 type TgMessage = { message_id: number; chat: TgChat; from?: TgUser; text?: string; reply_to_message?: { from?: TgUser }; new_chat_members?: TgUser[]; left_chat_member?: TgUser };
 type TgChatMemberUpdate = { chat: TgChat; from?: TgUser; new_chat_member?: { status?: string; user?: TgUser } };
 type TgUpdate = { update_id: number; message?: TgMessage; my_chat_member?: TgChatMemberUpdate; chat_member?: TgChatMemberUpdate };
@@ -310,6 +624,7 @@ async function handleMessage(msg: TgMessage) {
 
   const chat = msg.chat;
   const isPrivate = chat.type === "private";
+  await upsertWarningGroup(chat);
   let adminIds = new Set<number>();
   if (!isPrivate) {
     try { adminIds = await chatAdmins(chat.id); } catch (error) { console.error("[admins] lookup failed", error); }
@@ -361,6 +676,7 @@ async function handleMessage(msg: TgMessage) {
 }
 
 async function handleMyChatMember(update: TgChatMemberUpdate) {
+  await upsertWarningGroup(update.chat);
   const status = update.new_chat_member?.status;
   if (!status) return;
   console.log("my_chat_member: chat=" + update.chat.id + " title=" + (update.chat.title ?? "unknown") + " status=" + status);
@@ -455,6 +771,7 @@ process.once("SIGINT", async () => { await studioPool?.end().catch(() => {}); pr
 
     startRuntimeControlServer({ refreshStudio });
     await acquirePollingLock();
+    startWarningWorker();
     await poll();
   } catch (error) {
     console.error("[startup] fatal:", error);
