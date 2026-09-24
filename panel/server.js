@@ -2,6 +2,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const { checkConnection, query } = require("./backend/database");
+const { ensureWarningsSchema, warningsApi } = require("./backend/warnings");
 
 const PORT = process.env.PORT || 3000;
 
@@ -453,6 +454,7 @@ const server = http.createServer(async (req,res) => {
       }));
     }
 
+    if (url.pathname.startsWith("/api/warnings")) { const handled = await warningsApi(req,res,url); if (handled !== null) return handled; }
     if (url.pathname.startsWith("/api/runtime")) { const handled = await runtimeApi(req,res,url); if (handled !== null) return handled; }
     if (url.pathname.startsWith("/api/responses")) { const handled = await responseStudioApi(req,res,url); if (handled !== null) return handled; }
     if (url.pathname.startsWith("/api/users")) { const handled = await usersApi(req,res,url); if (handled !== null) return handled; }
@@ -490,7 +492,8 @@ ensureBaseSchema()
     ensurePermissionSchema(),
     ensureSupervisionSchema(),
     ensureRuntimeSchema(),
-    ensureCommandAccessSchema()
+    ensureCommandAccessSchema(),
+    ensureWarningsSchema()
   ]))
   .then(() => ensureCoreCommandRecords())
   .then(() => server.listen(PORT, () => console.log(`PERSIAN BOT STUDIO running on port ${PORT}`)))
