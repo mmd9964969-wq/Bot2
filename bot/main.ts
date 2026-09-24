@@ -100,6 +100,39 @@ function commandMatches(text: string, aliases: string[]) {
   return targets.some((target) => normalized === target || normalized.startsWith(target + " "));
 }
 
+function matchedAlias(text: string, aliases: string[]) {
+  const raw=text.trim();
+  const targets=aliases.filter(Boolean).sort((a,b)=>normalizeCommand(b).length-normalizeCommand(a).length);
+  return targets.find(alias=>{
+    const n=normalizeCommand(alias);
+    const t=normalizeCommand(raw);
+    return t===n || t.startsWith(n+" ");
+  }) ?? null;
+}
+
+async function persistAdvertisingCommand(chatId:number,args:string[]){
+  if(!studioPool)return;
+  const action=normalizeCommand(args[0]??"status");
+  if(action==="status")return;
+  const current=(await studioPool.query<{enabled:boolean;mode:"standard"|"strict";exempt_admins:boolean;exempt_special_users:boolean}>(
+    "SELECT enabled,mode,exempt_admins,exempt_special_users FROM group_security_settings WHERE chat_id=$1 LIMIT 1",[chatId]
+  )).rows[0];
+  const enabled=["on","enable","enabled","روشن","فعال","strict","سختگیر","سختگیرانه"].includes(action)
+    ? true
+    : ["off","disable","disabled","خاموش","غیرفعال"].includes(action)
+      ? false
+      : current?.enabled===true;
+  const mode=["strict","سختگیر","سختگیرانه"].includes(action)
+    ? "strict"
+    : (current?.mode==="strict" ? "strict" : "standard");
+  await studioPool.query(`INSERT INTO group_security_settings(chat_id,enabled,mode,exempt_admins,exempt_special_users,updated_at)
+    VALUES($1,$2,$3,$4,$5,NOW())
+    ON CONFLICT(chat_id) DO UPDATE SET enabled=EXCLUDED.enabled,mode=EXCLUDED.mode,exempt_admins=EXCLUDED.exempt_admins,exempt_special_users=EXCLUDED.exempt_special_users,updated_at=NOW()`,
+    [chatId,enabled,mode,current?.exempt_admins!==false,current?.exempt_special_users!==false]);
+  advertisingSettingsCache.delete(chatId);
+  setGroupAdvertisingPolicy(chatId,{enabled,mode:mode as "standard"|"strict"});
+}
+
 const PANEL_ROLE_ORDER: PanelRole[] = ["MEMBER","SPECIAL_USER","MODERATOR","ADMIN","SUPER_ADMIN","OWNER"];
 type PanelRole = typeof PANEL_ROLE_ORDER[number];
 type PanelCommand = { id:number; command_key:string; fa_name:string; en_name:string; enabled:boolean; required_permission:string; minimum_role:PanelRole; response_fa:string; response_en:string; permissions:Array<{role:PanelRole;allowed:boolean}> };
@@ -173,7 +206,11 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
     }
 
     try{
-      const liveCard=await runLiveCommand({...ctx,messageId:0},studioCommand.aliasesEn[0]??studioCommand.id,raw.split(/\\s+/).slice(1));
+      const alias=matchedAlias(raw,[...studioCommand.aliasesFa,...studioCommand.aliasesEn,studioCommand.id]) ?? (studioCommand.aliasesEn[0]??studioCommand.id);
+      const argsText=raw.slice(alias.length).trim();
+      const args=argsText?argsText.split(/\\s+/):[];
+      const liveCard=await runLiveCommand({...ctx,messageId:0},alias,args);
+      if(studioCommand.id==="advertising-lock" && ctx.chatType!=="private") await persistAdvertisingCommand(ctx.chatId,args);
       await logCommandAccess(ctx,studioCommand.id,"command_executed","allowed",auth.role);
       const values:Record<string,string>={
         user_name:ctx.userName,
