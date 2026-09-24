@@ -40,7 +40,7 @@ function defaultRules(){
   add("media","media_video_note","ویدیو نوت","قفل Video Note.",false,{max_mb:50,max_per_minute:0,action:"delete"});
   add("forwarding","forward_all","همه فورواردها","مسدودسازی Forward از همه منابع.",false,{action:"delete_notify"});
   add("forwarding","forward_groups","فوروارد از گروه‌ها","مسدودسازی Forward از منابع گروهی.",false,{action:"delete_notify"});
-  add("forwarding","forward_channels","فوروارد از کانال‌ها.",false,{action:"delete_notify"});
+  add("forwarding","forward_channels","فوروارد از کانال‌ها","مسدودسازی Forward از کانال‌ها.",false,{action:"delete_notify"});
   add("forwarding","forward_private","فوروارد از پیوی","مسدودسازی Forward از چت خصوصی.",false,{action:"delete_notify"});
   add("forwarding","forward_auto_delete","حذف خودکار فوروارد","فوروارد غیرمجاز حذف شود.",true,{});
   add("forwarding","forward_notify","اعلان فوروارد","بعد از حذف فوروارد، اعلان کوتاه ارسال شود.",false,{});
