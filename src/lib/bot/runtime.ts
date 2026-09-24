@@ -150,18 +150,64 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
       return fa(ctx.lang,faText,enText);
     }
     case "info": {
-      requireGroup();
-      const c=await api<any>("getChat",{chat_id:ctx.chatId});
       const m=await api<number>("getChatMemberCount",{chat_id:ctx.chatId});
       const a=await adminCount(ctx.chatId);
       const gs=groupStats(ctx.chatId);
       const admins=await api<any[]>("getChatAdministrators",{chat_id:ctx.chatId});
       const owner=admins.find(x=>x.status==="creator")?.user;
-      const invite=c.invite_link ?? null;
+      const invite=ctx.chat?.invite_link ?? null;
       const st=state(ctx.chatId);
-      return fa(ctx.lang,
-        "◈ اطلاعات گروه\n\n⛂ - نام گروه : "+(c.title??ctx.chatTitle)+"\n⛂ - شناسه گروه : "+ctx.chatId+"\n⛂ - نام کاربری گروه : "+(c.username?"@"+c.username:"ندارد")+"\n⛂ - نوع گروه : "+c.type+"\n⛂ - تعداد اعضا : "+m+"\n⛂ - تعداد مدیران : "+a+"\n⛂ - مالک گروه : "+(owner?.username?("@"+owner.username):(owner?.first_name??"ثبت نشده"))\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - پیام‌های امروز : "+gs.messagesToday+"\n⛂ - اعضای جدید امروز : "+gs.joinsToday+"\n⛂ - پیام‌های کل : "+gs.messagesTotal+"\n⛂ - اعضای فعلی : "+m+"\n⛂ - تعداد افراد در لیست سکوت : "+st.muted.size+"\n⛂ - تعداد افراد در لیست ویژه : "+st.special.size+"\n⛂ - تعداد اخطار های فعال : "+stats(ctx.chatId).warnings+"\n\n★ - تاریخ ساخت گروه : ثبت نشده (Telegram API)\n★ - لینک دعوت : "+(invite??"در دسترس نیست")+"\n★ - وضعیت لینک دعوت : "+(invite?"فعال":"در دسترس نیست"),
-        "◈ Group information\n\n⛂ - Name : "+(c.title??ctx.chatTitle)+"\n⛂ - ID : "+ctx.chatId+"\n⛂ - Username : "+(c.username?"@"+c.username:"None")+"\n⛂ - Type : "+c.type+"\n⛂ - Members : "+m+"\n⛂ - Admins : "+a+"\n⛂ - Owner : "+(owner?.username?("@"+owner.username):(owner?.first_name??"Not recorded"))\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - Messages today : "+gs.messagesToday+"\n⛂ - New members today : "+gs.joinsToday+"\n⛂ - Total messages : "+gs.messagesTotal+"\n⛂ - Current members : "+m+"\n⛂ - Muted users : "+st.muted.size+"\n⛂ - Special users : "+st.special.size+"\n⛂ - Active warnings : "+stats(ctx.chatId).warnings+"\n\n★ - Group creation date : Not provided by Telegram API\n★ - Invite link : "+(invite??"Unavailable")+"\n★ - Invite status : "+(invite?"Active":"Unavailable"));
+      const faText=[
+        "◈ اطلاعات گروه",
+        "",
+        "⛂ - نام گروه : "+(ctx.chatTitle||"ثبت نشده"),
+        "⛂ - شناسه گروه : "+ctx.chatId,
+        "⛂ - نام کاربری گروه : "+(ctx.chat?.username?"@"+ctx.chat.username:"ندارد"),
+        "⛂ - نوع گروه : "+(ctx.chat?.type||"نامشخص"),
+        "⛂ - تعداد اعضا : "+m,
+        "⛂ - تعداد مدیران : "+a,
+        "⛂ - مالک گروه : "+(owner?.username?("@"+owner.username):(owner?.first_name||"ثبت نشده")),
+        "",
+        "─────━━───── ◈ ─────━━─────",
+        "",
+        "⛂ - پیام‌های امروز : "+gs.messagesToday,
+        "⛂ - اعضای جدید امروز : "+gs.joinsToday,
+        "⛂ - پیام‌های کل : "+gs.messagesTotal,
+        "⛂ - اعضای فعلی : "+m,
+        "⛂ - افراد در لیست سکوت : "+st.muted.size,
+        "⛂ - افراد در لیست ویژه : "+st.special.size,
+        "⛂ - اخطارهای فعال : "+stats(ctx.chatId).warnings,
+        "",
+        "★ - تاریخ ساخت گروه : ثبت نشده",
+        "★ - لینک دعوت : "+(invite||"در دسترس نیست"),
+        "★ - وضعیت لینک دعوت : "+(invite?"فعال":"در دسترس نیست")
+      ].join("\n");
+      const enText=[
+        "◈ Group information",
+        "",
+        "⛂ - Name : "+(ctx.chatTitle||"Not recorded"),
+        "⛂ - ID : "+ctx.chatId,
+        "⛂ - Username : "+(ctx.chat?.username?"@"+ctx.chat.username:"None"),
+        "⛂ - Type : "+(ctx.chat?.type||"Unknown"),
+        "⛂ - Members : "+m,
+        "⛂ - Admins : "+a,
+        "⛂ - Owner : "+(owner?.username?("@"+owner.username):(owner?.first_name||"Not recorded")),
+        "",
+        "─────━━───── ◈ ─────━━─────",
+        "",
+        "⛂ - Messages today : "+gs.messagesToday,
+        "⛂ - New members today : "+gs.joinsToday,
+        "⛂ - Total messages : "+gs.messagesTotal,
+        "⛂ - Current members : "+m,
+        "⛂ - Muted users : "+st.muted.size,
+        "⛂ - Special users : "+st.special.size,
+        "⛂ - Active warnings : "+stats(ctx.chatId).warnings,
+        "",
+        "★ - Group creation date : Not recorded",
+        "★ - Invite link : "+(invite||"Unavailable"),
+        "★ - Invite status : "+(invite?"Active":"Unavailable")
+      ].join("\n");
+      return fa(ctx.lang,faText,enText);
     }
     case "rank": {
       const rankStart=memberJoinDates.get(userKey(ctx.chatId,ctx.userId));
