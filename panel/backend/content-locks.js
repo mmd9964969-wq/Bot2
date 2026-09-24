@@ -171,6 +171,16 @@ async function contentLocksApi(req,res,url){
       await audit("content_lock_exception_upserted",body.actor_id,targetId,null,row);
       return send(res,201,json({exception:row}));
     }
+    if(req.method==="PUT"&&url.pathname.match(/^\/api\/content-locks\/exceptions\/[0-9]+$/)){
+      const id=Number(url.pathname.split("/").pop()),body=await readBody(req),groupId=validId(body.group_id),type=String(body.exception_type||"").trim(),targetId=clean(body.target_id,120);
+      if(!groupId||!VALID_EXCEPTIONS.has(type)||!targetId)return send(res,400,json({error:"group_id, exception_type and target_id are required"}));
+      const before=(await query("SELECT * FROM content_lock_exceptions WHERE id=$1 AND group_id=$2",[id,groupId])).rows[0];
+      if(!before)return send(res,404,json({error:"Exception not found"}));
+      const scope=Array.isArray(body.scope)&&body.scope.length?body.scope.map(x=>clean(x,40)).slice(0,20):["all"];
+      const row=(await query("UPDATE content_lock_exceptions SET exception_type=$1,target_id=$2,target_label=$3,scope=$4::jsonb,enabled=$5,updated_at=NOW() WHERE id=$6 AND group_id=$7 RETURNING *",[type,targetId,clean(body.target_label,160),JSON.stringify(scope),body.enabled!==false,id,groupId])).rows[0];
+      await audit("content_lock_exception_updated",body.actor_id,targetId,before,row);
+      return send(res,200,json({exception:row}));
+    }
     const excMatch=url.pathname.match(/^\/api\/content-locks\/exceptions\/([0-9]+)$/);
     if(excMatch&&req.method==="DELETE"){const id=Number(excMatch[1]),before=(await query("SELECT * FROM content_lock_exceptions WHERE id=$1",[id])).rows[0];if(!before)return send(res,404,json({error:"Exception not found"}));await query("DELETE FROM content_lock_exceptions WHERE id=$1",[id]);await audit("content_lock_exception_deleted",null,String(id),before,null);return send(res,200,json({success:true}));}
     if(req.method==="GET"&&url.pathname==="/api/content-locks/domains"){
