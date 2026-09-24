@@ -238,7 +238,7 @@ async function act(input:Input,rule:Rule,contentType:string,reason:string){
     applied="delete_failed";
     console.error("[content-locks] enforcement failed:",error);
   }
-  await log(input,rule.rule_key,contentType,applied,{reason});
+  await log(input.pool!,input,rule.rule_key,contentType,applied,{reason});
   return applied!=="delete_failed";
 }
 async function block(input:Input,data:any,key:string,contentType:string,reason:string,sourceId?:number){
@@ -250,7 +250,7 @@ async function block(input:Input,data:any,key:string,contentType:string,reason:s
       const n=await telegramApi("sendMessage",{chat_id:input.groupId,text:"⚠️ این پیام با سیاست قفل محتوا مغایرت دارد."});
       if(!n.ok)console.warn("[content-locks] notification failed:",n.description);
     }
-    await log(input,key,contentType,"detected_no_delete",{reason});
+    await log(input.pool!,input,key,contentType,"detected_no_delete",{reason});
     return false;
   }
   return act(input,rule,contentType,reason);
@@ -315,7 +315,8 @@ export async function enforceContentLocks(input:Input):Promise<boolean>{
     }
   }
 
-  const hasText=Boolean(text);\n  if(hasText&&enabled(data,"message_min_length")&&text.length<Number(config(data,"message_min_length").min_chars||2)&&await block(input,data,"message_min_length","text","طول کمتر از حداقل"))return true;
+  const hasText=Boolean(text);
+  if(hasText&&enabled(data,"message_min_length")&&text.length<Number(config(data,"message_min_length").min_chars||2)&&await block(input,data,"message_min_length","text","طول کمتر از حداقل"))return true;
   if(hasText&&enabled(data,"message_max_length")&&text.length>Number(config(data,"message_max_length").max_chars||4000)&&await block(input,data,"message_max_length","text","طول بیشتر از حداکثر"))return true;
   const rateRule=getRule(data,"message_rate_limit");
   if(rateRule?.enabled&&track(windows,input.groupId+":"+input.userId+":messages",Number(rateRule.config?.window_seconds||60)*1000)>Number(rateRule.config?.count||10)&&await block(input,data,"message_rate_limit","text","نرخ پیام"))return true;
