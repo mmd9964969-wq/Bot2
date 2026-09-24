@@ -266,10 +266,44 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "◈ Bot technical information\n\n⛂ - Bot name : "+(ctx.config.botName||"Nizam")+"\n⛂ - Username : "+(ctx.config.botUsername||"—")+"\n⛂ - Bot ID : "+botId+"\n⛂ - Version : v"+(process.env.BOT_VERSION??"2.0.0")+"\n⛂ - Status : Online\n⛂ - Database : "+(process.env.DATABASE_URL?"Connected":"Local")+"\n⛂ - Telegram connection : Polling\n⛂ - Service : Active\n⛂ - OS : "+process.platform+"\n⛂ - Node.js : "+process.version+"\n⛂ - Uptime : "+Math.floor(process.uptime())+"s");
     }
     case "status": {
-      const gs=groupStats(ctx.chatId); const st=state(ctx.chatId);
-      return fa(ctx.lang,
-        "◈ وضعیت گروه\n\n⛂ - وضعیت ربات : ● فعال\n⛂ - وضعیت مدیریت : ● فعال\n⛂ - وضعیت دیتابیس : ● "+(process.env.DATABASE_URL?"متصل":"محلی")+"\n⛂ - وضعیت ضد اسپم : ● فعال\n⛂ - وضعیت ضد فلود : ● فعال\n⛂ - وضعیت امنیت : ● فعال\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - تعداد اعضا : "+ctx.membersCount+"\n⛂ - تعداد مدیران : "+ctx.staff.length+"\n⛂ - پیام‌های امروز : "+gs.messagesToday+"\n⛂ - اخطارهای فعال : "+stats(ctx.chatId).warnings+"\n⛂ - افراد در لیست سکوت : "+st.muted.size+"\n⛂ - افراد در لیست ویژه : "+st.special.size+"\n\n★ - وضعیت کلی گروه : پایدار",
-        "◈ Group status\n\n⛂ - Bot : ● Active\n⛂ - Management : ● Active\n⛂ - Database : ● "+(process.env.DATABASE_URL?"Connected":"Local")+"\n⛂ - Anti-spam : ● Active\n⛂ - Anti-flood : ● Active\n⛂ - Security : ● Active\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - Members : "+ctx.membersCount+"\n⛂ - Admins : "+ctx.staff.length+"\n⛂ - Messages today : "+gs.messagesToday+"\n⛂ - Active warnings : "+stats(ctx.chatId).warnings+"\n⛂ - Muted users : "+st.muted.size+"\n⛂ - Special users : "+st.special.size+"\n\n★ - Overall group status : Stable");
+      const gs=groupStats(ctx.chatId);
+      const st=state(ctx.chatId);
+      const faText=[
+        "◈ وضعیت گروه","",
+        "⛂ - وضعیت ربات : ● فعال",
+        "⛂ - وضعیت مدیریت : ● فعال",
+        "⛂ - وضعیت دیتابیس : ● "+(process.env.DATABASE_URL?"متصل":"محلی"),
+        "⛂ - وضعیت ضد اسپم : ● فعال",
+        "⛂ - وضعیت ضد فلود : ● فعال",
+        "⛂ - وضعیت امنیت : ● فعال","",
+        "─────━━───── ◈ ─────━━─────","",
+        "⛂ - تعداد اعضا : "+ctx.membersCount,
+        "⛂ - تعداد مدیران : "+ctx.staff.length,
+        "⛂ - پیام‌های امروز : "+gs.messagesToday,
+        "⛂ - اخطارهای فعال : "+stats(ctx.chatId).warnings,
+        "⛂ - افراد در لیست سکوت : "+st.muted.size,
+        "⛂ - افراد در لیست ویژه : "+st.special.size,"",
+        "★ - وضعیت کلی گروه : پایدار"
+      ].join("\n");
+      const enText=[
+        "◈ Group status","",
+        "⛂ - Bot : ● Active",
+        "⛂ - Management : ● Active",
+        "⛂ - Database : ● "+(process.env.DATABASE_URL?"Connected":"Local"),
+        "⛂ - Anti-spam : ● Active",
+        "⛂ - Anti-flood : ● Active",
+        "⛂ - Security : ● Active","",
+        "─────━━───── ◈ ─────━━─────","",
+        "⛂ - Members : "+ctx.membersCount,
+        "⛂ - Admins : "+ctx.staff.length,
+        "⛂ - Messages today : "+gs.messagesToday,
+        "⛂ - Active warnings : "+stats(ctx.chatId).warnings,
+        "⛂ - Muted users : "+st.muted.size,
+        "⛂ - Special users : "+st.special.size,"",
+        "★ - Overall group status : Stable"
+      ].join("\n");
+      return fa(ctx.lang,faText,enText);
+    }
   }
 }
 
