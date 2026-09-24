@@ -254,7 +254,8 @@ function page(name){
   if(name==="permissions")return permissionsPage();
   if(name==="supervision")return supervisionPage();
   if(name==="runtime")return runtimePage();
-  if(name==="warnings")return warningsPage();\n  if(name==="content-locks")return contentLocksPage();
+  if(name==="warnings")return warningsPage();
+  if(name==="content-locks")return contentLocksPage();
   if(name==="security")return;
   placeholder(name);
 }
