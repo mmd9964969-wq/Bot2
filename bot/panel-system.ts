@@ -120,9 +120,14 @@ async function renderOwner(pool:Pool,uid:number,chatId:number,msgId?:number,view
 }
 
 async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
-  const uid=msg.from!.id;if(!await isOwner(pool,uid,ownerIds))return false;
-  await customerEnsure(pool,uid,msg.from!);
+  const uid=msg.from!.id;
   const raw=(msg.text||"").trim().replace(/^[/!]/,"").toLowerCase();
+  if(["owner","مالک"].includes(raw)&&!await isOwner(pool,uid,ownerIds)){
+    await send(msg.chat.id,"شما دسترسی به پنل مالک را ندارید.");
+    return true;
+  }
+  if(!await isOwner(pool,uid,ownerIds))return false;
+  await customerEnsure(pool,uid,msg.from!);
   if(["owner","مالک"].includes(raw)){
     await audit(pool,String(uid),"owner_panel_opened",String(uid));await renderOwner(pool,uid,msg.chat.id);return true;
   }
@@ -212,8 +217,11 @@ async function handleCustomer(pool:Pool,msg:TgMessage,ownerIds:string[]){
   await customerEnsure(pool,uid,msg.from);
   if(["panel","پنل"].includes(raw)){
     const targetGroup=isPrivate?null:msg.chat.id;const lic=targetGroup?await customerAllowedForChat(pool,uid,targetGroup):await validLicense(pool,uid);
-    if(!lic&&!isPrivate)return send(msg.chat.id,"لایسنس یا مالکیت این گروه برای شما فعال نیست.",menu([[["تماس با پشتیبانی","c:support"],["تمدید لایسنس","c:renew"]]]))&&true;
-    if(!lic&&isPrivate)return send(msg.chat.id,"برای افتتاح پنل مشتری، ابتدا یک لایسنس معتبر یا گروه ثبت‌شده داشته باشید.",menu([[["تماس با پشتیبانی","c:support"],["تمدید لایسنس","c:renew"]]]))&&true;
+    if(!lic){
+      const latest=(await pool.query("SELECT * FROM bot_licenses WHERE customer_id=$1 ORDER BY id DESC LIMIT 1",[uid])).rows[0];
+      const expired=latest?.expires_at && new Date(latest.expires_at).getTime()<=Date.now();
+      return send(msg.chat.id,expired?"لایسنس شما منقضی شده است.":"لایسنس یا مالکیت این گروه برای شما فعال نیست.",menu([[["تماس با پشتیبانی","c:support"],["تمدید لایسنس","c:renew"]]]))&&true;
+    }
     session(uid,"customer",{chatId:targetGroup});return send(msg.chat.id,mainCustomerMessage(),menu(K.customerMain))&&true;
   }
   const s=getSession(uid);if(!s||s.flow!=="customer")return false;
