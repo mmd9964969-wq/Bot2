@@ -1,4 +1,4 @@
-const titles={dashboard:"داشبورد",commands:"دستورات",responses:"پاسخ‌ها",runtime:"هسته اجرایی ربات",users:"کاربران",permissions:"دسترسی‌ها",supervision:"مرکز نظارت",settings:"تنظیمات",database:"پایگاه داده",sync:"همگام‌سازی",audit:"گزارش فعالیت‌ها",security:"مرکز امنیت",warnings:"سیستم اخطار و جریمه"};
+const titles={dashboard:"داشبورد",commands:"دستورات",responses:"پاسخ‌ها",runtime:"هسته اجرایی ربات",users:"کاربران",permissions:"دسترسی‌ها",supervision:"مرکز نظارت",settings:"تنظیمات",database:"پایگاه داده",sync:"همگام‌سازی",audit:"گزارش فعالیت‌ها",security:"مرکز امنیت",warnings:"سیستم اخطار و جریمه","content-locks":"قفل و کنترل محتوا"};
 const contentEl=document.getElementById("content"), pageTitle=document.getElementById("pageTitle"), sidebar=document.getElementById("sidebar");
 
 const esc=v=>String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
@@ -254,7 +254,7 @@ function page(name){
   if(name==="permissions")return permissionsPage();
   if(name==="supervision")return supervisionPage();
   if(name==="runtime")return runtimePage();
-  if(name==="warnings")return warningsPage();
+  if(name==="warnings")return warningsPage();\n  if(name==="content-locks")return contentLocksPage();
   if(name==="security")return;
   placeholder(name);
 }
