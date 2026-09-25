@@ -34,6 +34,25 @@ function allowed(userId:number):boolean{
   throttles.set(userId,now);
   return true;
 }
+
+function session(userId:number,flow:string,data:Record<string,any>={},ttlMs=10*60*1000){
+  sessions.set(userId,{flow,data,expires:Date.now()+ttlMs});
+}
+function getSession(userId:number){
+  const value=sessions.get(userId);
+  if(!value)return null;
+  if(value.expires<Date.now()){sessions.delete(userId);return null;}
+  return value;
+}
+function clearSession(userId:number){sessions.delete(userId);}
+function sleep(ms:number){return new Promise<void>(resolve=>setTimeout(resolve,ms));}
+function faDate(value:unknown){
+  const d=value instanceof Date?value:new Date(String(value??""));
+  if(Number.isNaN(d.getTime()))return "ثبت نشده";
+  return new Intl.DateTimeFormat("fa-IR",{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",timeZone:"Asia/Tehran"}).format(d);
+}
+function valueOrDash(value:unknown){const s=String(value??"").trim();return s||"—";}
+function answer(callbackId:string){return telegramApi("answerCallbackQuery",{callback_query_id:callbackId});}
 const LICENSE_TYPES:{key:string;label:string;days:number|null}[]=[
   {key:"daily",label:"روزانه",days:1},{key:"monthly",label:"ماهانه",days:30},{key:"quarterly",label:"سه‌ماهه",days:90},
   {key:"halfyear",label:"شش‌ماهه",days:180},{key:"yearly",label:"یک‌ساله",days:365},{key:"lifetime",label:"مادام‌العمر",days:null}
