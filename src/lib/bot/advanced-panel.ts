@@ -222,9 +222,19 @@ export async function handleAdvancedCustomerInput(pool:Pool,msg:TgMessage){
     clearSession(msg.from.id);return send(msg.chat.id,frame("Aᴜᴛᴏᴍᴀᴛɪᴏɴ Mᴀɴᴀɢᴇʀ",["عملیات اجرا شد.",info("شناسه",id)]),kb([[["اتوماسیون‌ها","c:automation"]]]));
   }
   if(s.flow==="exception_add"){
-    const type=s.data.type;if(type==="user"&&!/^\d+$/.test(value))return send(msg.chat.id,"آیدی کاربر باید عددی باشد.");if(type==="forward_source"&&!/^-?\d+$/.test(value))return send(msg.chat.id,"آیدی منبع معتبر نیست.");
+    const type=s.data.type;
+    if(type==="user"&&!/^\d+$/.test(value))return send(msg.chat.id,"آیدی کاربر باید عددی باشد.");
+    if(type==="forward_source"&&!/^-?\d+$/.test(value))return send(msg.chat.id,"آیدی منبع معتبر نیست.");
+    if(type==="domain"){
+      const domain=value.toLowerCase().replace(/^https?:\/\//,"").split("/")[0].replace(/^www\./,"");
+      if(!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain))return send(msg.chat.id,"دامنه معتبر نیست؛ نمونه: example.com");
+      await pool.query("INSERT INTO content_lock_domains(group_id,domain,enabled) VALUES($1,$2,TRUE) ON CONFLICT(group_id,domain) DO UPDATE SET enabled=TRUE,updated_at=NOW()",[groupId,domain]);
+      clearSession(msg.from.id);
+      return send(msg.chat.id,frame("Dᴏᴍᴀɪɴ Cʀᴇᴀᴛᴇᴅ",[info("دامنه",domain),info("وضعیت","● فعال")]),kb([[["فهرست دامنه‌ها","adv:exc:domains"],["‹ بازگشت","c:exceptions"]]]));
+    }
     await pool.query("INSERT INTO content_lock_exceptions(group_id,exception_type,target_id,target_label,scope,enabled) VALUES($1,$2,$3,$4,$5::jsonb,TRUE) ON CONFLICT(group_id,exception_type,target_id) DO UPDATE SET target_label=EXCLUDED.target_label,scope=EXCLUDED.scope,enabled=TRUE,updated_at=NOW()",[groupId,type,value,type==="role"?value:"",JSON.stringify(["all"])]);
-    clearSession(msg.from.id);return send(msg.chat.id,frame("E.xᴄᴇᴘᴛɪᴏɴ Cʀᴇᴀᴛᴇᴅ",["استثنا ثبت و فعال شد.",info("نوع",type),info("هدف",value)]),kb([[["استثناها","c:exceptions"]]]));
+    clearSession(msg.from.id);
+    return send(msg.chat.id,frame("E.xᴄᴇᴘᴛɪᴏɴ Cʀᴇᴀᴛᴇᴅ",["استثنا ثبت و فعال شد.",info("نوع",type),info("هدف",value)]),kb([[["استثناها","c:exceptions"]]]));
   }
   if(s.flow==="exception_delete"){const id=Number(value);if(!Number.isSafeInteger(id))return send(msg.chat.id,"شناسه معتبر نیست.");await pool.query("DELETE FROM content_lock_exceptions WHERE id=$1 AND group_id=$2",[id,groupId]);clearSession(msg.from.id);return send(msg.chat.id,frame("E.xᴄᴇᴘᴛɪᴏɴ Mᴀɴᴀɢᴇʀ",["استثنا #"+id+" حذف شد."]),kb([[["استثناها","c:exceptions"]]]));}
   if(s.flow==="domain_delete"){const id=Number(value);if(!Number.isSafeInteger(id))return send(msg.chat.id,"شناسه معتبر نیست.");await pool.query("DELETE FROM content_lock_domains WHERE id=$1 AND group_id=$2",[id,groupId]);clearSession(msg.from.id);return send(msg.chat.id,frame("Dᴏᴍᴀɪɴ Mᴀɴᴀɢᴇʀ",["دامنه #"+id+" حذف شد."]),kb([[["فهرست دامنه‌ها","adv:exc:domains"]]]));}
