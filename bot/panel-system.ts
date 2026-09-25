@@ -253,17 +253,46 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     await audit(pool,String(uid),"owner_group_status_changed",String(gid));
     return edit(msg.chat.id,msg.message_id,"✓ وضعیت اتصال گروه تغییر کرد.",menu([[ ["› مشاهده گروه","og:view:"+gid] ],[["‹ بازگشت","o:groups"]]]));
   }
+    if(data.startsWith("o:runtime:")){
+    const action=data.slice("o:runtime:".length);
+    if(!["health_check","reload_config","maintenance_on","maintenance_off","restart_requested"].includes(action))return;
+    try{
+      const result=await executeRuntimeAction(action);
+      return edit(msg.chat.id,msg.message_id,panelTitle("Runtime Center",[
+        "⛂ - عملیات : "+action,
+        "⛂ - نتیجه : "+(result.status==="accepted"?"درخواست ثبت شد":"با موفقیت اجرا شد"),
+        "⛂ - Maintenance : "+(isRuntimeMaintenance()?"● فعال":"○ خاموش"),
+        "",
+        "─────━━───── ◈ ─────━━─────",
+        "عملیات روی Runtime واقعی Bot Core اجرا شد."
+      ].join("\n")),menu([[["مرکز Runtime","o:runtime"],["‹ بازگشت","o:home"]]]));
+    }catch(error){
+      return edit(msg.chat.id,msg.message_id,panelTitle("Runtime Error",[
+        "⛂ - عملیات : "+action,
+        "⛂ - خطا : "+(error instanceof Error?error.message:String(error))
+      ].join("\n")),menu([[["‹ بازگشت","o:runtime"]]]));
+    }
+  }
   if(data==="o:runtime"){
     const m=process.memoryUsage();let me:any=null;try{const r=await telegramApi<any>("getMe",{});me=r.ok?r.result:null;}catch{}
+    const maintenance=isRuntimeMaintenance();
     return edit(msg.chat.id,msg.message_id,panelTitle("Runtime Center",[
       "⛂ - وضعیت پردازش : ● فعال",
+      "⛂ - Maintenance : "+(maintenance?"● فعال":"○ خاموش"),
       "⛂ - Node : "+process.version,
       "⛂ - Uptime : "+Math.floor(process.uptime())+" ثانیه",
       "⛂ - RAM : "+(m.rss/1048576).toFixed(1)+" MB",
       "⛂ - Heap : "+(m.heapUsed/1048576).toFixed(1)+" MB",
       "⛂ - Telegram API : "+(me?"● متصل":"○ نامشخص"),
-      "⛂ - Bot : "+valueOrDash(me?.username?"@"+me.username:null)
-    ].join("\\n")),menu([[ ["بروزرسانی","o:runtime"],["‹ بازگشت","o:home"] ]]));
+      "⛂ - Bot : "+valueOrDash(me?.username?"@"+me.username:null),
+      "",
+      "─────━━───── ◈ ─────━━─────",
+      "این بخش کنترل واقعی Runtime را در اختیار مالک قرار می‌دهد."
+    ].join("\n")),menu([
+      [["Health Check","o:runtime:health_check"],["Reload Config","o:runtime:reload_config"]],
+      [[maintenance?"خاموش‌سازی Maintenance":"فعال‌سازی Maintenance",maintenance?"o:runtime:maintenance_off":"o:runtime:maintenance_on"],["Restart Runtime","o:runtime:restart_requested"]],
+      [["‹ بازگشت","o:home"]]
+    ]));
   }
   if(data==="o:audit"){
     const r=await pool.query("SELECT actor_id,action,target,created_at FROM audit_logs ORDER BY created_at DESC LIMIT 40");
