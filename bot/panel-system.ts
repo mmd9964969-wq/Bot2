@@ -81,24 +81,6 @@ const PANEL_TITLES:Record<string,Partial<Record<BotLang,string>>> = {
   "مرکز ممیزی":{en:"Aᴜᴅɪᴛ Cᴇɴᴛᴇʀ",ar:"مركز التدقيق",ru:"Центр аудита",tr:"Denetim Merkezi",zh:"审计中心"},
   "مرکز امنیت":{en:"Sᴇᴄᴜʀɪᴛʏ Cᴇɴᴛᴇʀ",ar:"مركز الأمان",ru:"Центр безопасности",tr:"Güvenlik Merkezi",zh:"安全中心"},
   "مدیریت قابلیت‌ها":{en:"Fᴇᴀᴛᴜʀᴇ Cᴇɴᴛᴇʀ",ar:"إدارة الميزات",ru:"Управление функциями",tr:"Özellik Merkezi",zh:"功能中心"},
-  "مرکز هوش مصنوعی":{en:"AI Cᴇɴᴛᴇʀ",ar:"مركز الذكاء الاصطناعي",ru:"Центр ИИ",tr:"Yapay Zeka Merkezi",zh:"AI 中心"},
-  "پشتیبان‌گیری و بازیابی":{en:"Bᴀᴄᴋᴜᴘ & Rᴇsᴛᴏʀᴇ",ar:"النسخ والاستعادة",ru:"Резервное копирование и восстановление",tr:"Yedekleme ve Geri Yükleme",zh:"备份与恢复"},
-  "تنظیمات پیشرفته":{en:"Aᴅᴠᴀɴᴄᴇᴅ Sᴇᴛᴛɪɴɢs",ar:"الإعدادات المتقدمة",ru:"Расширенные настройки",tr:"Gelişmiş Ayarlar",zh:"高级设置"},
-  "وضعیت سرور و منابع":{en:"Sᴇʀᴠᴇʀ & Rᴇsᴏᴜʀᴄᴇs",ar:"الخادم والموارد",ru:"Сервер и ресурсы",tr:"Sunucu ve Kaynaklar",zh:"服务器与资源"},
-  "فهرست سیاه مشتریان":{en:"Cᴜsᴛᴏᴍᴇʀ Bʟᴀᴄᴋʟɪsᴛ",ar:"قائمة حظر العملاء",ru:"Черный список клиентов",tr:"Müşteri Kara Listesi",zh:"客户黑名单"},
-  "وضعیت و نمای کلی":{en:"Oᴠᴇʀᴠɪᴇᴡ & Sᴛᴀᴛᴜs",ar:"نظرة عامة والحالة",ru:"Обзор и статус",tr:"Genel Bakış ve Durum",zh:"概览与状态"},
-  "مرکز قفل و فیلتر":{en:"Lᴏᴄᴋ & Fɪʟᴛᴇʀ Cᴇɴᴛᴇʀ",ar:"مركز القفل والتصفية",ru:"Центр блокировок и фильтров",tr:"Kilit ve Filtre Merkezi",zh:"锁定与过滤中心"},
-  "مرکز اتوماسیون":{en:"Aᴜᴛᴏᴍᴀᴛɪᴏɴ Cᴇɴᴛᴇʀ",ar:"مركز الأتمتة",ru:"Центр автоматизации",tr:"Otomasyon Merkezi",zh:"自动化中心"},
-  "استودیو دستورات":{en:"Cᴏᴍᴍᴀɴᴅ Sᴛᴜᴅɪᴏ",ar:"استوديو الأوامر",ru:"Студия команд",tr:"Komut Stüdyosu",zh:"命令工作室"},
-  "استودیو محتوا":{en:"Cᴏɴᴛᴇɴᴛ Sᴛᴜᴅɪᴏ",ar:"استوديو المحتوى",ru:"Студия контента",tr:"İçerik Stüdyosu",zh:"内容工作室"},
-  "زمان‌بندی پیام‌ها":{en:"Sᴄʜᴇᴅᴜʟɪɴɢ",ar:"جدولة الرسائل",ru:"Планирование сообщений",tr:"Mesaj Zamanlama",zh:"消息定时"},
-  "تحلیل و آمار":{en:"Aɴᴀʟʏᴛɪᴄs",ar:"التحليلات والإحصائيات",ru:"Аналитика и статистика",tr:"Analiz ve İstatistik",zh:"分析与统计"},
-  "مرکز دسترسی":{en:"Pᴇʀᴍɪssɪᴏɴ Cᴇɴᴛᴇʀ",ar:"مركز الصلاحيات",ru:"Центр прав",tr:"Yetki Merkezi",zh:"权限中心"},
-  "مرکز استثناها":{en:"Exᴄᴇᴘᴛɪᴏɴ Cᴇɴᴛᴇʀ",ar:"مركز الاستثناءات",ru:"Центр исключений",tr:"İstisna Merkezi",zh:"例外中心"},
-  "ممیزی گروه":{en:"Gʀᴏᴜᴘ Aᴜᴅɪᴛ",ar:"تدقيق المجموعة",ru:"Аудит группы",tr:"Grup Denetimi",zh:"群组审计"},
-  "سلامت ربات":{en:"Bᴏᴛ Hᴇᴀʟᴛʜ",ar:"حالة البوت",ru:"Состояние бота",tr:"Bot Sağlığı",zh:"机器人状态"},
-  "پشتیبانی و راهنما":{en:"Sᴜᴘᴘᴏʀᴛ & Hᴇʟᴘ",ar:"الدعم والمساعدة",ru:"Поддержка и помощь",tr:"Destek ve Yardım",zh:"支持与帮助"},
-  "مرکز هوش مصنوعی":{en:"AI Cᴇɴᴛᴇʀ",ar:"مركز الذكاء الاصطناعي",ru:"Центр ИИ",tr:"Yapay Zeka Merkezi",zh:"AI 中心"},
   "امنیت و دسترسی":{en:"Sᴇᴄᴜʀɪᴛʏ & Aᴄᴄᴇss",ar:"الأمان والصلاحيات",ru:"Безопасность и доступ",tr:"Güvenlik ve Erişim",zh:"安全与访问"},
   "ممیزی سیستم":{en:"Sʏsᴛᴇᴍ Aᴜᴅɪᴛ",ar:"تدقيق النظام",ru:"Аудит системы",tr:"Sistem Denetimi",zh:"系统审计"},
   "ارسال همگانی":{en:"Bʀᴏᴀᴅᴄᴀsᴛ Cᴇɴᴛᴇʀ",ar:"الإرسال الجماعي",ru:"Массовая рассылка",tr:"Toplu Gönderim",zh:"群发中心"}
@@ -469,7 +451,22 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     const r=await pool.query("SELECT * FROM bot_customer_groups WHERE group_id=$1 LIMIT 1",[gid]);
     if(!r.rowCount)return edit(msg.chat.id,msg.message_id,"گروه پیدا نشد.",menu([[["‹ بازگشت","o:groups"]]]));
     const x=r.rows[0];
-    const groupLanguage=await getGroupLanguage(pool,gid,"fa");\n    return edit(msg.chat.id,msg.message_id,panelTitle("کنترل گروه",["⛂ - شناسه : "+gid,"⛂ - مشتری : "+valueOrDash(x.customer_id),"⛂ - عنوان : "+valueOrDash(x.title),"⛂ - وضعیت : "+(x.is_active?"● فعال":"○ خاموش"),"⛂ - زبان گروه : "+languageNative(groupLanguage),"⛂ - آخرین مشاهده : "+valueOrDash(x.last_seen_at?faDate(x.last_seen_at):null)].join("\\n")),menu([[[(x.is_active?"غیرفعال‌سازی":"فعال‌سازی"),"og:toggle:"+gid]],[[ "زبان گروه","og:lang:"+gid ]],[ ["‹ بازگشت","o:groups"] ]]));
+    const groupLanguage=await getGroupLanguage(pool,gid,"fa");
+    return edit(msg.chat.id,msg.message_id,
+      panelTitle("کنترل گروه",[
+        "⛂ - شناسه : "+gid,
+        "⛂ - مشتری : "+valueOrDash(x.customer_id),
+        "⛂ - عنوان : "+valueOrDash(x.title),
+        "⛂ - وضعیت : "+(x.is_active?"● فعال":"○ خاموش"),
+        "⛂ - زبان گروه : "+languageNative(groupLanguage),
+        "⛂ - آخرین مشاهده : "+valueOrDash(x.last_seen_at?faDate(x.last_seen_at):null)
+      ].join("\n")),
+      menu([
+        [[(x.is_active?"غیرفعال‌سازی":"فعال‌سازی"),"og:toggle:"+gid]],
+        [["زبان گروه","og:lang:"+gid]],
+        [["‹ بازگشت","o:groups"]]
+      ])
+    );
   }
   if(data.startsWith("og:toggle:")){
     const gid=Number(data.slice(10));if(!Number.isSafeInteger(gid))return;
