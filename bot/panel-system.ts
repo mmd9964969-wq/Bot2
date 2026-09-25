@@ -5,6 +5,7 @@ import { telegramApi } from "../src/lib/telegram/api.ts";
 import type { Rank } from "../src/lib/bot/registry.ts";
 import { ensureContentLocks, editRichLockCenter } from "../src/lib/bot/content-locks.ts";
 import { glassKeyboard } from "../src/lib/bot/panel-design.ts";
+import { ensureAdvancedPanelSchema, handleAdvancedCustomerCallback, handleAdvancedCustomerInput, handleAdvancedOwnerCallback } from "../src/lib/bot/advanced-panel.ts";
 import {
   ensurePanelSessionSchema,
   runWithPanelScope,
@@ -30,13 +31,22 @@ const LICENSE_TYPES:{key:string;label:string;days:number|null}[]=[
 ];
 
 const K={
-  ownerMain:[[["⌁ آمار کلی سیستم","o:stats"],["♙ مدیریت مشتریان","o:customers"]],[["◇ مدیریت لایسنس‌ها","o:licenses"],["◉ لاگ‌های مهم","o:logs"]],[["✉ پیام همگانی","o:broadcast"],["⚙ تنظیمات پیشرفته","o:settings"]],[["▣ پشتیبان‌گیری و بازیابی","o:backup"],["◒ وضعیت سرور و منابع","o:server"]],[["⊘ لیست سیاه مشتریان","o:blacklist"],["× خروج از پنل مالک","o:exit"]]],
-  customerMain:[[["⌂ وضعیت گروه فعلی","c:status"],["◇ تنظیمات قفل و فیلتر","c:locks"]],[["⚠ اخطار و جریمه","c:warnings"],["♙ مدیریت اعضا","c:members"]],[["⌁ خوش‌آمدگویی و خروج","c:welcome"],["⌘ دستورات و پاسخ‌ها","c:commands"]],[["▥ آمار و گزارش گروه","c:stats"],["◷ زمان‌بندی پیام‌ها","c:schedule"]],[["◇ تنظیمات امنیتی","c:security"],["? پشتیبانی و راهنما","c:support"]],[["× خروج از پنل","c:exit"]]]
+  ownerMain:[[["آمار کلی سیستم","o:stats"],["مدیریت مشتریان","o:customers"]],[["مدیریت لایسنس‌ها","o:licenses"],["لاگ‌های مهم","o:logs"]],[["مرکز گروه‌ها","o:groups"],["پیام همگانی","o:broadcast"]],[["مرکز Runtime","o:runtime"],["تحلیل سیستم","o:analytics"]],[["ممیزی سیستم","o:audit"],["دسترسی مالک‌ها","o:permissions"]],[["مرکز قابلیت‌ها","o:features"],["مرکز AI","o:ai"]],[["پشتیبان‌گیری و بازیابی","o:backup"],["وضعیت سرور و منابع","o:server"]],[["لیست سیاه مشتریان","o:blacklist"],["تنظیمات پیشرفته","o:settings"]],[["خروج از پنل مالک","o:exit"]]],
+  customerMain:[[["مرکز کنترل گروه","c:overview"],["وضعیت گروه","c:status"]],[["قفل و فیلتر","c:locks"],["استودیو محتوا","c:content"]],[["مرکز امنیت","c:security"],["اخطار و جریمه","c:warnings"]],[["مدیریت اعضا","c:members"],["خوش‌آمدگویی و خروج","c:welcome"]],[["Command Studio","c:commands"],["Automation Center","c:automation"]],[["Scheduler","c:schedule"],["Analytics Center","c:analytics"]],[["Exception Center","c:exceptions"],["Permission Center","c:permissions"]],[["Bot Health","c:health"],["Audit Center","c:audit"]],[["پشتیبانی و راهنما","c:support"]],[["خروج از پنل","c:exit"]]]
 };
 function kb(rows:string[][][]){return glassKeyboard(rows);}
-function back(cb:string="home"){return [[["← بازگشت","p:"+cb]]];}
+function back(cb:string="home"){return [[["‹ بازگشت","p:"+cb]]];}
 function menu(rows:string[][][],extra:string[][][]=[]){return kb([...rows,...extra]);}
 function text(v:any){return String(v??"");}
+function normalizePanelText(message:any){
+  let value=String(message??"").replace(/⛂\s+(?!-) /g,"⛂ - ");
+  value=value.replace(/⛂\s+(?!-)(?=[^\n])/g,"⛂ - ");
+  const trimmed=value.trim();
+  if(trimmed.startsWith("◈")&&!trimmed.includes("━━━━━━━━━━━━━━━━━━━━━━━━")){
+    value="━━━━━━━━━━━━━━━━━━━━━━━━\n"+trimmed+"\n━━━━━━━━━━━━━━━━━━━━━━━━";
+  }
+  return value;
+}
 function faDate(v:any){return new Date(v).toLocaleString("fa-IR",{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"});}
 function session(uid:number,flow:string,data:Record<string,any>={}){sessions.set(uid,{flow,data,expires:Date.now()+10*60*1000});}
 function getSession(uid:number){const s=sessions.get(uid);if(!s||s.expires<Date.now()){sessions.delete(uid);return null;}return s;}
@@ -45,7 +55,7 @@ function allowed(uid:number){const now=Date.now(),last=throttles.get(uid)||0;if(
 function sleep(ms:number){return new Promise(resolve=>setTimeout(resolve,ms));}
 async function answer(id:string){await telegramApi("answerCallbackQuery",{callback_query_id:id});}
 async function send(chatId:number,message:string,markup:any=null){
-  const result=await telegramApi("sendMessage",{chat_id:chatId,text:message,reply_markup:markup});
+  const result=await telegramApi("sendMessage",{chat_id:chatId,text:normalizePanelText(message),reply_markup:markup});
   const scope=currentPanelScope();
   if(result.ok&&scope&&markup?.inline_keyboard){
     const messageId=Number((result.result as any)?.message_id);
@@ -111,15 +121,15 @@ async function ownerStats(pool:Pool){
   const c=Number(customers.rows[0].n||0),g=Number(groups.rows[0].n||0);
   return [
     "◈ آمار کلی سیستم","",
-    "⛂ مشتریان کل : "+c,
-    "⛂ مشتریان فعال : "+Number(active.rows[0].n||0),
-    "⛂ مشتریان منقضی : "+Number(expired.rows[0].n||0),
-    "⛂ گروه‌های فعال : "+g,
-    "⛂ اجرای دستور در ۲۴ ساعت : "+Number(cmd24.rows[0].n||0),
-    "⛂ اجرای دستور در ۷ روز : "+Number(cmd7.rows[0].n||0),
-    "⛂ اخطارهای صادرشده : "+Number(warn.rows[0].n||0),
-    "⛂ اخراج/بن ثبت‌شده : "+Number(kick.rows[0].n||0),
-    "⛂ میانگین گروه/مشتری : "+(c?(g/c).toFixed(2):"0"),
+    "⛂ - مشتریان کل : "+c,
+    "⛂ - مشتریان فعال : "+Number(active.rows[0].n||0),
+    "⛂ - مشتریان منقضی : "+Number(expired.rows[0].n||0),
+    "⛂ - گروه‌های فعال : "+g,
+    "⛂ - اجرای دستور در ۲۴ ساعت : "+Number(cmd24.rows[0].n||0),
+    "⛂ - اجرای دستور در ۷ روز : "+Number(cmd7.rows[0].n||0),
+    "⛂ - اخطارهای صادرشده : "+Number(warn.rows[0].n||0),
+    "⛂ - اخراج/بن ثبت‌شده : "+Number(kick.rows[0].n||0),
+    "⛂ - میانگین گروه/مشتری : "+(c?(g/c).toFixed(2):"0"),
     "",
     "★ بروزرسانی : "+faDate(new Date())
   ].join("\n");
@@ -134,21 +144,21 @@ async function customerStatus(pool:Pool,uid:number,chatId:number){
   const member=(await pool.query("SELECT COUNT(*)::int n FROM warning_cases WHERE group_id=$1 AND warning_count>0",[chatId])).rows[0].n||0;
   return [
     "◈ وضعیت گروه فعلی","",
-    "⛂ نام : "+(chat.result?.title||group.rows[0]?.title||"—"),
-    "⛂ شناسه : "+chatId,
-    "⛂ اعضا : "+(count.result??"—"),
-    "⛂ ادمین‌ها : "+(admins.result?.length??"—"),
-    "⛂ افراد دارای اخطار : "+member,
-    "⛂ قفل محتوا : "+(settings.rows[0]?.full_lock?"فعال":"عادی"),
-    "⛂ حالت اضطراری : "+(settings.rows[0]?.emergency_mode?"فعال":"غیرفعال"),
-    "⛂ لایسنس : "+(license?.license_type||"عضویت گروه"),
-    "⛂ افزودن ربات : "+(group.rows[0]?.updated_at?faDate(group.rows[0].updated_at):"ثبت نشده")
+    "⛂ - نام : "+(chat.result?.title||group.rows[0]?.title||"—"),
+    "⛂ - شناسه : "+chatId,
+    "⛂ - اعضا : "+(count.result??"—"),
+    "⛂ - ادمین‌ها : "+(admins.result?.length??"—"),
+    "⛂ - افراد دارای اخطار : "+member,
+    "⛂ - قفل محتوا : "+(settings.rows[0]?.full_lock?"فعال":"عادی"),
+    "⛂ - حالت اضطراری : "+(settings.rows[0]?.emergency_mode?"فعال":"غیرفعال"),
+    "⛂ - لایسنس : "+(license?.license_type||"عضویت گروه"),
+    "⛂ - افزودن ربات : "+(group.rows[0]?.updated_at?faDate(group.rows[0].updated_at):"ثبت نشده")
   ].join("\n");
 }
 
 async function renderOwner(pool:Pool,uid:number,chatId:number,msgId?:number,view="main"){
   const body=view==="main"?mainOwnerMessage():await ownerStats(pool);
-  const markup=view==="main"?menu(K.ownerMain):menu([[["↻ بروزرسانی آمار","o:stats"],["← بازگشت","o:home"]]]);
+  const markup=view==="main"?menu(K.ownerMain):menu([[["↻ بروزرسانی آمار","o:stats"],["‹ بازگشت","o:home"]]]);
   return msgId?edit(chatId,msgId,body,markup):send(chatId,body,markup);
 }
 
@@ -167,7 +177,7 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
   const s=getSession(uid);
   if(s&&s.flow==="owner_customer_search"){
     clearSession(uid);const q=raw.replace(/^@/,"");const r=await pool.query("SELECT * FROM bot_customers WHERE user_id::text=$1 OR LOWER(username)=LOWER($1) LIMIT 1",[q]);
-    if(!r.rowCount)return send(msg.chat.id,"مشتری با این مشخصات یافت نشد.",menu([[["جستجوی مجدد","o:customers"],["← بازگشت","o:home"]]]))&&true;
+    if(!r.rowCount)return send(msg.chat.id,"مشتری با این مشخصات یافت نشد.",menu([[["جستجوی مجدد","o:customers"],["‹ بازگشت","o:home"]]]))&&true;
     return sendCustomer(pool,uid,msg.chat.id,r.rows[0]);
   }
   if(s&&s.flow==="owner_license_create"){
@@ -181,7 +191,7 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
       await pool.query("INSERT INTO bot_customers(user_id,status) VALUES($1,'active') ON CONFLICT DO NOTHING",[d.customerId]);
       const row=(await pool.query("INSERT INTO bot_licenses(code,customer_id,license_type,group_limit,price,expires_at) VALUES($1,$2,$3,$4,$5,$6) RETURNING *",[code,d.customerId,d.type.key,d.groupLimit,d.price,t])).rows[0];
       clearSession(uid);await audit(pool,String(uid),"license_created",String(row.id),{code});
-      return send(msg.chat.id,"✓ لایسنس ساخته شد.\n\n⛂ کد : "+row.code+"\n⛂ نوع : "+d.type.label+"\n⛂ سقف گروه : "+d.groupLimit+"\n⛂ انقضا : "+(t?faDate(t):"مادام‌العمر"),menu([[["← بازگشت","o:licenses"]]]));
+      return send(msg.chat.id,"✓ لایسنس ساخته شد.\n\n⛂ - کد : "+row.code+"\n⛂ - نوع : "+d.type.label+"\n⛂ - سقف گروه : "+d.groupLimit+"\n⛂ - انقضا : "+(t?faDate(t):"مادام‌العمر"),menu([[["‹ بازگشت","o:licenses"]]]));
     }
     return send(msg.chat.id,"برای تکمیل عملیات، «تایید نهایی» را ارسال کنید.");
   }
@@ -191,8 +201,8 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
 
 async function sendCustomer(pool:Pool,ownerId:number,chatId:number,row:any){
   const lic=await validLicense(pool,Number(row.user_id));const groups=(await pool.query("SELECT COUNT(*)::int n FROM bot_customer_groups WHERE customer_id=$1 AND is_active=TRUE",[row.user_id])).rows[0].n||0;
-  const text=["◈ اطلاعات مشتری","","⛂ آیدی : "+row.user_id,"⛂ یوزرنیم : "+(row.username?"@"+row.username:"ندارد"),"⛂ نام : "+(row.first_name||"—"),"⛂ اولین نصب : "+faDate(row.first_installed_at),"⛂ گروه‌های فعال : "+groups,"⛂ لایسنس : "+(lic?.license_type||"ندارد"),"⛂ شروع : "+(lic?faDate(lic.starts_at):"—"),"⛂ انقضا : "+(lic?.expires_at?faDate(lic.expires_at):"مادام‌العمر"),"⛂ وضعیت مشتری : "+row.status,"⛂ آخرین فعالیت : "+faDate(row.last_active_at)].join("\n");
-  const buttons=[[["فعال‌سازی لایسنس","u:lic_on:"+row.user_id],["غیرفعال‌سازی","u:lic_off:"+row.user_id]],[["افزایش مدت","u:lic_plus:"+row.user_id],["کاهش مدت","u:lic_minus:"+row.user_id]],[["مسدودکردن","u:block:"+row.user_id],["رفع مسدودیت","u:unblock:"+row.user_id]],[["لاگ مشتری","u:logs:"+row.user_id],["پیام خصوصی","u:msg:"+row.user_id]],[["← بازگشت","o:customers"]]];
+  const text=["◈ اطلاعات مشتری","","⛂ - آیدی : "+row.user_id,"⛂ - یوزرنیم : "+(row.username?"@"+row.username:"ندارد"),"⛂ - نام : "+(row.first_name||"—"),"⛂ - اولین نصب : "+faDate(row.first_installed_at),"⛂ - گروه‌های فعال : "+groups,"⛂ - لایسنس : "+(lic?.license_type||"ندارد"),"⛂ - شروع : "+(lic?faDate(lic.starts_at):"—"),"⛂ - انقضا : "+(lic?.expires_at?faDate(lic.expires_at):"مادام‌العمر"),"⛂ - وضعیت مشتری : "+row.status,"⛂ - آخرین فعالیت : "+faDate(row.last_active_at)].join("\n");
+  const buttons=[[["فعال‌سازی لایسنس","u:lic_on:"+row.user_id],["غیرفعال‌سازی","u:lic_off:"+row.user_id]],[["افزایش مدت","u:lic_plus:"+row.user_id],["کاهش مدت","u:lic_minus:"+row.user_id]],[["مسدودکردن","u:block:"+row.user_id],["رفع مسدودیت","u:unblock:"+row.user_id]],[["لاگ مشتری","u:logs:"+row.user_id],["پیام خصوصی","u:msg:"+row.user_id]],[["‹ بازگشت","o:customers"]]];
   return send(chatId,text,menu(buttons));
 }
 
@@ -201,18 +211,18 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   const data=String(cb.data||"");const msg=cb.message;if(!msg)return;await answer(cb.id);
   if(data==="o:home")return renderOwner(pool,uid,msg.chat.id,msg.message_id,"main");
   if(data==="o:stats")return renderOwner(pool,uid,msg.chat.id,msg.message_id,"stats");
-  if(data==="o:customers"){session(uid,"owner_customer_search");return edit(msg.chat.id,msg.message_id,"آیدی عددی یا یوزرنیم مشتری را ارسال کنید.",menu([[["← بازگشت","o:home"]]]));}
-  if(data==="o:licenses")return edit(msg.chat.id,msg.message_id,"◈ مدیریت لایسنس‌ها",menu([[["ایجاد لایسنس جدید","o:lic_create"],["لایسنس‌های فعال","o:lic_active"]],[["در حال انقضا","o:lic_expiring"],["منقضی‌شده","o:lic_expired"]],[["محدودیت گروه هر نوع","o:lic_limits"],["← بازگشت","o:home"]]]));
-  if(data==="o:lic_limits"){const r=await pool.query("SELECT license_type,MAX(group_limit)::int max_limit,COUNT(*)::int count FROM bot_licenses GROUP BY license_type ORDER BY license_type");return edit(msg.chat.id,msg.message_id,r.rows.length?r.rows.map((x:any)=>"• "+x.license_type+" · سقف "+x.max_limit+" · "+x.count+" لایسنس").join("\n"):"هنوز لایسنسی ثبت نشده است.",menu([[["← بازگشت","o:licenses"]] ]));}
-  if(data==="o:lic_create"){session(uid,"owner_license_create",{step:1});return edit(msg.chat.id,msg.message_id,"نوع لایسنس را انتخاب کنید.",menu(LICENSE_TYPES.map(x=>[[x.label,"o:lic_type:"+x.key]]).concat([[["← بازگشت","o:licenses"]]])));} 
+  if(data==="o:customers"){session(uid,"owner_customer_search");return edit(msg.chat.id,msg.message_id,"آیدی عددی یا یوزرنیم مشتری را ارسال کنید.",menu([[["‹ بازگشت","o:home"]]]));}
+  if(data==="o:licenses")return edit(msg.chat.id,msg.message_id,"◈ مدیریت لایسنس‌ها",menu([[["ایجاد لایسنس جدید","o:lic_create"],["لایسنس‌های فعال","o:lic_active"]],[["در حال انقضا","o:lic_expiring"],["منقضی‌شده","o:lic_expired"]],[["محدودیت گروه هر نوع","o:lic_limits"],["‹ بازگشت","o:home"]]]));
+  if(data==="o:lic_limits"){const r=await pool.query("SELECT license_type,MAX(group_limit)::int max_limit,COUNT(*)::int count FROM bot_licenses GROUP BY license_type ORDER BY license_type");return edit(msg.chat.id,msg.message_id,r.rows.length?r.rows.map((x:any)=>"• "+x.license_type+" · سقف "+x.max_limit+" · "+x.count+" لایسنس").join("\n"):"هنوز لایسنسی ثبت نشده است.",menu([[["‹ بازگشت","o:licenses"]] ]));}
+  if(data==="o:lic_create"){session(uid,"owner_license_create",{step:1});return edit(msg.chat.id,msg.message_id,"نوع لایسنس را انتخاب کنید.",menu(LICENSE_TYPES.map(x=>[[x.label,"o:lic_type:"+x.key]]).concat([[["‹ بازگشت","o:licenses"]]])));} 
   if(data.startsWith("o:lic_type:")){const t=LICENSE_TYPES.find(x=>x.key===data.slice(11));if(!t)return;session(uid,"owner_license_create",{step:2,type:t});return edit(msg.chat.id,msg.message_id,"نوع «"+t.label+"» انتخاب شد.\n\nحداکثر تعداد گروه این لایسنس را به عدد ارسال کنید.");}
-  if(data==="o:lic_active"||data==="o:lic_expiring"||data==="o:lic_expired"){const where=data==="o:lic_active"?"status='active' AND (expires_at IS NULL OR expires_at>NOW())":data==="o:lic_expiring"?"status='active' AND expires_at>NOW() AND expires_at<=NOW()+INTERVAL '7 days'":"status='active' AND expires_at IS NOT NULL AND expires_at<=NOW()";const r=await pool.query("SELECT code,customer_id,license_type,group_limit,expires_at FROM bot_licenses WHERE "+where+" ORDER BY expires_at NULLS LAST LIMIT 30");const lines=r.rows.length?r.rows.map((x:any)=>"• "+x.code+" · "+x.customer_id+" · "+x.license_type+" · "+(x.expires_at?faDate(x.expires_at):"∞")).join("\n"):"موردی ثبت نشده است.";return edit(msg.chat.id,msg.message_id,"◈ لیست لایسنس‌ها\n\n"+lines,menu([[["← بازگشت","o:licenses"]]]));}
-  if(data==="o:logs"){const r=await pool.query("SELECT action,target,created_at FROM audit_logs ORDER BY created_at DESC LIMIT 50");const lines=r.rows.length?r.rows.map((x:any)=>"• "+faDate(x.created_at)+" · "+x.action+" · "+(x.target||"—")).join("\n"):"لاگی ثبت نشده است.";return edit(msg.chat.id,msg.message_id,"◈ ۵۰ رویداد مهم اخیر\n\n"+lines,menu([[["← بازگشت","o:home"]]]));}
+  if(data==="o:lic_active"||data==="o:lic_expiring"||data==="o:lic_expired"){const where=data==="o:lic_active"?"status='active' AND (expires_at IS NULL OR expires_at>NOW())":data==="o:lic_expiring"?"status='active' AND expires_at>NOW() AND expires_at<=NOW()+INTERVAL '7 days'":"status='active' AND expires_at IS NOT NULL AND expires_at<=NOW()";const r=await pool.query("SELECT code,customer_id,license_type,group_limit,expires_at FROM bot_licenses WHERE "+where+" ORDER BY expires_at NULLS LAST LIMIT 30");const lines=r.rows.length?r.rows.map((x:any)=>"• "+x.code+" · "+x.customer_id+" · "+x.license_type+" · "+(x.expires_at?faDate(x.expires_at):"∞")).join("\n"):"موردی ثبت نشده است.";return edit(msg.chat.id,msg.message_id,"◈ لیست لایسنس‌ها\n\n"+lines,menu([[["‹ بازگشت","o:licenses"]]]));}
+  if(data==="o:logs"){const r=await pool.query("SELECT action,target,created_at FROM audit_logs ORDER BY created_at DESC LIMIT 50");const lines=r.rows.length?r.rows.map((x:any)=>"• "+faDate(x.created_at)+" · "+x.action+" · "+(x.target||"—")).join("\n"):"لاگی ثبت نشده است.";return edit(msg.chat.id,msg.message_id,"◈ ۵۰ رویداد مهم اخیر\n\n"+lines,menu([[["‹ بازگشت","o:home"]]]));}
   if(data==="o:broadcast"){session(uid,"owner_broadcast_wait");return edit(msg.chat.id,msg.message_id,"پیام خود را ارسال کنید (متن یا رسانه).");}
-  if(data==="o:settings")return edit(msg.chat.id,msg.message_id,"◈ تنظیمات پیشرفته\n\nعملیات حساس با تأیید مرحله‌ای انجام می‌شوند.",menu([[["نگهداری","s:maintenance"],["مدیریت مالک‌ها","s:owners"]],[["پیام نگهداری","s:maintmsg"],["پاک‌سازی کش","s:cache"]],[["سقف گروه پیش‌فرض","s:groupmax"],["بازنشانی آمار","s:reset"]],[["تغییر توکن","s:token"]],[["← بازگشت","o:home"]]]));
-  if(data==="o:backup")return edit(msg.chat.id,msg.message_id,"◈ پشتیبان‌گیری و بازیابی\n\nتهیه نسخه SQL/تنظیمات به محیط اجرای فعلی وابسته است. این پنل نسخه وضعیت جداول مدیریتی را نیز ثبت می‌کند.",menu([[["تهیه پشتیبان همین حالا","b:make"],["لیست پشتیبان‌ها","b:list"]],[["بازیابی از پشتیبان","b:restore"],["حذف پشتیبان‌های قدیمی","b:cleanup"]],[["← بازگشت","o:home"]]]));
-  if(data==="o:server"){const m=process.memoryUsage();const cpu=os.loadavg()[0];const uptime=Math.floor(os.uptime());return edit(msg.chat.id,msg.message_id,["◈ وضعیت سرور و منابع","","⛂ Load : "+cpu.toFixed(2),"⛂ RAM فرآیند : "+(m.rss/1048576).toFixed(1)+" MB","⛂ Heap : "+(m.heapUsed/1048576).toFixed(1)+" MB","⛂ Uptime : "+uptime+" sec","⛂ Node : "+process.version].join("\n"),menu([[["↻ بروزرسانی","o:server"],["← بازگشت","o:home"]]]));}
-  if(data==="o:blacklist"){const r=await pool.query("SELECT user_id,reason,created_at FROM bot_blacklist ORDER BY created_at DESC LIMIT 100");const rows=r.rows.map((x:any)=>[[("⊘ "+x.user_id+" · "+(x.reason||"بدون دلیل")),"bl:remove:"+x.user_id]]);rows.push([["افزودن به لیست سیاه","bl:add"]],[["← بازگشت","o:home"]]);return edit(msg.chat.id,msg.message_id,"◈ لیست سیاه مشتریان\n\nهر ردیف برای رفع مسدودیت قابل انتخاب است.",menu(rows));}
+  if(data==="o:settings")return edit(msg.chat.id,msg.message_id,"◈ تنظیمات پیشرفته\n\nعملیات حساس با تأیید مرحله‌ای انجام می‌شوند.",menu([[["نگهداری","s:maintenance"],["مدیریت مالک‌ها","s:owners"]],[["پیام نگهداری","s:maintmsg"],["پاک‌سازی کش","s:cache"]],[["سقف گروه پیش‌فرض","s:groupmax"],["بازنشانی آمار","s:reset"]],[["تغییر توکن","s:token"]],[["‹ بازگشت","o:home"]]]));
+  if(data==="o:backup")return edit(msg.chat.id,msg.message_id,"◈ پشتیبان‌گیری و بازیابی\n\nتهیه نسخه SQL/تنظیمات به محیط اجرای فعلی وابسته است. این پنل نسخه وضعیت جداول مدیریتی را نیز ثبت می‌کند.",menu([[["تهیه پشتیبان همین حالا","b:make"],["لیست پشتیبان‌ها","b:list"]],[["بازیابی از پشتیبان","b:restore"],["حذف پشتیبان‌های قدیمی","b:cleanup"]],[["‹ بازگشت","o:home"]]]));
+  if(data==="o:server"){const m=process.memoryUsage();const cpu=os.loadavg()[0];const uptime=Math.floor(os.uptime());return edit(msg.chat.id,msg.message_id,["◈ وضعیت سرور و منابع","","⛂ - Load : "+cpu.toFixed(2),"⛂ - RAM فرآیند : "+(m.rss/1048576).toFixed(1)+" MB","⛂ - Heap : "+(m.heapUsed/1048576).toFixed(1)+" MB","⛂ - Uptime : "+uptime+" sec","⛂ - Node : "+process.version].join("\n"),menu([[["↻ بروزرسانی","o:server"],["‹ بازگشت","o:home"]]]));}
+  if(data==="o:blacklist"){const r=await pool.query("SELECT user_id,reason,created_at FROM bot_blacklist ORDER BY created_at DESC LIMIT 100");const rows=r.rows.map((x:any)=>[[("⊘ "+x.user_id+" · "+(x.reason||"بدون دلیل")),"bl:remove:"+x.user_id]]);rows.push([["افزودن به لیست سیاه","bl:add"]],[["‹ بازگشت","o:home"]]);return edit(msg.chat.id,msg.message_id,"◈ لیست سیاه مشتریان\n\nهر ردیف برای رفع مسدودیت قابل انتخاب است.",menu(rows));}
   if(data==="o:exit"){await edit(msg.chat.id,msg.message_id,"از پنل مالک خارج شدید.",null);clearSession(uid);return;}
   if(data.startsWith("u:")){
     const parts=data.split(":");const act=parts[1],id=Number(parts[2]);if(!Number.isSafeInteger(id))return;
@@ -272,15 +282,16 @@ async function handleCustomer(pool:Pool,msg:TgMessage,ownerIds:string[]){
 async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   const uid=cb.from.id;const msg=cb.message;if(!msg)return;await answer(cb.id);
   const data=String(cb.data||"");const s=getSession(uid);const groupId=Number(s?.data?.chatId||msg.chat.id);
-  if(["c:exit","c:support","c:renew"].includes(data)){if(data==="c:exit"){clearSession(uid);return edit(msg.chat.id,msg.message_id,"از پنل مشتری خارج شدید.",null);}if(data==="c:support")return edit(msg.chat.id,msg.message_id,"پشتیبانی PERSIAN BOT STUDIO\n\nبرای تمدید، خطا و مسائل فنی با پشتیبانی رسمی تماس بگیرید.",menu([[["← بازگشت","c:home"]]]));return edit(msg.chat.id,msg.message_id,"برای تمدید لایسنس، درخواست خود را برای پشتیبانی ارسال کنید.",menu([[["تماس با پشتیبانی","c:support"],["← بازگشت","c:home"]]]));}
+  if(["c:exit","c:support","c:renew"].includes(data)){if(data==="c:exit"){clearSession(uid);return edit(msg.chat.id,msg.message_id,"از پنل مشتری خارج شدید.",null);}if(data==="c:support")return edit(msg.chat.id,msg.message_id,"پشتیبانی PERSIAN BOT STUDIO\n\nبرای تمدید، خطا و مسائل فنی با پشتیبانی رسمی تماس بگیرید.",menu([[["‹ بازگشت","c:home"]]]));return edit(msg.chat.id,msg.message_id,"برای تمدید لایسنس، درخواست خود را برای پشتیبانی ارسال کنید.",menu([[["تماس با پشتیبانی","c:support"],["‹ بازگشت","c:home"]]]));}
   const privileged=await isOwner(pool,uid,ownerIds);
   if(!privileged){
     const allowed=await customerAllowedForChat(pool,uid,groupId);
     if(!allowed)return edit(msg.chat.id,msg.message_id,"لایسنس یا دسترسی این گروه برای شما معتبر نیست.",menu([[["تمدید لایسنس","c:renew"],["پشتیبانی","c:support"]]]));
-    if(!(await isGroupAdmin(groupId,uid))&&!data.startsWith("c:support"))return edit(msg.chat.id,msg.message_id,"فقط مدیر گروه می‌تواند تنظیمات مدیریتی این بخش را تغییر دهد.",menu([[["← بازگشت","c:home"]]]));
+    if(!(await isGroupAdmin(groupId,uid))&&!data.startsWith("c:support"))return edit(msg.chat.id,msg.message_id,"فقط مدیر گروه می‌تواند تنظیمات مدیریتی این بخش را تغییر دهد.",menu([[["‹ بازگشت","c:home"]]]));
   }
+  const advancedHandled=await handleAdvancedCustomerCallback(pool,cb,ownerIds,groupId); if(advancedHandled)return true;
   if(data==="c:home"){return edit(msg.chat.id,msg.message_id,mainCustomerMessage(),menu(K.customerMain));}
-  if(data==="c:status"){return edit(msg.chat.id,msg.message_id,await customerStatus(pool,uid,groupId),menu([[["↻ بروزرسانی","c:status"],["← بازگشت","c:home"]]]));}
+  if(data==="c:status"){return edit(msg.chat.id,msg.message_id,await customerStatus(pool,uid,groupId),menu([[["↻ بروزرسانی","c:status"],["‹ بازگشت","c:home"]]]));}
   if(data==="c:locks"){
     await ensureContentLocks(pool,groupId);
     return editRichLockCenter(pool,msg.chat.id,msg.message_id,uid);
@@ -325,7 +336,7 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     const section=data.slice(3);
     if(section==="exceptions")return edit(msg.chat.id,msg.message_id,
       "◈ استثناها و دامنه‌های مجاز\n\nاین بخش برای استثناکردن کاربر، نقش یا منبع فوروارد استفاده می‌شود.",
-      menu([[["❯› مدیریت در پنل وب","cl:web"]],[["‹ بازگشت","c:locks"]]])
+      menu([[["› مدیریت در پنل وب","cl:web"]],[["‹ بازگشت","c:locks"]]])
     );
     await ensureContentLocks(pool,groupId);
     const names:any={normal:"قفل‌های حالت عادی",media:"رسانه",links:"لینک‌ها",advertising:"تبلیغات",forwarding:"فوروارد و اشتراک‌گذاری",files:"فایل و سند",messages:"پیام و نرخ ارسال",interactions:"تعامل و هویت",advanced:"محتوای پیشرفته",anti_attack:"امنیت و ضد اتک",language:"قفل زبان"};
@@ -347,30 +358,30 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
       menu(buttons)
     );
   }
-  if(data==="cl:exceptions")return edit(msg.chat.id,msg.message_id,"◈ استثناها\n\nاستثناها را از پنل وب تعریف کنید تا دامنه، نقش و کاربر به‌صورت دقیق انتخاب شوند.",menu([[["← بازگشت","c:locks"]]]));
-  if(data==="c:warnings")return edit(msg.chat.id,msg.message_id,"◈ سیستم اخطار و جریمه",menu([[["اعضای دارای اخطار","w:list"],["صدور اخطار دستی","w:issue"]],[["سطوح اخطار و جریمه","w:levels"],["پاک‌کردن اخطار","w:clear"]],[["تاریخچه گروه","w:history"],["← بازگشت","c:home"]]]));
-  if(data==="w:list"){const r=await pool.query("SELECT user_id,first_name,username,warning_count,current_level,status FROM warning_cases WHERE group_id=$1 AND warning_count>0 ORDER BY warning_count DESC,last_warning_at DESC LIMIT 30",[groupId]);return edit(msg.chat.id,msg.message_id,r.rows.length?r.rows.map((x:any)=>"• "+x.user_id+" · "+(x.username?"@"+x.username:"")+" · "+x.warning_count+" اخطار").join("\n"):"عضوی با اخطار فعال نیست.",menu([[["← بازگشت","c:warnings"]]]));}
-  if(data==="w:issue"){session(uid,"warn_issue",{chatId:groupId});return edit(msg.chat.id,msg.message_id,"برای اخطار دستی، آیدی عددی کاربر را ارسال کنید.",menu([[["← بازگشت","c:warnings"]]]));}
-  if(data==="w:levels"){const r=await pool.query("SELECT level_no,name,warning_count_required,penalty_type,duration_value,duration_unit,enabled FROM warning_levels WHERE group_id=$1 ORDER BY level_no",[groupId]);return edit(msg.chat.id,msg.message_id,r.rows.length?r.rows.map((x:any)=>"• سطح "+x.level_no+" · "+x.name+" · "+x.warning_count_required+" · "+x.penalty_type+" · "+(x.duration_value?x.duration_value+" "+x.duration_unit:"")).join("\n"):"سطح اخطار تعریف نشده.",menu([[["← بازگشت","c:warnings"]]]));}
-  if(data==="w:clear"){session(uid,"warn_clear",{chatId:groupId});return edit(msg.chat.id,msg.message_id,"آیدی عددی کاربر را برای پاک‌کردن اخطار ارسال کنید.",menu([[["← بازگشت","c:warnings"]]]));}
-  if(data==="w:history"){const r=await pool.query("SELECT user_id,action_type,violation_type,penalty_type,created_at FROM warning_events WHERE group_id=$1 ORDER BY created_at DESC LIMIT 30",[groupId]);return edit(msg.chat.id,msg.message_id,r.rows.length?r.rows.map((x:any)=>"• "+faDate(x.created_at)+" · "+x.user_id+" · "+x.action_type+" · "+(x.violation_type||"—")).join("\n"):"تاریخچه‌ای ثبت نشده است.",menu([[["← بازگشت","c:warnings"]]]));}
-  if(data==="c:members")return edit(msg.chat.id,msg.message_id,"◈ مدیریت اعضا\n\nبرای عملیات حساس، ابتدا آیدی یا Reply به کاربر را انتخاب کنید.",menu([[["جستجوی عضو","m:search"],["لیست محدودشده‌ها","m:restricted"]],[["سکوت موقت","m:mute"],["سکوت دائم","m:perm_mute"]],[["اخراج عضو","m:kick"],["تغییر نقش","m:role"]],[["عملیات گروهی","m:bulk"],["← بازگشت","c:home"]]]));
-  if(data==="m:search"){session(uid,"member_search",{chatId:groupId});return edit(msg.chat.id,msg.message_id,"Telegram ID یا Username عضو را ارسال کنید.",menu([[["← بازگشت","c:members"]]]));}
-  if(data==="m:restricted"){return edit(msg.chat.id,msg.message_id,"فهرست اعضای محدودشده از API تلگرام و عملیات واقعی گروه قابل استخراج است. برای کنترل سریع، یکی از عملیات زیر را انتخاب کنید.",menu([[["سکوت موقت","m:mute"],["اخراج","m:kick"]],[["← بازگشت","c:members"]]]));}
-  if(["m:mute","m:perm_mute","m:kick","m:role"].includes(data)){session(uid,"member_action",{chatId:groupId,action:data.slice(2)});return edit(msg.chat.id,msg.message_id,"آیدی عددی کاربر را ارسال کنید.",menu([[["← بازگشت","c:members"]]]));}
-  if(data==="m:bulk"){return edit(msg.chat.id,msg.message_id,"عملیات گروهی نیازمند لیست آیدی‌ها و تأیید نهایی است؛ آیدی‌ها را با فاصله ارسال کنید.",menu([[["شروع عملیات گروهی","m:bulk_start"],["← بازگشت","c:members"]]]));}
+  if(data==="cl:exceptions")return edit(msg.chat.id,msg.message_id,"◈ استثناها\n\nاستثناها را از پنل وب تعریف کنید تا دامنه، نقش و کاربر به‌صورت دقیق انتخاب شوند.",menu([[["‹ بازگشت","c:locks"]]]));
+  if(data==="c:warnings")return edit(msg.chat.id,msg.message_id,"◈ سیستم اخطار و جریمه",menu([[["اعضای دارای اخطار","w:list"],["صدور اخطار دستی","w:issue"]],[["سطوح اخطار و جریمه","w:levels"],["پاک‌کردن اخطار","w:clear"]],[["تاریخچه گروه","w:history"],["‹ بازگشت","c:home"]]]));
+  if(data==="w:list"){const r=await pool.query("SELECT user_id,first_name,username,warning_count,current_level,status FROM warning_cases WHERE group_id=$1 AND warning_count>0 ORDER BY warning_count DESC,last_warning_at DESC LIMIT 30",[groupId]);return edit(msg.chat.id,msg.message_id,r.rows.length?r.rows.map((x:any)=>"• "+x.user_id+" · "+(x.username?"@"+x.username:"")+" · "+x.warning_count+" اخطار").join("\n"):"عضوی با اخطار فعال نیست.",menu([[["‹ بازگشت","c:warnings"]]]));}
+  if(data==="w:issue"){session(uid,"warn_issue",{chatId:groupId});return edit(msg.chat.id,msg.message_id,"برای اخطار دستی، آیدی عددی کاربر را ارسال کنید.",menu([[["‹ بازگشت","c:warnings"]]]));}
+  if(data==="w:levels"){const r=await pool.query("SELECT level_no,name,warning_count_required,penalty_type,duration_value,duration_unit,enabled FROM warning_levels WHERE group_id=$1 ORDER BY level_no",[groupId]);return edit(msg.chat.id,msg.message_id,r.rows.length?r.rows.map((x:any)=>"• سطح "+x.level_no+" · "+x.name+" · "+x.warning_count_required+" · "+x.penalty_type+" · "+(x.duration_value?x.duration_value+" "+x.duration_unit:"")).join("\n"):"سطح اخطار تعریف نشده.",menu([[["‹ بازگشت","c:warnings"]]]));}
+  if(data==="w:clear"){session(uid,"warn_clear",{chatId:groupId});return edit(msg.chat.id,msg.message_id,"آیدی عددی کاربر را برای پاک‌کردن اخطار ارسال کنید.",menu([[["‹ بازگشت","c:warnings"]]]));}
+  if(data==="w:history"){const r=await pool.query("SELECT user_id,action_type,violation_type,penalty_type,created_at FROM warning_events WHERE group_id=$1 ORDER BY created_at DESC LIMIT 30",[groupId]);return edit(msg.chat.id,msg.message_id,r.rows.length?r.rows.map((x:any)=>"• "+faDate(x.created_at)+" · "+x.user_id+" · "+x.action_type+" · "+(x.violation_type||"—")).join("\n"):"تاریخچه‌ای ثبت نشده است.",menu([[["‹ بازگشت","c:warnings"]]]));}
+  if(data==="c:members")return edit(msg.chat.id,msg.message_id,"◈ مدیریت اعضا\n\nبرای عملیات حساس، ابتدا آیدی یا Reply به کاربر را انتخاب کنید.",menu([[["جستجوی عضو","m:search"],["لیست محدودشده‌ها","m:restricted"]],[["سکوت موقت","m:mute"],["سکوت دائم","m:perm_mute"]],[["اخراج عضو","m:kick"],["تغییر نقش","m:role"]],[["عملیات گروهی","m:bulk"],["‹ بازگشت","c:home"]]]));
+  if(data==="m:search"){session(uid,"member_search",{chatId:groupId});return edit(msg.chat.id,msg.message_id,"Telegram ID یا Username عضو را ارسال کنید.",menu([[["‹ بازگشت","c:members"]]]));}
+  if(data==="m:restricted"){return edit(msg.chat.id,msg.message_id,"فهرست اعضای محدودشده از API تلگرام و عملیات واقعی گروه قابل استخراج است. برای کنترل سریع، یکی از عملیات زیر را انتخاب کنید.",menu([[["سکوت موقت","m:mute"],["اخراج","m:kick"]],[["‹ بازگشت","c:members"]]]));}
+  if(["m:mute","m:perm_mute","m:kick","m:role"].includes(data)){session(uid,"member_action",{chatId:groupId,action:data.slice(2)});return edit(msg.chat.id,msg.message_id,"آیدی عددی کاربر را ارسال کنید.",menu([[["‹ بازگشت","c:members"]]]));}
+  if(data==="m:bulk"){return edit(msg.chat.id,msg.message_id,"عملیات گروهی نیازمند لیست آیدی‌ها و تأیید نهایی است؛ آیدی‌ها را با فاصله ارسال کنید.",menu([[["شروع عملیات گروهی","m:bulk_start"],["‹ بازگشت","c:members"]]]));}
   if(data==="m:bulk_start"){session(uid,"member_bulk",{chatId:groupId});return edit(msg.chat.id,msg.message_id,"آیدی‌ها را با فاصله ارسال کنید.");}
-  if(data==="c:welcome")return edit(msg.chat.id,msg.message_id,"◈ خوش‌آمدگویی و خروج",menu([[["تنظیم خوش‌آمدگویی","wel:welcome"],["تنظیم خداحافظی","wel:goodbye"]],[["تأیید عضویت","wel:verify"],["ارسال قوانین به عضو جدید","wel:rules"]],[["خوش‌آمدگویی پیوی","wel:pv"],["← بازگشت","c:home"]]]));
+  if(data==="c:welcome")return edit(msg.chat.id,msg.message_id,"◈ خوش‌آمدگویی و خروج",menu([[["تنظیم خوش‌آمدگویی","wel:welcome"],["تنظیم خداحافظی","wel:goodbye"]],[["تأیید عضویت","wel:verify"],["ارسال قوانین به عضو جدید","wel:rules"]],[["خوش‌آمدگویی پیوی","wel:pv"],["‹ بازگشت","c:home"]]]));
   if(data.startsWith("wel:")){const a=data.slice(4);session(uid,"group_setting",{chatId:groupId,setting:a});return edit(msg.chat.id,msg.message_id,"مقدار جدید این تنظیم را ارسال کنید. برای کلیدهای روشن/خاموش: «روشن» یا «خاموش».");}
-  if(data==="c:commands")return edit(msg.chat.id,msg.message_id,"◈ دستورات و پاسخ‌های خودکار",menu([[["افزودن دستور جدید","cmd:add"],["لیست دستورات","cmd:list"]],[["ویرایش دستور","cmd:edit"],["حذف دستور","cmd:delete"]],[["پاسخ خودکار جدید","cmd:auto"],["← بازگشت","c:home"]]]));
+  if(data==="c:commands")return edit(msg.chat.id,msg.message_id,"◈ دستورات و پاسخ‌های خودکار",menu([[["افزودن دستور جدید","cmd:add"],["لیست دستورات","cmd:list"]],[["ویرایش دستور","cmd:edit"],["حذف دستور","cmd:delete"]],[["پاسخ خودکار جدید","cmd:auto"],["‹ بازگشت","c:home"]]]));
   if(["cmd:add","cmd:edit","cmd:delete","cmd:auto"].includes(data)){session(uid,"group_command",{chatId:groupId,action:data.slice(4)});return edit(msg.chat.id,msg.message_id,"نام دستور را بدون / ارسال کنید.");}
-  if(data==="cmd:list"){const r=await pool.query("SELECT command_key,aliases,response_text,enabled,minimum_role FROM bot_group_commands WHERE group_id=$1 ORDER BY id DESC LIMIT 50",[groupId]);return edit(msg.chat.id,msg.message_id,r.rows.length?r.rows.map((x:any)=>"• "+x.command_key+" · "+(x.enabled?"فعال":"خاموش")+" · "+x.minimum_role).join("\n"):"دستور اختصاصی ثبت نشده است.",menu([[["← بازگشت","c:commands"]]]));}
-  if(data==="c:stats"){const r=await pool.query("SELECT COUNT(*)::int n FROM supervision_events WHERE group_id=$1 AND created_at>=CURRENT_DATE",[groupId]);const w=await pool.query("SELECT COUNT(*)::int n FROM warning_events WHERE group_id=$1 AND created_at>=DATE_TRUNC('month',NOW())",[groupId]);return edit(msg.chat.id,msg.message_id,"◈ آمار و گزارش گروه\n\n⛂ رویدادهای امروز : "+Number(r.rows[0].n||0)+"\n⛂ اخطارهای این ماه : "+Number(w.rows[0].n||0)+"\n⛂ گزارش کامل از مرکز نظارت وب قابل دریافت است.",menu([[["خروجی کامل","st:export"],["← بازگشت","c:home"]]]));}
+  if(data==="cmd:list"){const r=await pool.query("SELECT command_key,aliases,response_text,enabled,minimum_role FROM bot_group_commands WHERE group_id=$1 ORDER BY id DESC LIMIT 50",[groupId]);return edit(msg.chat.id,msg.message_id,r.rows.length?r.rows.map((x:any)=>"• "+x.command_key+" · "+(x.enabled?"فعال":"خاموش")+" · "+x.minimum_role).join("\n"):"دستور اختصاصی ثبت نشده است.",menu([[["‹ بازگشت","c:commands"]]]));}
+  if(data==="c:stats"){const r=await pool.query("SELECT COUNT(*)::int n FROM supervision_events WHERE group_id=$1 AND created_at>=CURRENT_DATE",[groupId]);const w=await pool.query("SELECT COUNT(*)::int n FROM warning_events WHERE group_id=$1 AND created_at>=DATE_TRUNC('month',NOW())",[groupId]);return edit(msg.chat.id,msg.message_id,"◈ آمار و گزارش گروه\n\n⛂ - رویدادهای امروز : "+Number(r.rows[0].n||0)+"\n⛂ - اخطارهای این ماه : "+Number(w.rows[0].n||0)+"\n⛂ - گزارش کامل از مرکز نظارت وب قابل دریافت است.",menu([[["خروجی کامل","st:export"],["‹ بازگشت","c:home"]]]));}
   if(data==="st:export"){return send(msg.chat.id,"✓ آماده‌سازی خروجی انجام شد. نسخه CSV کامل از بخش گزارش‌های وب دریافت می‌شود.");}
-  if(data==="c:schedule")return edit(msg.chat.id,msg.message_id,"◈ زمان‌بندی پیام‌ها",menu([[["ایجاد زمان‌بندی","sc:add"],["لیست زمان‌بندی‌ها","sc:list"]],[["ویرایش","sc:edit"],["حذف","sc:delete"]],[["فعال/غیرفعال","sc:toggle"],["← بازگشت","c:home"]]]));
+  if(data==="c:schedule")return edit(msg.chat.id,msg.message_id,"◈ زمان‌بندی پیام‌ها",menu([[["ایجاد زمان‌بندی","sc:add"],["لیست زمان‌بندی‌ها","sc:list"]],[["ویرایش","sc:edit"],["حذف","sc:delete"]],[["فعال/غیرفعال","sc:toggle"],["‹ بازگشت","c:home"]]]));
   if(["sc:add","sc:edit","sc:delete","sc:toggle"].includes(data)){session(uid,"schedule",{chatId:groupId,action:data.slice(3),step:1});return edit(msg.chat.id,msg.message_id,data==="sc:add"?"متن پیام زمان‌بندی‌شده را ارسال کنید.":"شناسه زمان‌بندی را ارسال کنید.");}
-  if(data==="sc:list"){const r=await pool.query("SELECT id,send_at,enabled,repeat_seconds,message_text FROM bot_schedules WHERE group_id=$1 ORDER BY send_at LIMIT 30",[groupId]);return edit(msg.chat.id,msg.message_id,r.rows.length?r.rows.map((x:any)=>"• #"+x.id+" · "+faDate(x.send_at)+" · "+(x.enabled?"فعال":"خاموش")+" · "+x.message_text.slice(0,50)).join("\n"):"زمان‌بندی ثبت نشده است.",menu([[["← بازگشت","c:schedule"]]]));}
-  if(data==="c:security")return edit(msg.chat.id,msg.message_id,"◈ تنظیمات امنیتی",menu([[["قفل کامل گروه","sec:lock"],["بازکردن قفل کامل","sec:unlock"]],[["محافظت لینک دعوت","sec:invite"],["ضد ربات/اکانت فیک","sec:fake"]],[["محدودیت اکانت جدید","sec:new"],["حالت اضطراری","sec:emergency"]],[["← بازگشت","c:home"]]]));
+  if(data==="sc:list"){const r=await pool.query("SELECT id,send_at,enabled,repeat_seconds,message_text FROM bot_schedules WHERE group_id=$1 ORDER BY send_at LIMIT 30",[groupId]);return edit(msg.chat.id,msg.message_id,r.rows.length?r.rows.map((x:any)=>"• #"+x.id+" · "+faDate(x.send_at)+" · "+(x.enabled?"فعال":"خاموش")+" · "+x.message_text.slice(0,50)).join("\n"):"زمان‌بندی ثبت نشده است.",menu([[["‹ بازگشت","c:schedule"]]]));}
+  if(data==="c:security")return edit(msg.chat.id,msg.message_id,"◈ تنظیمات امنیتی",menu([[["قفل کامل گروه","sec:lock"],["بازکردن قفل کامل","sec:unlock"]],[["محافظت لینک دعوت","sec:invite"],["ضد ربات/اکانت فیک","sec:fake"]],[["محدودیت اکانت جدید","sec:new"],["حالت اضطراری","sec:emergency"]],[["‹ بازگشت","c:home"]]]));
   if(["sec:lock","sec:unlock","sec:invite","sec:fake","sec:new","sec:emergency"].includes(data)){
     if(!await isGroupAdmin(groupId,uid))return send(msg.chat.id,"فقط مدیر گروه مجاز است.");
     if(data==="sec:lock"||data==="sec:unlock"){const perms=data==="sec:lock"?{can_send_messages:false,can_send_audios:false,can_send_documents:false,can_send_photos:false,can_send_videos:false,can_send_video_notes:false,can_send_voice_notes:false,can_send_polls:false,can_send_other_messages:false,can_add_web_page_previews:false}:{can_send_messages:true,can_send_audios:true,can_send_documents:true,can_send_photos:true,can_send_videos:true,can_send_video_notes:true,can_send_voice_notes:true,can_send_polls:true,can_send_other_messages:true,can_add_web_page_previews:true};const r=await telegramApi("setChatPermissions",{chat_id:groupId,permissions:perms,use_independent_chat_permissions:true});if(!r.ok)return send(msg.chat.id,"اجرای قفل گروه ناموفق بود: "+(r.description||"خطای Telegram"));await pool.query("INSERT INTO bot_group_settings(group_id,full_lock) VALUES($1,$2) ON CONFLICT(group_id) DO UPDATE SET full_lock=EXCLUDED.full_lock,updated_at=NOW()",[groupId,data==="sec:lock"]);return send(msg.chat.id,data==="sec:lock"?"✓ قفل کامل گروه فعال شد.":"✓ قفل کامل گروه باز شد.");}
@@ -381,7 +392,8 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
 }
 
 async function handleInput(pool:Pool,msg:TgMessage){
-  if(!msg.from)return false;const uid=msg.from.id,s=getSession(uid);if(!s||s.expires<Date.now())return false;const value=(msg.text||"").trim();const groupId=Number(s.data.chatId||msg.chat.id);
+  if(!msg.from)return false;
+  if(await handleAdvancedCustomerInput(pool,msg))return true;const uid=msg.from.id,s=getSession(uid);if(!s||s.expires<Date.now())return false;const value=(msg.text||"").trim();const groupId=Number(s.data.chatId||msg.chat.id);
   if(s.flow==="owner_extend"||s.flow==="owner_reduce"){const days=Number(value);const sign=s.flow==="owner_extend"?1:-1;const lic=(await pool.query("SELECT * FROM bot_licenses WHERE customer_id=$1 AND status='active' ORDER BY id DESC LIMIT 1",[s.data.customerId])).rows[0];if(!lic?.expires_at)return send(msg.chat.id,"مادام‌العمر یا بدون تاریخ انقضا است.");const newDate=new Date(new Date(lic.expires_at).getTime()+sign*days*86400000);await pool.query("UPDATE bot_licenses SET expires_at=$1 WHERE id=$2",[newDate,lic.id]);clearSession(uid);return send(msg.chat.id,"✓ تاریخ انقضا به "+faDate(newDate)+" تغییر کرد.");}
   if(s.flow==="owner_message"){const r=await telegramApi("sendMessage",{chat_id:Number(s.data.customerId),text:value});clearSession(uid);return send(msg.chat.id,r.ok?"✓ پیام خصوصی ارسال شد.":"✗ ارسال پیام ناموفق بود: "+(r.description||"Telegram error"));}
   if(s.flow==="owner_owner_add"){const id=Number(value);if(!Number.isSafeInteger(id))return send(msg.chat.id,"آیدی معتبر نیست.");await pool.query("INSERT INTO bot_panel_owners(user_id) VALUES($1) ON CONFLICT DO NOTHING",[id]);clearSession(uid);return send(msg.chat.id,"✓ مالک جدید ثبت شد.");}
@@ -404,7 +416,7 @@ async function handleInput(pool:Pool,msg:TgMessage){
     }
     await pool.query("UPDATE bot_broadcasts SET status='finished',total_targeted=$1,total_sent=$2,total_failed=$3,finished_at=NOW() WHERE id=$4",[targets.length,sentCount,failedCount,broadcast.id]);
     clearSession(uid);await audit(pool,String(uid),"broadcast_finished",String(broadcast.id),{targetMode:mode,total:targets.length,sent:sentCount,failed:failedCount});
-    return send(msg.chat.id,"◈ گزارش ارسال همگانی\n\n⛂ هدف: "+targets.length+"\n⛂ موفق: "+sentCount+"\n⛂ ناموفق: "+failedCount);
+    return send(msg.chat.id,"◈ گزارش ارسال همگانی\n\n⛂ - هدف: "+targets.length+"\n⛂ - موفق: "+sentCount+"\n⛂ - ناموفق: "+failedCount);
   }
   if(s.flow==="warn_issue"){const userId=Number(value);if(!Number.isSafeInteger(userId))return send(msg.chat.id,"آیدی معتبر نیست.");const d={group_id:groupId,user_id:userId,violation_type:"manual",custom_violation:"صدور دستی توسط مدیریت",admin_id:String(uid),admin_name:msg.from.username||msg.from.first_name||String(uid)};const settings=(await pool.query("SELECT enabled FROM warning_system_settings WHERE group_id=$1",[groupId])).rows[0];if(!settings?.enabled)return send(msg.chat.id,"سیستم اخطار این گروه غیرفعال است.");const wf=await fetch("http://127.0.0.1:"+String(process.env.PORT||0)+"/api/warnings/issue",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(d)}).catch(()=>null);clearSession(uid);return send(msg.chat.id,wf?.ok?"✓ اخطار ثبت شد.":"⚠ ثبت اخطار از این کانال انجام نشد؛ از پنل وب استفاده کنید.");}
   if(s.flow==="warn_clear"){const userId=Number(value);await pool.query("UPDATE warning_events SET status='cleared',result='cleared' WHERE group_id=$1 AND user_id=$2 AND action_type='warning' AND status='active'",[groupId,userId]);clearSession(uid);return send(msg.chat.id,"✓ اخطارهای فعال کاربر پاک شد.");}
@@ -434,6 +446,7 @@ async function handleInput(pool:Pool,msg:TgMessage){
 export async function dispatchPanelMessage(pool:Pool,msg:TgMessage,ownerIds:string[]){
   if(!msg.from)return false;
   await ensurePanelSessionSchema(pool);
+  await ensureAdvancedPanelSchema(pool);
   return runWithPanelScope(msg.from.id,pool,async()=>{
     // Panel throttling must never consume group messages; content-lock
     // enforcement needs to see every message, including rapid photo bursts.
@@ -446,6 +459,7 @@ export async function dispatchPanelMessage(pool:Pool,msg:TgMessage,ownerIds:stri
 export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   if(!cb.message)return;
   await ensurePanelSessionSchema(pool);
+  await ensureAdvancedPanelSchema(pool);
   const owned=await panelMessageOwnedBy(pool,cb.message.chat.id,cb.message.message_id,cb.from.id);
   if(!owned){
     await answer(cb.id);
@@ -459,6 +473,7 @@ export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:str
     if(data.startsWith("c:")||data.startsWith("cl:")||data.startsWith("clt:")||data.startsWith("cls:")){
       return customerCallback(pool,cb,ownerIds);
     }
+    const advancedOwner=await handleAdvancedOwnerCallback(pool,cb,ownerIds); if(advancedOwner)return advancedOwner;
     if(await isOwner(pool,cb.from.id,ownerIds))return ownerCallback(pool,cb,ownerIds);
     return customerCallback(pool,cb,ownerIds);
   });
