@@ -325,13 +325,8 @@ export function handleCommand(
 }
 
 function rankLabel(rank: Rank, lang: Lang): string {
-  const map: Record<Rank, { fa: string; en: string }> = {
-    owner: { fa: "مالک", en: "owner" },
-    sudo: { fa: "سودو", en: "sudo" },
-    admin: { fa: "ادمین", en: "admin" },
-    member: { fa: "عضو", en: "member" },
-  };
-  return map[rank][lang];
+  if (lang === "fa") return rank === "owner" ? "مالک" : rank === "member" ? "عضو" : "مدیر";
+  return rank === "owner" ? "owner" : rank === "member" ? "member" : "manager";
 }
 
 function startText(ctx: BotContext): string {
