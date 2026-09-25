@@ -503,9 +503,9 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     const buttons:any=[];
     for(let i=0;i<rows.rows.length;i+=2){
       const a=rows.rows[i],b=rows.rows[i+1];
-      const ar=[(a.enabled?"● ":"○ ")+(labels[a.rule_key]||a.title||a.rule_key),"clt:"+a.rule_key];
+      const ar=[(labels[a.rule_key]||a.title||a.rule_key),"clt:"+a.rule_key+":"+(a.enabled?"off":"on")];
       const row:any=[ar];
-      if(b)row.push([(b.enabled?"● ":"○ ")+(labels[b.rule_key]||b.title||b.rule_key),"clt:"+b.rule_key]);
+      if(b)row.push([(labels[b.rule_key]||b.title||b.rule_key),"clt:"+b.rule_key+":"+(b.enabled?"off":"on")]);
       buttons.push(row);
     }
     const active=rows.rows.filter((x:any)=>x.enabled).length;
