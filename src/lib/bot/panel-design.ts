@@ -21,15 +21,18 @@ function semanticStyle(label:string,callbackData:string):TelegramButtonStyle|und
   // Back/navigation is the only always-blue navigation action.
   if(text.startsWith("‹")||text.startsWith("←")) return "primary";
 
-  // Only explicit ON/OFF state controls are colored.
+  // Active/enabled state is green.
   if(
     /(^|:)(on|enable)(:|$)/i.test(data) ||
-    /^(فعال‌سازی|فعال سازی|روشن)(\s|$)/i.test(text)
-  ) return "primary";
+    /^(فعال‌سازی|فعال سازی|روشن)(\s|$)/i.test(text) ||
+    /^●\s*/.test(text)
+  ) return "success";
 
+  // Inactive/disabled state is red.
   if(
     /(^|:)(off|disable)(:|$)/i.test(data) ||
-    /^(خاموش‌سازی|خاموش سازی|خاموش|غیرفعال‌سازی|غیرفعال سازی)(\s|$)/i.test(text)
+    /^(خاموش‌سازی|خاموش سازی|خاموش|غیرفعال‌سازی|غیرفعال سازی)(\s|$)/i.test(text) ||
+    /^○\s*/.test(text)
   ) return "danger";
 
   // Every other button remains neutral/glass.
