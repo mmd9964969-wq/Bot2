@@ -484,8 +484,9 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
         ping_card:liveCard,
         bot_card:liveCard,
         status_card:liveCard,
-        messages_today:"—",
-        messages_total:"—"
+        messages_today: String((await import("../src/lib/bot/runtime.ts")).getGroupStats?.(ctx.chatId)?.messagesToday ?? "—"),
+        messages_total: String((await import("../src/lib/bot/runtime.ts")).getGroupStats?.(ctx.chatId)?.messagesTotal ?? "—"),
+        chat_username: ctx.chatTitle ? "—" : "—"
       };
       const configuredTemplate=ctx.lang==="fa"?panelCommand?.response_fa:panelCommand?.response_en;
       const coreLiveIds=new Set(["robot","id","admin","info","rank","me","ping","bot","status"]);
