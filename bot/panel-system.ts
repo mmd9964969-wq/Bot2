@@ -5,6 +5,7 @@ import { telegramApi } from "../src/lib/telegram/api.ts";
 import type { Rank } from "../src/lib/bot/registry.ts";
 import { ensureContentLocks, editRichLockCenter } from "../src/lib/bot/content-locks.ts";
 import { glassKeyboard } from "../src/lib/bot/panel-design.ts";
+import { getGroupLanguage, setGroupLanguage, normalizeBotLang, languageLabel, languageNative, languageButtonLabel, SUPPORTED_LANGUAGES, type BotLang } from "../src/lib/bot/i18n.ts";
 import { AUTOMATION_ACTIONS } from "../src/lib/bot/automation-engine.ts";
 import { executeRuntimeAction, isRuntimeMaintenance } from "./runtime-control.ts";
 import {
@@ -35,7 +36,8 @@ const K={
   ownerMain:[
     [["آمار کلی سیستم","o:stats"],["مدیریت مشتریان","o:customers"]],
     [["مدیریت لایسنس‌ها","o:licenses"],["مدیریت گروه‌ها","o:groups"]],
-    [["ارسال همگانی","o:broadcast"],["کنترل اجرایی","o:runtime"]],
+    [["زبان گروه‌ها","o:languages"],["ارسال همگانی","o:broadcast"]],
+    [["کنترل اجرایی","o:runtime"],["کنترل اجرایی","o:runtime"]],
     [["ممیزی سیستم","o:audit"],["امنیت و دسترسی","o:security"]],
     [["پشتیبان‌گیری و بازیابی","o:backup"],["تنظیمات پیشرفته","o:settings"]],
     [["وضعیت سرور و منابع","o:server"],["فهرست سیاه مشتریان","o:blacklist"]],
@@ -44,6 +46,7 @@ const K={
   ],
   customerMain:[
     [["وضعیت و نمای کلی","c:status"],["مرکز قفل و فیلتر","c:locks"]],
+    [["زبان ربات","c:language"],
     [["مرکز امنیت","c:security"],["اخطار و جریمه","c:warnings"]],
     [["مدیریت اعضا","c:members"],["مرکز اتوماسیون","c:automation"]],
     [["استودیو دستورات","c:commands"],["استودیو محتوا","c:content"]],
@@ -56,84 +59,218 @@ const K={
 function kb(rows:string[][][]){return glassKeyboard(rows);}
 function back(cb:string="home"){return [[["‹ بازگشت","p:"+cb]]];}
 function menu(rows:string[][][],extra:string[][][]=[]){return kb([...rows,...extra]);}
-type PanelMessage={html:string;text:string;is_rtl:true};
+const PANEL_SEPARATOR="─────━━───── ◈ ─────━━─────";
+type PanelMessage={title:string;body:string;is_rtl:true};
+type RichPlain={type:"plain";text:string};
+type RichBlock =
+  | {type:"heading";text:RichPlain;size:number}
+  | {type:"paragraph";text:RichPlain}
+  | {type:"divider"};
 
-function richEscape(value:unknown){
-  return String(value??"")
-    .replace(/&/g,"&amp;")
-    .replace(/</g,"&lt;")
-    .replace(/>/g,"&gt;")
-    .replace(/"/g,"&quot;");
+const PANEL_TITLES:Record<string,Partial<Record<BotLang,string>>> = {
+  "Owner Control":{en:"Oᴡɴᴇʀ Cᴏɴᴛʀᴏʟ",ar:"تَحَكُّم المالك",ru:"Управление владельца",tr:"Sahip Kontrolü",zh:"所有者控制"},
+  "Group Control":{en:"Gʀᴏᴜᴘ Cᴏɴᴛʀᴏʟ",ar:"إدارة المجموعة",ru:"Управление группой",tr:"Grup Kontrolü",zh:"群组控制"},
+  "آمار کلی سیستم":{en:"Sʏsᴛᴇᴍ Oᴠᴇʀᴠɪᴇᴡ",ar:"نظرة عامة على النظام",ru:"Обзор системы",tr:"Sistem Özeti",zh:"系统概览"},
+  "مدیریت مشتریان":{en:"Cᴜsᴛᴏᴍᴇʀ Cᴇɴᴛᴇʀ",ar:"إدارة العملاء",ru:"Управление клиентами",tr:"Müşteri Merkezi",zh:"客户中心"},
+  "مدیریت لایسنس‌ها":{en:"Lɪᴄᴇɴsᴇ Cᴇɴᴛᴇʀ",ar:"مركز التراخيص",ru:"Центр лицензий",tr:"Lisans Merkezi",zh:"许可证中心"},
+  "مدیریت گروه‌ها":{en:"Gʀᴏᴜᴘ Cᴇɴᴛᴇʀ",ar:"مركز المجموعات",ru:"Центр групп",tr:"Grup Merkezi",zh:"群组中心"},
+  "کنترل گروه":{en:"Gʀᴏᴜᴘ Cᴏɴᴛʀᴏʟ",ar:"تحكم المجموعة",ru:"Управление группой",tr:"Grup Kontrolü",zh:"群组控制"},
+  "زبان گروه":{en:"Gʀᴏᴜᴘ Lᴀɴɢᴜᴀɢᴇ",ar:"لغة المجموعة",ru:"Язык группы",tr:"Grup Dili",zh:"群组语言"},
+  "کنترل اجرایی":{en:"Rᴜɴᴛɪᴍᴇ Cᴏɴᴛʀᴏʟ",ar:"التحكم التنفيذي",ru:"Исполнительное управление",tr:"Çalışma Kontrolü",zh:"运行控制"},
+  "مرکز Runtime":{en:"Rᴜɴᴛɪᴍᴇ Cᴇɴᴛᴇʀ",ar:"مركز التشغيل",ru:"Центр Runtime",tr:"Runtime Merkezi",zh:"运行中心"},
+  "خطای Runtime":{en:"Rᴜɴᴛɪᴍᴇ Eʀʀᴏʀ",ar:"خطأ التشغيل",ru:"Ошибка Runtime",tr:"Runtime Hatası",zh:"运行错误"},
+  "مرکز ممیزی":{en:"Aᴜᴅɪᴛ Cᴇɴᴛᴇʀ",ar:"مركز التدقيق",ru:"Центр аудита",tr:"Denetim Merkezi",zh:"审计中心"},
+  "مرکز امنیت":{en:"Sᴇᴄᴜʀɪᴛʏ Cᴇɴᴛᴇʀ",ar:"مركز الأمان",ru:"Центр безопасности",tr:"Güvenlik Merkezi",zh:"安全中心"},
+  "مدیریت قابلیت‌ها":{en:"Fᴇᴀᴛᴜʀᴇ Cᴇɴᴛᴇʀ",ar:"إدارة الميزات",ru:"Управление функциями",tr:"Özellik Merkezi",zh:"功能中心"},
+  "مرکز هوش مصنوعی":{en:"AI Cᴇɴᴛᴇʀ",ar:"مركز الذكاء الاصطناعي",ru:"Центр ИИ",tr:"Yapay Zeka Merkezi",zh:"AI 中心"},
+  "پشتیبان‌گیری و بازیابی":{en:"Bᴀᴄᴋᴜᴘ & Rᴇsᴛᴏʀᴇ",ar:"النسخ والاستعادة",ru:"Резервное копирование и восстановление",tr:"Yedekleme ve Geri Yükleme",zh:"备份与恢复"},
+  "تنظیمات پیشرفته":{en:"Aᴅᴠᴀɴᴄᴇᴅ Sᴇᴛᴛɪɴɢs",ar:"الإعدادات المتقدمة",ru:"Расширенные настройки",tr:"Gelişmiş Ayarlar",zh:"高级设置"},
+  "وضعیت سرور و منابع":{en:"Sᴇʀᴠᴇʀ & Rᴇsᴏᴜʀᴄᴇs",ar:"الخادم والموارد",ru:"Сервер и ресурсы",tr:"Sunucu ve Kaynaklar",zh:"服务器与资源"},
+  "فهرست سیاه مشتریان":{en:"Cᴜsᴛᴏᴍᴇʀ Bʟᴀᴄᴋʟɪsᴛ",ar:"قائمة حظر العملاء",ru:"Черный список клиентов",tr:"Müşteri Kara Listesi",zh:"客户黑名单"},
+  "وضعیت و نمای کلی":{en:"Oᴠᴇʀᴠɪᴇᴡ & Sᴛᴀᴛᴜs",ar:"نظرة عامة والحالة",ru:"Обзор и статус",tr:"Genel Bakış ve Durum",zh:"概览与状态"},
+  "مرکز قفل و فیلتر":{en:"Lᴏᴄᴋ & Fɪʟᴛᴇʀ Cᴇɴᴛᴇʀ",ar:"مركز القفل والتصفية",ru:"Центр блокировок и фильтров",tr:"Kilit ve Filtre Merkezi",zh:"锁定与过滤中心"},
+  "مرکز اتوماسیون":{en:"Aᴜᴛᴏᴍᴀᴛɪᴏɴ Cᴇɴᴛᴇʀ",ar:"مركز الأتمتة",ru:"Центр автоматизации",tr:"Otomasyon Merkezi",zh:"自动化中心"},
+  "استودیو دستورات":{en:"Cᴏᴍᴍᴀɴᴅ Sᴛᴜᴅɪᴏ",ar:"استوديو الأوامر",ru:"Студия команд",tr:"Komut Stüdyosu",zh:"命令工作室"},
+  "استودیو محتوا":{en:"Cᴏɴᴛᴇɴᴛ Sᴛᴜᴅɪᴏ",ar:"استوديو المحتوى",ru:"Студия контента",tr:"İçerik Stüdyosu",zh:"内容工作室"},
+  "زمان‌بندی پیام‌ها":{en:"Sᴄʜᴇᴅᴜʟɪɴɢ",ar:"جدولة الرسائل",ru:"Планирование сообщений",tr:"Mesaj Zamanlama",zh:"消息定时"},
+  "تحلیل و آمار":{en:"Aɴᴀʟʏᴛɪᴄs",ar:"التحليلات والإحصائيات",ru:"Аналитика и статистика",tr:"Analiz ve İstatistik",zh:"分析与统计"},
+  "مرکز دسترسی":{en:"Pᴇʀᴍɪssɪᴏɴ Cᴇɴᴛᴇʀ",ar:"مركز الصلاحيات",ru:"Центр прав",tr:"Yetki Merkezi",zh:"权限中心"},
+  "مرکز استثناها":{en:"Exᴄᴇᴘᴛɪᴏɴ Cᴇɴᴛᴇʀ",ar:"مركز الاستثناءات",ru:"Центр исключений",tr:"İstisna Merkezi",zh:"例外中心"},
+  "ممیزی گروه":{en:"Gʀᴏᴜᴘ Aᴜᴅɪᴛ",ar:"تدقيق المجموعة",ru:"Аудит группы",tr:"Grup Denetimi",zh:"群组审计"},
+  "سلامت ربات":{en:"Bᴏᴛ Hᴇᴀʟᴛʜ",ar:"حالة البوت",ru:"Состояние бота",tr:"Bot Sağlığı",zh:"机器人状态"},
+  "پشتیبانی و راهنما":{en:"Sᴜᴘᴘᴏʀᴛ & Hᴇʟᴘ",ar:"الدعم والمساعدة",ru:"Поддержка и помощь",tr:"Destek ve Yardım",zh:"支持与帮助"},
+  "مرکز هوش مصنوعی":{en:"AI Cᴇɴᴛᴇʀ",ar:"مركز الذكاء الاصطناعي",ru:"Центр ИИ",tr:"Yapay Zeka Merkezi",zh:"AI 中心"},
+  "امنیت و دسترسی":{en:"Sᴇᴄᴜʀɪᴛʏ & Aᴄᴄᴇss",ar:"الأمان والصلاحيات",ru:"Безопасность и доступ",tr:"Güvenlik ve Erişim",zh:"安全与访问"},
+  "ممیزی سیستم":{en:"Sʏsᴛᴇᴍ Aᴜᴅɪᴛ",ar:"تدقيق النظام",ru:"Аудит системы",tr:"Sistem Denetimi",zh:"系统审计"},
+  "ارسال همگانی":{en:"Bʀᴏᴀᴅᴄᴀsᴛ Cᴇɴᴛᴇʀ",ar:"الإرسال الجماعي",ru:"Массовая рассылка",tr:"Toplu Gönderim",zh:"群发中心"}
+};
+
+const BUTTON_LABELS:Record<string,Partial<Record<BotLang,string>>> = {
+  "آمار کلی سیستم":{en:"System overview",ar:"نظرة عامة",ru:"Обзор системы",tr:"Sistem özeti",zh:"系统概览"},
+  "مدیریت مشتریان":{en:"Customer center",ar:"إدارة العملاء",ru:"Клиенты",tr:"Müşteriler",zh:"客户中心"},
+  "مدیریت لایسنس‌ها":{en:"License center",ar:"التراخيص",ru:"Лицензии",tr:"Lisanslar",zh:"许可证"},
+  "مدیریت گروه‌ها":{en:"Group center",ar:"المجموعات",ru:"Группы",tr:"Gruplar",zh:"群组"},
+  "زبان گروه‌ها":{en:"Group languages",ar:"لغات المجموعات",ru:"Языки групп",tr:"Grup dilleri",zh:"群组语言"},
+  "ارسال همگانی":{en:"Broadcast",ar:"إرسال جماعي",ru:"Рассылка",tr:"Toplu gönderim",zh:"群发"},
+  "کنترل اجرایی":{en:"Runtime control",ar:"التحكم التنفيذي",ru:"Runtime",tr:"Çalışma kontrolü",zh:"运行控制"},
+  "ممیزی سیستم":{en:"System audit",ar:"تدقيق النظام",ru:"Аудит системы",tr:"Sistem denetimi",zh:"系统审计"},
+  "امنیت و دسترسی":{en:"Security & access",ar:"الأمان والصلاحيات",ru:"Безопасность и доступ",tr:"Güvenlik ve erişim",zh:"安全与访问"},
+  "پشتیبان‌گیری و بازیابی":{en:"Backup & restore",ar:"النسخ والاستعادة",ru:"Резервная копия",tr:"Yedekleme",zh:"备份与恢复"},
+  "تنظیمات پیشرفته":{en:"Advanced settings",ar:"الإعدادات المتقدمة",ru:"Настройки",tr:"Gelişmiş ayarlar",zh:"高级设置"},
+  "وضعیت سرور و منابع":{en:"Server & resources",ar:"الخادم والموارد",ru:"Сервер и ресурсы",tr:"Sunucu ve kaynaklar",zh:"服务器与资源"},
+  "فهرست سیاه مشتریان":{en:"Customer blacklist",ar:"حظر العملاء",ru:"Черный список",tr:"Müşteri kara listesi",zh:"客户黑名单"},
+  "مدیریت قابلیت‌ها":{en:"Feature center",ar:"إدارة الميزات",ru:"Функции",tr:"Özellikler",zh:"功能中心"},
+  "مرکز هوش مصنوعی":{en:"AI center",ar:"الذكاء الاصطناعي",ru:"Центр ИИ",tr:"Yapay zeka",zh:"AI 中心"},
+  "خروج از پنل مالک":{en:"Exit owner panel",ar:"خروج",ru:"Выход",tr:"Çıkış",zh:"退出"},
+  "وضعیت و نمای کلی":{en:"Overview & status",ar:"النظرة والحالة",ru:"Обзор и статус",tr:"Genel bakış",zh:"概览与状态"},
+  "مرکز قفل و فیلتر":{en:"Lock & filter",ar:"القفل والتصفية",ru:"Блокировки и фильтры",tr:"Kilit ve filtre",zh:"锁定与过滤"},
+  "زبان ربات":{en:"Bot language",ar:"لغة البوت",ru:"Язык бота",tr:"Bot dili",zh:"机器人语言"},
+  "مرکز امنیت":{en:"Security center",ar:"مركز الأمان",ru:"Безопасность",tr:"Güvenlik",zh:"安全中心"},
+  "اخطار و جریمه":{en:"Warnings & penalties",ar:"التحذيرات والعقوبات",ru:"Предупреждения и санкции",tr:"Uyarılar ve cezalar",zh:"警告与处罚"},
+  "مدیریت اعضا":{en:"Members",ar:"الأعضاء",ru:"Участники",tr:"Üyeler",zh:"成员"},
+  "مرکز اتوماسیون":{en:"Automation center",ar:"الأتمتة",ru:"Автоматизация",tr:"Otomasyon",zh:"自动化"},
+  "استودیو دستورات":{en:"Command studio",ar:"استوديو الأوامر",ru:"Студия команд",tr:"Komut stüdyosu",zh:"命令工作室"},
+  "استودیو محتوا":{en:"Content studio",ar:"استوديو المحتوى",ru:"Студия контента",tr:"İçerik stüdyosu",zh:"内容工作室"},
+  "زمان‌بندی پیام‌ها":{en:"Scheduling",ar:"الجدولة",ru:"Планирование",tr:"Zamanlama",zh:"定时"},
+  "تحلیل و آمار":{en:"Analytics",ar:"التحليلات",ru:"Аналитика",tr:"Analiz",zh:"分析"},
+  "مرکز دسترسی":{en:"Permission center",ar:"الصلاحيات",ru:"Права доступа",tr:"Yetkiler",zh:"权限"},
+  "مرکز استثناها":{en:"Exceptions",ar:"الاستثناءات",ru:"Исключения",tr:"İstisnalar",zh:"例外"},
+  "ممیزی گروه":{en:"Group audit",ar:"تدقيق المجموعة",ru:"Аудит группы",tr:"Grup denetimi",zh:"群组审计"},
+  "سلامت ربات":{en:"Bot health",ar:"حالة البوت",ru:"Состояние бота",tr:"Bot durumu",zh:"机器人状态"},
+  "پشتیبانی و راهنما":{en:"Support & help",ar:"الدعم والمساعدة",ru:"Поддержка",tr:"Destek",zh:"支持与帮助"},
+  "خروج از پنل":{en:"Exit panel",ar:"خروج",ru:"Выход",tr:"Çıkış",zh:"退出"},
+  "‹ بازگشت":{en:"‹ Back",ar:"‹ رجوع",ru:"‹ Назад",tr:"‹ Geri",zh:"‹ 返回"},
+  "بروزرسانی":{en:"Refresh",ar:"تحديث",ru:"Обновить",tr:"Yenile",zh:"刷新"},
+  "پشتیبانی":{en:"Support",ar:"الدعم",ru:"Поддержка",tr:"Destek",zh:"支持"},
+  "تمدید لایسنس":{en:"Renew license",ar:"تجديد الترخيص",ru:"Продлить лицензию",tr:"Lisansı yenile",zh:"续订许可证"},
+  "مدیریت مالک‌ها":{en:"Owner management",ar:"إدارة المالكين",ru:"Владельцы",tr:"Sahipler",zh:"所有者管理"},
+  "لیست سیاه":{en:"Blacklist",ar:"القائمة السوداء",ru:"Черный список",tr:"Kara liste",zh:"黑名单"},
+  "استثناها و دامنه مجاز":{en:"Exceptions & allowlist",ar:"الاستثناءات",ru:"Исключения",tr:"İstisnalar",zh:"例外与白名单"}
+};
+
+function localizePanelTitle(title:string,lang:BotLang):string {
+  const key=String(title??"").trim().replace(/^◈\s*/u,"");
+  if(key==="Pᴇʀsɪᴀɴ ᴮᵒᵗ · Oᴡɴᴇʀ Cᴏɴᴛʀᴏʟ")return lang==="fa"?key:"Oᴡɴᴇʀ Cᴏɴᴛʀᴏʟ";
+  if(key==="Pᴇʀsɪᴀɴ ᴮᵒᵗ · Gʀᴏᴜᴘ Cᴏɴᴛʀᴏʟ")return lang==="fa"?key:(PANEL_TITLES["Group Control"]?.[lang]??key);
+  return lang==="fa"?(PANEL_TITLES[key]?.fa??key):(PANEL_TITLES[key]?.[lang]??key);
 }
 
-function panelTitle(title:string,body:string):PanelMessage{
-  const content=String(body??"").trim();
-  const lines=content.split(/\\n+/).map(x=>x.trim()).filter(Boolean);
-  const rows:string[]=[];
-  const paragraphs:string[]=[];
-  for(const line of lines){
-    const m=line.match(/^⛂\\s*-?\\s*(.+?)\\s*:\\s*(.*)$/u);
-    if(m){
-      rows.push("<tr><td><b>"+richEscape(m[1])+"</b></td><td>"+richEscape(m[2])+"</td></tr>");
-    }else{
-      paragraphs.push(richEscape(line));
-    }
-  }
+const LABELS_BY_LANG:Record<BotLang,Record<string,string>> = {
+  fa:{},
+  en:{
+    "نام":"Name","شناسه":"ID","شناسه گروه":"Group ID","شناسه کاربر":"User ID","نام کاربری":"Username","یوزرنیم":"Username","مقام":"Rank","سطح دسترسی":"Access level","وضعیت":"Status","وضعیت هسته":"Core status","وضعیت پنل":"Panel status","اعضا":"Members","ادمین‌ها":"Admins","مدیران":"Admins","مشتریان فعال":"Active customers","مشتریان منقضی":"Expired customers","گروه‌های فعال":"Active groups","قوانین فعال":"Active rules","زبان":"Language","زبان گروه":"Group language","عملیات امروز":"Today operations","آخرین فعالیت":"Last activity","آخرین بروزرسانی":"Last update","فعال":"Active","خاموش":"Off","آماده":"Ready","مالک":"Owner","مدیر گروه":"Group admin","کاربر":"User","کاربر عادی":"User","OWNER":"OWNER",
+  },
+  ar:{
+    "نام":"الاسم","شناسه":"المعرّف","شناسه گروه":"معرّف المجموعة","شناسه کاربر":"معرّف المستخدم","نام کاربری":"اسم المستخدم","یوزرنیم":"اسم المستخدم","مقام":"الرتبة","سطح دسترسی":"مستوى الوصول","وضعیت":"الحالة","وضعیت هسته":"حالة النواة","وضعیت پنل":"حالة اللوحة","اعضا":"الأعضاء","ادمین‌ها":"المشرفون","مدیران":"المشرفون","مشتریان فعال":"العملاء النشطون","مشتریان منقضی":"العملاء المنتهية","گروه‌های فعال":"المجموعات النشطة","قوانین فعال":"القواعد النشطة","زبان":"اللغة","زبان گروه":"لغة المجموعة","عملیات امروز":"عمليات اليوم","آخرین فعالیت":"آخر نشاط","آخرین بروزرسانی":"آخر تحديث","فعال":"نشطة","خاموش":"متوقف","آماده":"جاهز","مالک":"المالك","مدیر گروه":"مشرف المجموعة","کاربر":"مستخدم","کاربر عادی":"مستخدم","OWNER":"مالك",
+  },
+  ru:{
+    "نام":"Имя","شناسه":"ID","شناسه گروه":"ID группы","شناسه کاربر":"ID пользователя","نام کاربری":"Имя пользователя","یوزرنیم":"Имя пользователя","مقام":"Ранг","سطح دسترسی":"Уровень доступа","وضعیت":"Статус","وضعیت هسته":"Статус ядра","وضعیت پنل":"Статус панели","اعضا":"Участники","ادمین‌ها":"Администраторы","مدیران":"Администраторы","مشتریان فعال":"Активные клиенты","مشتریان منقضی":"Истёкшие клиенты","گروه‌های فعال":"Активные группы","قوانین فعال":"Активные правила","زبان":"Язык","زبان گروه":"Язык группы","عملیات امروز":"Операции сегодня","آخرین فعالیت":"Последняя активность","آخرین بروزرسانی":"Последнее обновление","فعال":"Активен","خاموش":"Выключен","آماده":"Готов","مالک":"Владелец","مدیر گروه":"Администратор группы","کاربر":"Пользователь","کاربر عادی":"Пользователь","OWNER":"Владелец",
+  },
+  tr:{
+    "نام":"Ad","شناسه":"Kimlik","شناسه گروه":"Grup Kimliği","شناسه کاربر":"Kullanıcı Kimliği","نام کاربری":"Kullanıcı adı","یوزرنیم":"Kullanıcı adı","مقام":"Rütbe","سطح دسترسی":"Erişim seviyesi","وضعیت":"Durum","وضعیت هسته":"Çekirdek durumu","وضعیت پنل":"Panel durumu","اعضا":"Üyeler","ادمین‌ها":"Yöneticiler","مدیران":"Yöneticiler","مشتریان فعال":"Aktif müşteriler","مشتریان منقضی":"Süresi dolmuş müşteriler","گروه‌های فعال":"Aktif gruplar","قوانین فعال":"Aktif kurallar","زبان":"Dil","زبان گروه":"Grup dili","عملیات امروز":"Bugünkü işlemler","آخرین فعالیت":"Son etkinlik","آخرین بروزرسانی":"Son güncelleme","فعال":"Aktif","خاموش":"Kapalı","آماده":"Hazır","مالک":"Sahip","مدیر گروه":"Grup yöneticisi","کاربر":"Kullanıcı","کاربر عادی":"Kullanıcı","OWNER":"Sahip",
+  },
+  zh:{
+    "نام":"名称","شناسه":"ID","شناسه گروه":"群组 ID","شناسه کاربر":"用户 ID","نام کاربری":"用户名","یوزرنیم":"用户名","مقام":"等级","سطح دسترسی":"权限级别","وضعیت":"状态","وضعیت هسته":"核心状态","وضعیت پنل":"面板状态","اعضا":"成员","ادمین‌ها":"管理员","مدیران":"管理员","مشتریان فعال":"活跃客户","مشتریان منقضی":"已过期客户","گروه‌های فعال":"活跃群组","قوانین فعال":"启用规则","زبان":"语言","زبان گروه":"群组语言","عملیات امروز":"今日操作","آخرین فعالیت":"最后活动","آخرین بروزرسانی":"最后更新","فعال":"已启用","خاموش":"已关闭","آماده":"就绪","مالک":"所有者","مدیر گروه":"群组管理员","کاربر":"用户","کاربر عادی":"用户","OWNER":"所有者",
+  },
+};
 
-  const htmlParts:string[]=[
-    "<h2>◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · "+richEscape(title)+"</h2>"
-  ];
-  if(paragraphs.length){
-    htmlParts.push("<p>"+paragraphs.join("<br>")+"</p>");
-  }
-  if(rows.length){
-    htmlParts.push(
-      "<hr/>"+
-      "<table bordered striped compact><tr><th>مورد</th><th>وضعیت / مقدار</th></tr>"+
-      rows.join("")+
-      "</table>"
-    );
-  }
-  htmlParts.push(
-    "<details><summary>راهنمای کنترل</summary>"+
-    "<p>تنظیمات و عملیات این بخش از کنترل‌های همین صفحه انجام می‌شود و نتیجه مستقیماً از وضعیت واقعی سیستم خوانده می‌شود.</p>"+
-    "</details>"
-  );
+function localizePanelBody(body:string,lang:BotLang):string {
+  if(lang==="fa")return body;
+  const map=LABELS_BY_LANG[lang];
+  return String(body??"").split(/\n/).map(line=>{
+    const m=line.match(/^(\s*⛂\s*-\s*)([^:]+)(\s*:\s*)(.*)$/u);
+    if(!m)return line;
+    const label=map[m[2].trim()]??m[2].trim();
+    const value=map[m[4].trim()]??m[4];
+    return m[1]+label+m[3]+value;
+  }).join("\n");
+}
 
+function normalizeGroups(body:string):string[] {
+  const cleaned=String(body??"")
+    .replace(/━━━━━━━━━━━━━━━━━━━━━━━━/g,"")
+    .replace(new RegExp(PANEL_SEPARATOR,"gu"),"\n\n")
+    .trim();
+  if(!cleaned)return [];
+  return cleaned.split(/\n\s*\n/).map(x=>x.trim()).filter(Boolean);
+}
+
+function buildPanelRichMessage(title:string,body:string,lang:BotLang):{blocks:RichBlock[];is_rtl:boolean} {
+  const groups=normalizeGroups(localizePanelBody(body,lang));
+  const blocks:RichBlock[]=[{
+    type:"heading",
+    text:{type:"plain",text:"◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · "+(localizePanelTitle(title,lang))},
+    size:2
+  }];
+  groups.forEach((group,index)=>{
+    if(index>0)blocks.push({type:"paragraph",text:{type:"plain",text:PANEL_SEPARATOR}});
+    blocks.push({type:"paragraph",text:{type:"plain",text:group}});
+  });
+  return {blocks,is_rtl:true};
+}
+
+function buildPanelText(title:string,body:string,lang:BotLang):string {
+  const groups=normalizeGroups(localizePanelBody(body,lang));
+  const titleText=localizePanelTitle(title,lang);
+  return [
+    "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · "+titleText,
+    groups.length ? "\n"+groups.map(x=>"\n"+x).join("\n\n"+PANEL_SEPARATOR+"\n\n") : ""
+  ].join("").trim();
+}
+
+function panelTitle(title:string,body:string):PanelMessage {
+  return {title:String(title??"").trim(),body:String(body??"").trim(),is_rtl:true};
+}
+
+function panelFromString(message:string):PanelMessage {
+  const raw=String(message??"").trim();
+  const lines=raw.split(/\n/);
+  const first=(lines[0]??"").trim();
+  if(first.startsWith("◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · ")){
+    return panelTitle(first.slice("◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · ".length),lines.slice(1).join("\n").trim());
+  }
+  if(first.startsWith("◈ ")){
+    return panelTitle(first.slice(2).trim(),lines.slice(1).join("\n").trim());
+  }
+  return panelTitle("Rᴇsᴜʟᴛ",raw);
+}
+
+function localizeMarkup(markup:any,lang:BotLang):any {
+  if(!markup?.inline_keyboard)return markup;
   return {
-    html:htmlParts.join(""),
-    text:"━━━━━━━━━━━━━━━━━━━━━━━━\\n◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · "+String(title)+"\\n━━━━━━━━━━━━━━━━━━━━━━━━\\n\\n"+content,
-    is_rtl:true
+    ...markup,
+    inline_keyboard:markup.inline_keyboard.map((row:any[])=>row.map((button:any)=>{
+      const raw=String(button?.text??"");
+      if(raw.startsWith("● ")){
+        const base=raw.slice(2);
+        return {...button,text:"● "+(BUTTON_LABELS[base]?.[lang]??base)};
+      }
+      return {...button,text:BUTTON_LABELS[raw]?.[lang]??raw};
+    }))
   };
 }
-function text(v:any){return String(v??"");}
-function faDate(v:any){return new Date(v).toLocaleString("fa-IR",{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"});}
-function session(uid:number,flow:string,data:Record<string,any>={}){sessions.set(uid,{flow,data,expires:Date.now()+10*60*1000});}
-function getSession(uid:number){const s=sessions.get(uid);if(!s||s.expires<Date.now()){sessions.delete(uid);return null;}return s;}
-function clearSession(uid:number){sessions.delete(uid);}
-function allowed(uid:number){const now=Date.now(),last=throttles.get(uid)||0;if(now-last<800)return false;throttles.set(uid,now);return true;}
-function sleep(ms:number){return new Promise(resolve=>setTimeout(resolve,ms));}
-async function answer(id:string){await telegramApi("answerCallbackQuery",{callback_query_id:id});}
-function normalizePanelText(message:any){
-  let value=String(message??"").replace(/⛂\s+(?!-)/g,"⛂ - ").trim();
-  if(value&&!value.includes("━━━━━━━━━━━━━━━━━━━━━━━━")){
-    value="━━━━━━━━━━━━━━━━━━━━━━━━\n"+value+"\n━━━━━━━━━━━━━━━━━━━━━━━━";
-  }
-  return value;
+
+async function panelLanguageForChat(chatId:number):Promise<BotLang>{
+  const scope=currentPanelScope();
+  if(!scope || chatId>=0)return "fa";
+  return getGroupLanguage(scope.pool,chatId,"fa");
 }
+
 async function send(chatId:number,message:string|PanelMessage,markup:any=null){
-  let result:any;
-  if(typeof message==="string"){
-    result=await telegramApi("sendMessage",{chat_id:chatId,text:normalizePanelText(message),reply_markup:markup});
-  }else{
-    result=await telegramApi("sendRichMessage",{chat_id:chatId,rich_message:{html:message.html,is_rtl:true},reply_markup:markup});
-    if(!result.ok){
-      console.warn("[panel] sendRichMessage failed; falling back to standard text:",result.description);
-      result=await telegramApi("sendMessage",{chat_id:chatId,text:message.text,reply_markup:markup});
-    }
+  const lang=await panelLanguageForChat(chatId);
+  const panel=typeof message==="string"?panelFromString(message):message;
+  const keyboard=localizeMarkup(markup,lang);
+  let result=await telegramApi("sendRichMessage",{
+    chat_id:chatId,
+    rich_message:buildPanelRichMessage(panel.title,panel.body,lang),
+    reply_markup:keyboard
+  });
+  if(!result.ok){
+    console.warn("[panel] sendRichMessage failed; falling back to standard text:",result.description);
+    result=await telegramApi("sendMessage",{chat_id:chatId,text:buildPanelText(panel.title,panel.body,lang),reply_markup:keyboard});
   }
   const scope=currentPanelScope();
-  if(result.ok&&scope&&markup?.inline_keyboard){
+  if(result.ok&&scope&&keyboard?.inline_keyboard){
     const messageId=Number((result.result as any)?.message_id);
     if(Number.isSafeInteger(messageId)&&messageId>0){
       await bindPanelMessage(scope.pool,chatId,messageId,scope.userId);
@@ -141,25 +278,30 @@ async function send(chatId:number,message:string|PanelMessage,markup:any=null){
   }
   return result;
 }
+
 async function edit(chatId:number,messageId:number,message:string|PanelMessage,markup:any=null){
   await sleep(75);
-  let result:any;
-  if(typeof message==="string"){
-    result=await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,text:normalizePanelText(message),reply_markup:markup});
-  }else{
-    result=await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,rich_message:{html:message.html,is_rtl:true},reply_markup:markup});
-    if(!result.ok){
-      console.warn("[panel] edit rich message failed; falling back to standard text:",result.description);
-      result=await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,text:message.text,reply_markup:markup});
-    }
+  const lang=await panelLanguageForChat(chatId);
+  const panel=typeof message==="string"?panelFromString(message):message;
+  const keyboard=localizeMarkup(markup,lang);
+  let result=await telegramApi("editMessageText",{
+    chat_id:chatId,
+    message_id:messageId,
+    rich_message:buildPanelRichMessage(panel.title,panel.body,lang),
+    reply_markup:keyboard
+  });
+  if(!result.ok){
+    console.warn("[panel] edit rich message failed; falling back to standard text:",result.description);
+    result=await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,text:buildPanelText(panel.title,panel.body,lang),reply_markup:keyboard});
   }
   const scope=currentPanelScope();
   if(result.ok&&scope){
-    if(markup?.inline_keyboard) await touchPanelMessage(scope.pool,chatId,messageId,scope.userId);
+    if(keyboard?.inline_keyboard)await touchPanelMessage(scope.pool,chatId,messageId,scope.userId);
     else await unbindPanelMessage(scope.pool,chatId,messageId,scope.userId);
   }
   return result;
 }
+
 async function audit(pool:Pool,actor:string,action:string,target:string,meta:any={}){await pool.query("INSERT INTO audit_logs(actor_id,action,target,after_data,source) VALUES($1,$2,$3,$4::jsonb,'telegram_panel')",[actor,action,target,JSON.stringify(meta)]).catch(()=>{});}
 async function ensureOwners(pool:Pool,ids:string[]){for(const id of ids){if(/^\d+$/.test(id))await pool.query("INSERT INTO bot_panel_owners(user_id) VALUES($1) ON CONFLICT DO NOTHING",[id]);}}
 async function isOwner(pool:Pool,uid:number,envOwners:string[]){const all=new Set([...BUILTIN_OWNER_IDS,...envOwners]);if(all.has(String(uid)))return true;const r=await pool.query("SELECT 1 FROM bot_panel_owners WHERE user_id=$1 LIMIT 1",[uid]);return !!r.rowCount;}
@@ -300,6 +442,26 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   if(data==="o:lic_create"){session(uid,"owner_license_create",{step:1});return edit(msg.chat.id,msg.message_id,"نوع لایسنس را انتخاب کنید.",menu(LICENSE_TYPES.map(x=>[[x.label,"o:lic_type:"+x.key]]).concat([[["‹ بازگشت","o:licenses"]]])));} 
   if(data.startsWith("o:lic_type:")){const t=LICENSE_TYPES.find(x=>x.key===data.slice(11));if(!t)return;session(uid,"owner_license_create",{step:2,type:t});return edit(msg.chat.id,msg.message_id,"نوع «"+t.label+"» انتخاب شد.\n\nحداکثر تعداد گروه این لایسنس را به عدد ارسال کنید.");}
   if(data==="o:lic_active"||data==="o:lic_expiring"||data==="o:lic_expired"){const where=data==="o:lic_active"?"status='active' AND (expires_at IS NULL OR expires_at>NOW())":data==="o:lic_expiring"?"status='active' AND expires_at>NOW() AND expires_at<=NOW()+INTERVAL '7 days'":"status='active' AND expires_at IS NOT NULL AND expires_at<=NOW()";const r=await pool.query("SELECT code,customer_id,license_type,group_limit,expires_at FROM bot_licenses WHERE "+where+" ORDER BY expires_at NULLS LAST LIMIT 30");const lines=r.rows.length?r.rows.map((x:any)=>"• "+x.code+" · "+x.customer_id+" · "+x.license_type+" · "+(x.expires_at?faDate(x.expires_at):"∞")).join("\n"):"موردی ثبت نشده است.";return edit(msg.chat.id,msg.message_id,"◈ لیست لایسنس‌ها\n\n"+lines,menu([[["‹ بازگشت","o:licenses"]]]));}
+  if(data==="o:languages"){
+    const rows=await pool.query("SELECT g.group_id,g.title,COALESCE(l.language_code,'fa') AS language_code FROM bot_customer_groups g LEFT JOIN bot_group_languages l ON l.group_id=g.group_id WHERE g.is_active=TRUE ORDER BY g.last_seen_at DESC NULLS LAST LIMIT 50");
+    const buttons:any[]=rows.rows.map((x:any)=>[[((x.title||"گروه بدون نام")+" · "+languageNative(normalizeBotLang(x.language_code)??"fa")),"og:lang:"+x.group_id]]);
+    buttons.push([["‹ بازگشت","o:home"]]);
+    return edit(msg.chat.id,msg.message_id,panelTitle("زبان گروه‌ها","⛂ - تعداد گروه‌های فعال : "+rows.rows.length+"\n⛂ - دامنه تنظیم : هر گروه مستقل است."),menu(buttons));
+  }
+  if(data.startsWith("og:lang:")){
+    const gid=Number(data.slice(7));if(!Number.isSafeInteger(gid))return;
+    const current=await getGroupLanguage(pool,gid,"fa");
+    const buttons:any[][]=SUPPORTED_LANGUAGES.map(x=>[[languageButtonLabel(x.code,current),"og:setlang:"+gid+":"+x.code]]);
+    buttons.push([["‹ بازگشت","o:languages"]]);
+    return edit(msg.chat.id,msg.message_id,panelTitle("زبان گروه","⛂ - گروه : "+gid+"\n⛂ - زبان فعلی : "+languageNative(current)),menu(buttons));
+  }
+  if(data.startsWith("og:setlang:")){
+    const parts=data.split(":");const gid=Number(parts[2]);const lang=normalizeBotLang(parts[3]);
+    if(!Number.isSafeInteger(gid)||!lang)return;
+    await setGroupLanguage(pool,gid,lang);
+    await audit(pool,String(uid),"group_language_changed",String(gid),{language:lang});
+    return edit(msg.chat.id,msg.message_id,panelTitle("زبان گروه","⛂ - شناسه گروه : "+gid+"\n⛂ - زبان جدید : "+languageNative(lang)+"\n⛂ - وضعیت : فعال"),menu([[["زبان گروه","og:lang:"+gid],["‹ بازگشت","o:languages"]]]));
+  }
   if(data==="o:groups"){
     const r=await pool.query("SELECT group_id,customer_id,title,is_active,last_seen_at FROM bot_customer_groups ORDER BY last_seen_at DESC NULLS LAST LIMIT 50");
     const rows:any[]=r.rows.map((x:any)=>[["گروه "+valueOrDash(x.title)+" · "+x.group_id,"og:view:"+x.group_id]]);
@@ -311,7 +473,7 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     const r=await pool.query("SELECT * FROM bot_customer_groups WHERE group_id=$1 LIMIT 1",[gid]);
     if(!r.rowCount)return edit(msg.chat.id,msg.message_id,"گروه پیدا نشد.",menu([[["‹ بازگشت","o:groups"]]]));
     const x=r.rows[0];
-    return edit(msg.chat.id,msg.message_id,panelTitle("کنترل گروه",["⛂ - شناسه : "+gid,"⛂ - مشتری : "+valueOrDash(x.customer_id),"⛂ - عنوان : "+valueOrDash(x.title),"⛂ - وضعیت : "+(x.is_active?"● فعال":"○ غیرفعال"),"⛂ - آخرین مشاهده : "+valueOrDash(x.last_seen_at?faDate(x.last_seen_at):null)].join("\\n")),menu([[[(x.is_active?"غیرفعال‌سازی":"فعال‌سازی"),"og:toggle:"+gid]],[ ["‹ بازگشت","o:groups"] ]]));
+    const groupLanguage=await getGroupLanguage(pool,gid,"fa");\n    return edit(msg.chat.id,msg.message_id,panelTitle("کنترل گروه",["⛂ - شناسه : "+gid,"⛂ - مشتری : "+valueOrDash(x.customer_id),"⛂ - عنوان : "+valueOrDash(x.title),"⛂ - وضعیت : "+(x.is_active?"● فعال":"○ خاموش"),"⛂ - زبان گروه : "+languageNative(groupLanguage),"⛂ - آخرین مشاهده : "+valueOrDash(x.last_seen_at?faDate(x.last_seen_at):null)].join("\\n")),menu([[[(x.is_active?"غیرفعال‌سازی":"فعال‌سازی"),"og:toggle:"+gid]],[[ "زبان گروه","og:lang:"+gid ]],[ ["‹ بازگشت","o:groups"] ]]));
   }
   if(data.startsWith("og:toggle:")){
     const gid=Number(data.slice(10));if(!Number.isSafeInteger(gid))return;
@@ -515,6 +677,19 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   }
 
   if(data==="c:home")return edit(msg.chat.id,msg.message_id,mainCustomerMessage(),menu(K.customerMain));
+
+  if(data==="c:language"){
+    const current=await getGroupLanguage(pool,groupId,"fa");
+    const buttons:any[][]=SUPPORTED_LANGUAGES.map(x=>[[languageButtonLabel(x.code,current),"c:setlang:"+x.code]]);
+    buttons.push([["‹ بازگشت","c:home"]]);
+    return edit(msg.chat.id,msg.message_id,panelTitle("زبان ربات","⛂ - زبان فعلی : "+languageNative(current)+"\n⛂ - دامنه تنظیم : فقط همین گروه"),menu(buttons));
+  }
+  if(data.startsWith("c:setlang:")){
+    const lang=normalizeBotLang(data.slice(10));if(!lang)return;
+    await setGroupLanguage(pool,groupId,lang);
+    await audit(pool,String(uid),"group_language_changed",String(groupId),{language:lang});
+    return edit(msg.chat.id,msg.message_id,panelTitle("زبان ربات","⛂ - زبان جدید : "+languageNative(lang)+"\n⛂ - وضعیت : فعال"),menu([[["زبان ربات","c:language"],["‹ بازگشت","c:home"]]]));
+  }
 
   if(data==="c:status"){
     return edit(msg.chat.id,msg.message_id,await customerStatus(pool,uid,groupId),menu([[["بروزرسانی","c:status"],["‹ بازگشت","c:home"]]]));
