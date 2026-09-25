@@ -155,7 +155,7 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
       const admins=await api<any[]>("getChatAdministrators",{chat_id:ctx.chatId});
       const a=admins.length;
       const owner=admins.find(x=>x.status==="creator")?.user;
-      const gs=groupStats(ctx.chatId);
+      const gs=getGroupStats(ctx.chatId);
       const st=state(ctx.chatId);
       const chatName=String(chatInfo?.title||ctx.chatTitle||"ثبت نشده").trim()||"ثبت نشده";
       const chatUsername=chatInfo?.username?("@"+String(chatInfo.username)):"—";
@@ -273,7 +273,7 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "◈ Bot technical information\n\n⛂ - Bot name : "+(ctx.config.botName||"Nizam")+"\n⛂ - Username : "+(ctx.config.botUsername||"—")+"\n⛂ - Bot ID : "+botId+"\n⛂ - Version : v"+(process.env.BOT_VERSION??"2.0.0")+"\n⛂ - Status : Online\n⛂ - Database : "+(process.env.DATABASE_URL?"Connected":"Local")+"\n⛂ - Telegram connection : Polling\n⛂ - Service : Active\n⛂ - OS : "+process.platform+"\n⛂ - Node.js : "+process.version+"\n⛂ - Uptime : "+Math.floor(process.uptime())+"s");
     }
     case "status": {
-      const gs=groupStats(ctx.chatId);
+      const gs=getGroupStats(ctx.chatId);
       const st=state(ctx.chatId);
       const faText=[
         "◈ وضعیت گروه","",
