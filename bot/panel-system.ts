@@ -4,6 +4,7 @@ import type { Pool } from "pg";
 import { telegramApi } from "../src/lib/telegram/api.ts";
 import type { Rank } from "../src/lib/bot/registry.ts";
 import { ensureContentLocks } from "../src/lib/bot/content-locks.ts";
+import { glassKeyboard } from "../src/lib/bot/panel-design.ts";
 
 type TgUser={id:number;first_name?:string;username?:string};
 type TgChat={id:number;type:string;title?:string;username?:string};
@@ -23,14 +24,7 @@ const K={
   ownerMain:[[["⌁ آمار کلی سیستم","o:stats"],["♙ مدیریت مشتریان","o:customers"]],[["◇ مدیریت لایسنس‌ها","o:licenses"],["◉ لاگ‌های مهم","o:logs"]],[["✉ پیام همگانی","o:broadcast"],["⚙ تنظیمات پیشرفته","o:settings"]],[["▣ پشتیبان‌گیری و بازیابی","o:backup"],["◒ وضعیت سرور و منابع","o:server"]],[["⊘ لیست سیاه مشتریان","o:blacklist"],["× خروج از پنل مالک","o:exit"]]],
   customerMain:[[["⌂ وضعیت گروه فعلی","c:status"],["◇ تنظیمات قفل و فیلتر","c:locks"]],[["⚠ اخطار و جریمه","c:warnings"],["♙ مدیریت اعضا","c:members"]],[["⌁ خوش‌آمدگویی و خروج","c:welcome"],["⌘ دستورات و پاسخ‌ها","c:commands"]],[["▥ آمار و گزارش گروه","c:stats"],["◷ زمان‌بندی پیام‌ها","c:schedule"]],[["◇ تنظیمات امنیتی","c:security"],["? پشتیبانی و راهنما","c:support"]],[["× خروج از پنل","c:exit"]]]
 };
-function buttonLabel(value:string){
-  const label=String(value??"").trim();
-  // Glass buttons use a single leading chevron. Back/navigation-out buttons keep their dedicated symbol.
-  if(label.startsWith("‹")||label.startsWith("←")) return label;
-  if(label.startsWith("›")) return label;
-  return "› "+label.replace(/^❯›\s*/,"");
-}
-function kb(rows:string[][][]){return {inline_keyboard:rows.map(row=>row.map(([label,callback_data])=>({text:buttonLabel(label),callback_data}))) };}
+function kb(rows:string[][][]){return glassKeyboard(rows);}
 function back(cb:string="home"){return [[["← بازگشت","p:"+cb]]];}
 function menu(rows:string[][][],extra:string[][][]=[]){return kb([...rows,...extra]);}
 function text(v:any){return String(v??"");}
