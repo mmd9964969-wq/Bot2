@@ -448,24 +448,30 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   if(data==="o:languages"){
     await ensureGroupLanguageSchema(pool);
     const rows=await pool.query(`
-      SELECT x.group_id,x.title,COALESCE(l.language_code,'fa') AS language_code
+      SELECT x.group_id,
+             COALESCE(NULLIF(bg.title,''),NULLIF(cg.title,''),NULLIF(x.title,''),'گروه بدون نام') AS title,
+             COALESCE(bg.is_active,cg.is_active,TRUE) AS is_active,
+             COALESCE(l.language_code,'fa') AS language_code
       FROM (
-        SELECT id AS group_id,title
-        FROM bot_groups
-        WHERE is_active=TRUE
+        SELECT id AS group_id,title FROM bot_groups
         UNION
-        SELECT group_id,title
-        FROM bot_customer_groups
-        WHERE is_active=TRUE
+        SELECT group_id,title FROM bot_customer_groups
+        UNION
+        SELECT group_id,'' AS title FROM content_lock_settings
+        UNION
+        SELECT group_id,'' AS title FROM bot_group_installations
       ) x
+      LEFT JOIN bot_groups bg ON bg.id=x.group_id
+      LEFT JOIN bot_customer_groups cg ON cg.group_id=x.group_id
       LEFT JOIN bot_group_languages l ON l.group_id=x.group_id
-      ORDER BY x.group_id DESC
+      ORDER BY COALESCE(bg.is_active,cg.is_active,TRUE) DESC,x.group_id DESC
       LIMIT 100
     `);
     const buttons:any[]=rows.rows.map((x:any)=>[[((x.title||"گروه بدون نام")+" · "+languageNative(normalizeBotLang(x.language_code)??"fa")),"og:lang:"+x.group_id]]);
     if(!buttons.length)buttons.push([["افزودن/ثبت گروه","o:groups"]]);
     buttons.push([["‹ بازگشت","o:home"]]);
-    return edit(msg.chat.id,msg.message_id,panelTitle("زبان گروه‌ها","⛂ - تعداد گروه‌های فعال : "+rows.rows.length+"\n⛂ - دامنه تنظیم : هر گروه مستقل است."),menu(buttons));
+    const activeCount=rows.rows.filter((x:any)=>x.is_active!==false).length;
+    return edit(msg.chat.id,msg.message_id,panelTitle("زبان گروه‌ها","⛂ - گروه‌های فعال : "+activeCount+"\n⛂ - گروه‌های ثبت‌شده : "+rows.rows.length+"\n⛂ - دامنه تنظیم : هر گروه مستقل است."),menu(buttons));
   }
   if(data.startsWith("og:lang:")){
     const gid=Number(data.slice(7));if(!Number.isSafeInteger(gid))return;
