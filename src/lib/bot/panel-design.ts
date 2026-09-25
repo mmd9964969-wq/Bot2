@@ -18,9 +18,9 @@ function cleanButtonLabel(value:string){
 function semanticStyle(label:string,callbackData:string):TelegramButtonStyle|undefined{
   const text=rawButtonText(label);
   const data=String(callbackData??"");
-  if(/^(?:بازگشت|‹|←)/.test(text)||/(^|:)back(?:$|:)/i.test(data)) return "primary";
-  if(/(^|:)(on|enable)(:|$)/i.test(data)||/^(فعال‌سازی|فعال سازی|روشن)(\s|$)/i.test(text)) return "success";
-  if(/(^|:)(off|disable)(:|$)/i.test(data)||/^(خاموش‌سازی|خاموش سازی|خاموش|غیرفعال‌سازی|غیرفعال سازی)(\s|$)/i.test(text)) return "danger";
+  if(/^(?:‹\s*)?بازگشت(?:\s|$)/u.test(text)||/^(?:‹|←)\s*/u.test(text)||/(^|:)back(?:$|:)/i.test(data)) return "primary";
+  if(/(?:^|:)(?:on|enable)(?::|$)/i.test(data)||/^(?:فعال‌سازی|فعال سازی|روشن)(?:\s|$)/u.test(text)) return "success";
+  if(/(?:^|:)(?:off|disable)(?::|$)/i.test(data)||/^(?:خاموش‌سازی|خاموش سازی|خاموش|غیرفعال‌سازی|غیرفعال سازی)(?:\s|$)/u.test(text)) return "danger";
   return undefined;
 }
 
@@ -38,7 +38,7 @@ export function glassButton(label:string,callbackData:string):DesignedButton{
   const style=semanticStyle(label,callbackData);
   // Telegram InlineKeyboardButton has no background-color/style field.
   // Keep the inline keyboard compatible and restore semantic color cues in the label.
-  return {text:visualButtonLabel(label,style),callback_data:callbackData};
+  return {text:visualButtonLabel(label,style),callback_data:callbackData,...(style?{style}: {})};
 }
 
 export function glassKeyboard(rows:string[][][]){
