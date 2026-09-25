@@ -446,8 +446,24 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   if(data.startsWith("o:lic_type:")){const t=LICENSE_TYPES.find(x=>x.key===data.slice(11));if(!t)return;session(uid,"owner_license_create",{step:2,type:t});return edit(msg.chat.id,msg.message_id,"نوع «"+t.label+"» انتخاب شد.\n\nحداکثر تعداد گروه این لایسنس را به عدد ارسال کنید.");}
   if(data==="o:lic_active"||data==="o:lic_expiring"||data==="o:lic_expired"){const where=data==="o:lic_active"?"status='active' AND (expires_at IS NULL OR expires_at>NOW())":data==="o:lic_expiring"?"status='active' AND expires_at>NOW() AND expires_at<=NOW()+INTERVAL '7 days'":"status='active' AND expires_at IS NOT NULL AND expires_at<=NOW()";const r=await pool.query("SELECT code,customer_id,license_type,group_limit,expires_at FROM bot_licenses WHERE "+where+" ORDER BY expires_at NULLS LAST LIMIT 30");const lines=r.rows.length?r.rows.map((x:any)=>"• "+x.code+" · "+x.customer_id+" · "+x.license_type+" · "+(x.expires_at?faDate(x.expires_at):"∞")).join("\n"):"موردی ثبت نشده است.";return edit(msg.chat.id,msg.message_id,"◈ لیست لایسنس‌ها\n\n"+lines,menu([[["‹ بازگشت","o:licenses"]]]));}
   if(data==="o:languages"){
-    const rows=await pool.query("SELECT g.group_id,g.title,COALESCE(l.language_code,'fa') AS language_code FROM bot_customer_groups g LEFT JOIN bot_group_languages l ON l.group_id=g.group_id WHERE g.is_active=TRUE ORDER BY g.last_seen_at DESC NULLS LAST LIMIT 50");
+    await ensureGroupLanguageSchema(pool);
+    const rows=await pool.query(`
+      SELECT x.group_id,x.title,COALESCE(l.language_code,'fa') AS language_code
+      FROM (
+        SELECT id AS group_id,title
+        FROM bot_groups
+        WHERE is_active=TRUE
+        UNION
+        SELECT group_id,title
+        FROM bot_customer_groups
+        WHERE is_active=TRUE
+      ) x
+      LEFT JOIN bot_group_languages l ON l.group_id=x.group_id
+      ORDER BY x.group_id DESC
+      LIMIT 100
+    `);
     const buttons:any[]=rows.rows.map((x:any)=>[[((x.title||"گروه بدون نام")+" · "+languageNative(normalizeBotLang(x.language_code)??"fa")),"og:lang:"+x.group_id]]);
+    if(!buttons.length)buttons.push([["افزودن/ثبت گروه","o:groups"]]);
     buttons.push([["‹ بازگشت","o:home"]]);
     return edit(msg.chat.id,msg.message_id,panelTitle("زبان گروه‌ها","⛂ - تعداد گروه‌های فعال : "+rows.rows.length+"\n⛂ - دامنه تنظیم : هر گروه مستقل است."),menu(buttons));
   }
@@ -987,6 +1003,33 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     const targetId=Number(data.slice(3)); const rr=await telegramApi("unbanChatMember",{chat_id:groupId,user_id:targetId,only_if_banned:true});
     return send(msg.chat.id,rr.ok?"✓ رفع بن اجرا شد.\n⛂ - کاربر : "+targetId:"✗ رفع بن ناموفق بود: "+(rr.description||"Telegram error"));
   }
+  if(data.startsWith("wd:")){
+    const targetId=Number(data.slice(3));
+    if(!Number.isSafeInteger(targetId)||targetId<=0)return;
+    const r=await pool.query("SELECT COALESCE(warning_count,0) AS warning_count FROM warning_cases WHERE group_id=$1 AND user_id=$2 LIMIT 1",[groupId,targetId]);
+    const count=Number(r.rows[0]?.warning_count||0);
+    if(count<=0)return edit(msg.chat.id,msg.message_id,panelTitle("Warning Center","⛂ - کاربر : "+targetId+"\\n⛂ - وضعیت : اخطار فعالی برای کاهش وجود ندارد."),menu([[["‹ بازگشت","c:warnings"]]]));
+    await pool.query("UPDATE warning_cases SET warning_count=GREATEST(0,warning_count-1),updated_at=NOW() WHERE group_id=$1 AND user_id=$2",[groupId,targetId]).catch(()=>{});
+    await audit(pool,String(uid),"warning_decreased",String(targetId),{groupId,previous:count,next:Math.max(0,count-1)});
+    return edit(msg.chat.id,msg.message_id,panelTitle("Warning Center","⛂ - کاربر : "+targetId+"\\n⛂ - اخطار فعلی : "+Math.max(0,count-1)+"\\n⛂ - وضعیت : بروزرسانی شد"),menu([
+      [["اخطار +۱","twx:"+targetId],["اخطار سفارشی","twc:"+targetId]],
+      [["کاهش اخطار","wd:"+targetId],["حذف اخطار","wc:"+targetId]],
+      [["‹ بازگشت","c:warnings"]]
+    ]));
+  }
+  if(data.startsWith("wc:")){
+    const targetId=Number(data.slice(3));
+    if(!Number.isSafeInteger(targetId)||targetId<=0)return;
+    await pool.query("UPDATE warning_cases SET warning_count=0,updated_at=NOW() WHERE group_id=$1 AND user_id=$2",[groupId,targetId]).catch(()=>{});
+    await pool.query("UPDATE warning_events SET status='cleared',result='cleared' WHERE group_id=$1 AND user_id=$2 AND action_type='warning' AND status='active'",[groupId,targetId]).catch(()=>{});
+    await audit(pool,String(uid),"warning_cleared",String(targetId),{groupId});
+    return edit(msg.chat.id,msg.message_id,panelTitle("Warning Center","⛂ - کاربر : "+targetId+"\\n⛂ - اخطار فعلی : 0\\n⛂ - وضعیت : اخطارها حذف شدند"),menu([
+      [["اخطار +۱","twx:"+targetId],["اخطار سفارشی","twc:"+targetId]],
+      [["اخطار مجدد","twx:"+targetId],["سابقه اخطار","w:list"]],
+      [["‹ بازگشت","c:warnings"]]
+    ]));
+  }
+
   if(data==="w:list"){
     const r=await pool.query("SELECT user_id,first_name,username,warning_count,current_level,status FROM warning_cases WHERE group_id=$1 AND warning_count>0 ORDER BY warning_count DESC,last_warning_at DESC LIMIT 30",[groupId]);
     return edit(msg.chat.id,msg.message_id,panelTitle("اخطار و جریمه",r.rows.length?r.rows.map((x:any)=>"⛂ - کاربر : "+x.user_id+" · اخطار : "+x.warning_count+" · سطح : "+(x.current_level??"—")).join("\n"):"⛂ - وضعیت : عضوی با اخطار فعال نیست."),menu([[["‹ بازگشت","c:warnings"]]]));
@@ -1491,7 +1534,7 @@ export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:str
   // Customer/lock panel callbacks must keep their customer context even for the bot owner.
   // Otherwise ownerCallback receives c:/cl:/clt:/cls: actions and silently ignores them.
     if(
-      /^(c|cl|clt|cls|auto|ex|w|m|wel|cmd|sc|sec|st|tw|tm|tp|tu|bp|br|bt|btd|bu):/.test(data)
+      /^(c|cl|clt|cls|auto|ex|w|m|wel|cmd|sc|sec|st|tw|tm|tp|tu|bp|br|bt|btd|bu|ban):/.test(data)
     ){
       return customerCallback(pool,cb,ownerIds);
     }
