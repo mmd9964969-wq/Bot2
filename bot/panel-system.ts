@@ -37,23 +37,22 @@ const K={
     [["آمار کلی سیستم","o:stats"],["مدیریت مشتریان","o:customers"]],
     [["مدیریت لایسنس‌ها","o:licenses"],["مدیریت گروه‌ها","o:groups"]],
     [["زبان گروه‌ها","o:languages"],["ارسال همگانی","o:broadcast"]],
-    [["کنترل اجرایی","o:runtime"],["کنترل اجرایی","o:runtime"]],
-    [["ممیزی سیستم","o:audit"],["امنیت و دسترسی","o:security"]],
-    [["پشتیبان‌گیری و بازیابی","o:backup"],["تنظیمات پیشرفته","o:settings"]],
-    [["وضعیت سرور و منابع","o:server"],["فهرست سیاه مشتریان","o:blacklist"]],
-    [["مدیریت قابلیت‌ها","o:features"],["مرکز هوش مصنوعی","o:ai"]],
-    [["خروج از پنل مالک","o:exit"]]
+    [["کنترل اجرایی","o:runtime"],["ممیزی سیستم","o:audit"]],
+    [["امنیت و دسترسی","o:security"],["پشتیبان‌گیری و بازیابی","o:backup"]],
+    [["تنظیمات پیشرفته","o:settings"],["وضعیت سرور و منابع","o:server"]],
+    [["فهرست سیاه مشتریان","o:blacklist"],["مدیریت قابلیت‌ها","o:features"]],
+    [["مرکز هوش مصنوعی","o:ai"],["خروج از پنل مالک","o:exit"]]
   ],
   customerMain:[
     [["وضعیت و نمای کلی","c:status"],["مرکز قفل و فیلتر","c:locks"]],
-    [["زبان ربات","c:language"],
-    [["مرکز امنیت","c:security"],["اخطار و جریمه","c:warnings"]],
-    [["مدیریت اعضا","c:members"],["مرکز اتوماسیون","c:automation"]],
-    [["استودیو دستورات","c:commands"],["استودیو محتوا","c:content"]],
-    [["زمان‌بندی پیام‌ها","c:schedule"],["تحلیل و آمار","c:analytics"]],
-    [["مرکز دسترسی","c:permissions"],["مرکز استثناها","c:exceptions"]],
-    [["ممیزی گروه","c:audit"],["سلامت ربات","c:health"]],
-    [["پشتیبانی و راهنما","c:support"],["خروج از پنل","c:exit"]]
+    [["زبان ربات","c:language"],["مرکز امنیت","c:security"]],
+    [["اخطار و جریمه","c:warnings"],["مدیریت اعضا","c:members"]],
+    [["مرکز اتوماسیون","c:automation"],["استودیو دستورات","c:commands"]],
+    [["استودیو محتوا","c:content"],["زمان‌بندی پیام‌ها","c:schedule"]],
+    [["تحلیل و آمار","c:analytics"],["مرکز دسترسی","c:permissions"]],
+    [["مرکز استثناها","c:exceptions"],["ممیزی گروه","c:audit"]],
+    [["سلامت ربات","c:health"],["پشتیبانی و راهنما","c:support"]],
+    [["خروج از پنل","c:exit"]]
   ]
 };
 function kb(rows:string[][][]){return glassKeyboard(rows);}
@@ -150,8 +149,8 @@ const BUTTON_LABELS:Record<string,Partial<Record<BotLang,string>>> = {
 
 function localizePanelTitle(title:string,lang:BotLang):string {
   const key=String(title??"").trim().replace(/^◈\s*/u,"");
-  if(key==="Pᴇʀsɪᴀɴ ᴮᵒᵗ · Oᴡɴᴇʀ Cᴏɴᴛʀᴏʟ")return lang==="fa"?key:"Oᴡɴᴇʀ Cᴏɴᴛʀᴏʟ";
-  if(key==="Pᴇʀsɪᴀɴ ᴮᵒᵗ · Gʀᴏᴜᴘ Cᴏɴᴛʀᴏʟ")return lang==="fa"?key:(PANEL_TITLES["Group Control"]?.[lang]??key);
+  if(key==="Oᴡɴᴇʀ Cᴏɴᴛʀᴏʟ"||key==="Owner Control")return lang==="fa"?"Oᴡɴᴇʀ Cᴏɴᴛʀᴏʟ":(PANEL_TITLES["Owner Control"]?.[lang]??"Owner Control");
+  if(key==="Gʀᴏᴜᴘ Cᴏɴᴛʀᴏʟ"||key==="Group Control")return lang==="fa"?"Gʀᴏᴜᴘ Cᴏɴᴛʀᴏʟ":(PANEL_TITLES["Group Control"]?.[lang]??"Group Control");
   return lang==="fa"?(PANEL_TITLES[key]?.fa??key):(PANEL_TITLES[key]?.[lang]??key);
 }
 
@@ -212,10 +211,7 @@ function buildPanelRichMessage(title:string,body:string,lang:BotLang):{blocks:Ri
 function buildPanelText(title:string,body:string,lang:BotLang):string {
   const groups=normalizeGroups(localizePanelBody(body,lang));
   const titleText=localizePanelTitle(title,lang);
-  return [
-    "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · "+titleText,
-    groups.length ? "\n"+groups.map(x=>"\n"+x).join("\n\n"+PANEL_SEPARATOR+"\n\n") : ""
-  ].join("").trim();
+  return "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · "+titleText+(groups.length?"\n\n"+groups.join("\n\n"+PANEL_SEPARATOR+"\n\n"):"");
 }
 
 function panelTitle(title:string,body:string):PanelMessage {
