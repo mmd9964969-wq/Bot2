@@ -219,10 +219,14 @@ function buildPanelRichMessage(title:string,body:string,lang:BotLang):{blocks:Ri
   return {blocks,is_rtl:lang==="fa"||lang==="ar"};
 }
 
+function normalizePanelDigits(value:string):string {
+  return String(value??"").replace(/[۰-۹]/g,ch=>String(ch.charCodeAt(0)-1776)).replace(/[٠-٩]/g,ch=>String(ch.charCodeAt(0)-1632));
+}
+
 function buildPanelText(title:string,body:string,lang:BotLang):string {
   const groups=normalizeGroups(localizePanelBody(body,lang));
   const titleText=localizePanelTitle(title,lang);
-  return "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · "+titleText+(groups.length?"\n\n"+groups.join("\n\n"+PANEL_SEPARATOR+"\n\n"):"");
+  return normalizePanelDigits("◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · "+titleText+(groups.length?"\n\n"+groups.join("\n\n"+PANEL_SEPARATOR+"\n\n"):""));
 }
 
 function panelTitle(title:string,body:string):PanelMessage {
@@ -250,9 +254,9 @@ function localizeMarkup(markup:any,lang:BotLang):any {
       const raw=String(button?.text??"");
       if(raw.startsWith("● ")){
         const base=raw.slice(2);
-        return {...button,text:"● "+(BUTTON_LABELS[base]?.[lang]??base)};
+        return {...button,text:normalizePanelDigits("● "+(BUTTON_LABELS[base]?.[lang]??base))};
       }
-      return {...button,text:BUTTON_LABELS[raw]?.[lang]??raw};
+      return {...button,text:normalizePanelDigits(BUTTON_LABELS[raw]?.[lang]??raw)};
     }))
   };
 }
@@ -1485,7 +1489,7 @@ export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:str
   // Customer/lock panel callbacks must keep their customer context even for the bot owner.
   // Otherwise ownerCallback receives c:/cl:/clt:/cls: actions and silently ignores them.
     if(
-      /^(c|cl|clt|cls|auto|ex|w|m|wel|cmd|sc|sec|st):/.test(data)
+      /^(c|cl|clt|cls|auto|ex|w|m|wel|cmd|sc|sec|st|tw|tm|tp|tu|bp|br|bt|btd|bu):/.test(data)
     ){
       return customerCallback(pool,cb,ownerIds);
     }
