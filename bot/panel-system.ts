@@ -1075,7 +1075,7 @@ export async function dispatchPanelMessage(pool:Pool,msg:TgMessage,ownerIds:stri
   return runWithPanelScope(msg.from.id,pool,async()=>{
     // Panel throttling must never consume group messages; content-lock
     // enforcement needs to see every message, including rapid photo bursts.
-    if(!allowed(msg.from.id))return false;
+    if(msg.chat.type==="private" && !allowed(msg.from.id))return false;
     if(await handleInput(pool,msg))return true;
     if(await handleOwner(pool,msg,ownerIds))return true;
     return await handleCustomer(pool,msg,ownerIds);
