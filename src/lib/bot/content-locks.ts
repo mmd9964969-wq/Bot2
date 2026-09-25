@@ -32,6 +32,7 @@ export type ContentLockMessage={
   dice?:unknown;
   game?:unknown;
   web_app_data?:unknown;
+  new_chat_members?:Array<{id:number;is_bot?:boolean;first_name?:string;username?:string}>;
   story?:{chat?:{id?:number;type?:string};id?:number};
   link_preview_options?:unknown;
 };
@@ -53,53 +54,20 @@ type Input={
 const cache=new Map<number,{at:number;settings:any;rules:Rule[];exceptions:Exception[];domains:Domain[]}>();
 const windows=new Map<string,number[]>();
 const duplicateWindows=new Map<string,string[]>();
+const joinWindows=new Map<number,number[]>();
 const customRoleCache=new Map<number,{at:number;role:string}>();
 
 const defaultRules=[
-  ["links","links_all",false,{action:"delete_notify"}],
-  ["links","links_telegram",true,{action:"delete_notify"}],
-  ["links","links_external",false,{action:"delete_notify"}],
-  ["links","links_invites",false,{action:"delete_notify"}],
-  ["links","links_auto_delete",true,{}],
-  ["links","links_notify",false,{}],
-  ["media","media_photo",false,{max_mb:20,max_per_minute:0,action:"delete"}],
-  ["media","media_video",false,{max_mb:50,max_per_minute:0,action:"delete"}],
-  ["media","media_audio",false,{max_mb:50,max_per_minute:0,action:"delete"}],
-  ["media","media_animation",false,{max_mb:50,max_per_minute:0,action:"delete"}],
-  ["media","media_sticker",false,{max_mb:5,max_per_minute:0,action:"delete"}],
-  ["media","media_voice",false,{max_mb:50,max_per_minute:0,action:"delete"}],
-  ["media","media_video_note",false,{max_mb:50,max_per_minute:0,action:"delete"}],
-  ["forwarding","forward_all",false,{action:"delete_notify"}],
-  ["forwarding","forward_groups",false,{action:"delete_notify"}],
-  ["forwarding","forward_channels",false,{action:"delete_notify"}],
-  ["forwarding","forward_private",false,{action:"delete_notify"}],
-  ["forwarding","forward_auto_delete",true,{}],
-  ["forwarding","forward_notify",false,{}],
-  ["files","file_documents",false,{max_mb:20,action:"delete",blocked_extensions:[],allowed_extensions:[]}],
-  ["files","file_archives",false,{max_mb:20,action:"delete"}],
-  ["files","file_executables",true,{max_mb:20,action:"delete_notify"}],
-  ["files","file_auto_delete",true,{}],
-  ["files","file_max_size",true,{max_mb:50,action:"delete"}],
-  ["messages","message_min_length",false,{min_chars:2,action:"delete"}],
-  ["messages","message_max_length",false,{max_chars:4000,action:"delete"}],
-  ["messages","message_rate_limit",false,{count:10,window_seconds:60,action:"delete"}],
-  ["interactions","reply_lock",false,{action:"delete"}],
-  ["interactions","edit_lock",false,{action:"delete_notify"}],
-  ["interactions","hashtag_limit",false,{max_hashtags:5,action:"delete"}],
-  ["interactions","mention_limit",false,{max_mentions:5,action:"delete"}],
-  ["interactions","web_preview_lock",false,{action:"delete"}],
-  ["interactions","story_share_lock",false,{action:"delete_notify"}],
-  ["advanced","contact_lock",false,{action:"delete_notify"}],
-  ["advanced","location_lock",false,{action:"delete_notify"}],
-  ["advanced","poll_lock",false,{action:"delete"}],
-  ["advanced","dice_lock",false,{action:"delete"}],
-  ["advanced","game_lock",false,{action:"delete"}],
-  ["advanced","web_app_lock",false,{action:"delete"}],
-  ["anti_attack","attack_flood",true,{count:8,window_seconds:5,action:"delete"}],
-  ["anti_attack","attack_duplicate",true,{count:3,window_seconds:30,action:"delete"}],
-  ["anti_attack","attack_caps",false,{percent:90,min_letters:20,action:"delete"}],
-  ["anti_attack","attack_link_burst",false,{count:3,window_seconds:15,action:"delete"}],
-  ["anti_attack","attack_media_burst",false,{count:5,window_seconds:15,action:"delete"}]
+  ["normal","normal_media",false,{action:"delete"}],["normal","normal_links",false,{action:"delete_notify"}],["normal","normal_ads",false,{action:"delete_notify"}],["normal","normal_files",false,{action:"delete"}],["normal","normal_forward",false,{action:"delete_notify"}],["normal","normal_contact",false,{action:"delete_notify"}],["normal","normal_location",false,{action:"delete_notify"}],["normal","normal_poll",false,{action:"delete"}],["normal","normal_dice",false,{action:"delete"}],["normal","normal_game",false,{action:"delete"}],["normal","normal_web_app",false,{action:"delete"}],["normal","normal_reply",false,{action:"delete"}],["normal","normal_edit",false,{action:"delete_notify"}],["normal","normal_mention",false,{action:"delete"}],["normal","normal_bot",false,{action:"delete_ban"}],
+  ["links","links_all",false,{action:"delete_notify"}],["links","links_telegram",true,{action:"delete_notify"}],["links","links_external",false,{action:"delete_notify"}],["links","links_invites",false,{action:"delete_notify"}],["links","links_username",false,{action:"delete"}],["links","links_phone",false,{action:"delete_notify"}],["links","links_auto_delete",true,{}],["links","links_notify",false,{}],
+  ["advertising","advertising_text",false,{action:"delete_notify"}],["advertising","advertising_links",false,{action:"delete_notify"}],["advertising","advertising_invites",false,{action:"delete_notify"}],["advertising","advertising_phone",false,{action:"delete_notify"}],["advertising","advertising_username",false,{action:"delete_notify"}],
+  ["media","media_photo",false,{max_mb:20,max_per_minute:0,action:"delete"}],["media","media_video",false,{max_mb:50,max_per_minute:0,action:"delete"}],["media","media_audio",false,{max_mb:50,max_per_minute:0,action:"delete"}],["media","media_animation",false,{max_mb:50,max_per_minute:0,action:"delete"}],["media","media_sticker",false,{max_mb:5,max_per_minute:0,action:"delete"}],["media","media_voice",false,{max_mb:50,max_per_minute:0,action:"delete"}],["media","media_video_note",false,{max_mb:50,max_per_minute:0,action:"delete"}],
+  ["forwarding","forward_all",false,{action:"delete_notify"}],["forwarding","forward_groups",false,{action:"delete_notify"}],["forwarding","forward_channels",false,{action:"delete_notify"}],["forwarding","forward_private",false,{action:"delete_notify"}],["forwarding","forward_auto_delete",true,{}],["forwarding","forward_notify",false,{}],
+  ["files","file_documents",false,{max_mb:20,action:"delete",blocked_extensions:[],allowed_extensions:[]}],["files","file_archives",false,{max_mb:20,action:"delete"}],["files","file_executables",true,{max_mb:20,action:"delete_notify"}],["files","file_auto_delete",true,{}],["files","file_max_size",true,{max_mb:50,action:"delete"}],
+  ["messages","message_min_length",false,{min_chars:2,action:"delete"}],["messages","message_max_length",false,{max_chars:4000,action:"delete"}],["messages","message_rate_limit",false,{count:10,window_seconds:60,action:"delete"}],
+  ["interactions","reply_lock",false,{action:"delete"}],["interactions","edit_lock",false,{action:"delete_notify"}],["interactions","hashtag_limit",false,{max_hashtags:5,action:"delete"}],["interactions","mention_limit",false,{max_mentions:5,action:"delete"}],["interactions","username_lock",false,{action:"delete_notify"}],["interactions","phone_lock",false,{action:"delete_notify"}],["interactions","email_lock",false,{action:"delete_notify"}],["interactions","web_preview_lock",false,{action:"delete"}],["interactions","story_share_lock",false,{action:"delete_notify"}],
+  ["advanced","contact_lock",false,{action:"delete_notify"}],["advanced","location_lock",false,{action:"delete_notify"}],["advanced","poll_lock",false,{action:"delete"}],["advanced","dice_lock",false,{action:"delete"}],["advanced","game_lock",false,{action:"delete"}],["advanced","web_app_lock",false,{action:"delete"}],["advanced","bot_join_lock",false,{action:"delete_ban"}],
+  ["anti_attack","attack_flood",true,{count:8,window_seconds:5,action:"delete"}],["anti_attack","attack_duplicate",true,{count:3,window_seconds:30,action:"delete"}],["anti_attack","attack_caps",false,{percent:90,min_letters:20,action:"delete"}],["anti_attack","attack_link_burst",false,{count:3,window_seconds:15,action:"delete"}],["anti_attack","attack_media_burst",false,{count:5,window_seconds:15,action:"delete"}],["anti_attack","attack_join_flood",false,{count:5,window_seconds:30,action:"delete"}]
 ] as const;
 
 function json(v:any){return JSON.stringify(v??{});}
@@ -274,6 +242,98 @@ async function block(input:Input,data:any,key:string,contentType:string,reason:s
   return act(input,rule,contentType,reason);
 }
 
+type LockCommandContext={chatId:number;userId:number;userRank:Rank;lang:"fa"|"en";chatTitle:string};
+const LOCK_BUNDLE_KEYS=[
+  "normal_media","normal_links","normal_ads","normal_files","normal_forward","normal_contact","normal_location","normal_poll","normal_dice","normal_game","normal_web_app","normal_reply","normal_edit","normal_mention","normal_bot"
+];
+const LOCK_LABELS:Record<string,string>={
+  normal_media:"رسانه",normal_links:"لینک",normal_ads:"تبلیغات",normal_files:"فایل",normal_forward:"فوروارد",normal_contact:"تماس",normal_location:"موقعیت",normal_poll:"نظرسنجی",normal_dice:"تاس",normal_game:"بازی",normal_web_app:"وب اپ",normal_reply:"ریپلای",normal_edit:"ویرایش",normal_mention:"منشن",normal_bot:"ربات",
+  media_photo:"عکس",media_video:"ویدیو",media_audio:"موزیک",media_animation:"گیف",media_sticker:"استیکر",media_voice:"ویس",media_video_note:"ویدیو نوت",
+  file_documents:"سند",file_archives:"فایل فشرده",file_executables:"فایل اجرایی",file_max_size:"حداکثر حجم فایل",
+  links_all:"همه لینک‌ها",links_telegram:"لینک تلگرام",links_external:"لینک خارجی",links_invites:"لینک دعوت",links_username:"یوزرنیم لینک",links_phone:"شماره در لینک",
+  advertising_text:"متن تبلیغاتی",advertising_links:"لینک تبلیغاتی",advertising_invites:"دعوت تبلیغاتی",advertising_phone:"شماره تبلیغاتی",advertising_username:"یوزرنیم تبلیغاتی",
+  forward_all:"همه فورواردها",forward_groups:"فوروارد گروه",forward_channels:"فوروارد کانال",forward_private:"فوروارد خصوصی",
+  reply_lock:"ریپلای",edit_lock:"ویرایش",hashtag_limit:"هشتگ",mention_limit:"منشن",username_lock:"یوزرنیم",phone_lock:"شماره تلفن",email_lock:"ایمیل",web_preview_lock:"پیش‌نمایش لینک",story_share_lock:"اشتراک‌گذاری استوری",
+  contact_lock:"Contact",location_lock:"Location",poll_lock:"Poll",dice_lock:"Dice",game_lock:"Game",web_app_lock:"Web App",bot_join_lock:"ورود ربات",
+  message_min_length:"حداقل طول پیام",message_max_length:"حداکثر طول پیام",message_rate_limit:"محدودیت پیام",
+  attack_flood:"ضد فلود",attack_duplicate:"ضد پیام تکراری",attack_caps:"کنترل CAPS",attack_link_burst:"ضد حمله لینک",attack_media_burst:"ضد حمله رسانه",attack_join_flood:"ضد هجوم عضو"
+};
+const LOCK_ALIASES:Record<string,string>={
+  "رسانه":"normal_media","رسانه‌ای":"normal_media","media":"normal_media",
+  "لینک":"normal_links","لینک‌ها":"normal_links","links":"normal_links",
+  "تبلیغات":"normal_ads","تبلیغ":"normal_ads","advertising":"normal_ads","ads":"normal_ads",
+  "فایل":"normal_files","فایل‌ها":"normal_files","files":"normal_files",
+  "فوروارد":"normal_forward","اشتراک‌گذاری":"normal_forward","forward":"normal_forward",
+  "تماس":"normal_contact","contact":"normal_contact",
+  "موقعیت":"normal_location","location":"normal_location",
+  "نظرسنجی":"normal_poll","poll":"normal_poll",
+  "تاس":"normal_dice","dice":"normal_dice",
+  "بازی":"normal_game","game":"normal_game",
+  "وب اپ":"normal_web_app","webapp":"normal_web_app",
+  "ریپلای":"normal_reply","reply":"normal_reply",
+  "ویرایش":"normal_edit","edit":"normal_edit",
+  "منشن":"normal_mention","mention":"normal_mention",
+  "ربات":"normal_bot","bot":"normal_bot",
+  "عکس":"media_photo","photo":"media_photo","ویدیو":"media_video","video":"media_video","موزیک":"media_audio","آهنگ":"media_audio","audio":"media_audio","گیف":"media_animation","gif":"media_animation","انیمیشن":"media_animation","استیکر":"media_sticker","sticker":"media_sticker","ویس":"media_voice","voice":"media_voice","ویدیو نوت":"media_video_note","video note":"media_video_note",
+  "سند":"file_documents","document":"file_documents","فایل فشرده":"file_archives","archive":"file_archives","فایل اجرایی":"file_executables","executable":"file_executables","حجم فایل":"file_max_size",
+  "همه لینک‌ها":"links_all","all links":"links_all","لینک تلگرام":"links_telegram","telegram":"links_telegram","لینک خارجی":"links_external","external":"links_external","لینک دعوت":"links_invites","invite":"links_invites","یوزرنیم لینک":"links_username","شماره لینک":"links_phone",
+  "متن تبلیغاتی":"advertising_text","لینک تبلیغاتی":"advertising_links","دعوت تبلیغاتی":"advertising_invites","شماره تبلیغاتی":"advertising_phone","یوزرنیم تبلیغاتی":"advertising_username",
+  "همه فورواردها":"forward_all","فوروارد گروه":"forward_groups","فوروارد کانال":"forward_channels","فوروارد خصوصی":"forward_private",
+  "هشتگ":"hashtag_limit","hashtag":"hashtag_limit","یوزرنیم":"username_lock","username":"username_lock","شماره تلفن":"phone_lock","phone":"phone_lock","ایمیل":"email_lock","email":"email_lock","پیش‌نمایش":"web_preview_lock","preview":"web_preview_lock","استوری":"story_share_lock","story":"story_share_lock",
+  "ضد فلود":"attack_flood","flood":"attack_flood","ضد پیام تکراری":"attack_duplicate","duplicate":"attack_duplicate","caps":"attack_caps","کنترل caps":"attack_caps","ضد حمله لینک":"attack_link_burst","link burst":"attack_link_burst","ضد حمله رسانه":"attack_media_burst","media burst":"attack_media_burst","ضد هجوم عضو":"attack_join_flood","join flood":"attack_join_flood","ورود ربات":"bot_join_lock"
+};
+function lockNorm(v:unknown){return String(v??"").trim().toLowerCase().replace(/[يى]/g,"ی").replace(/ك/g,"ک").replace(/[‌]/g,"").replace(/\s+/g," ").trim();}
+function lockKey(args:string[]){const joined=lockNorm(args.join(" "));if(!joined)return null;return LOCK_ALIASES[joined]??LOCK_ALIASES[lockNorm(joined.replace(/ـ/g,""))]??null;}
+function lockFmt(v:number){return String(v).replace(/\d/g,d=>"۰۱۲۳۴۵۶۷۸۹"[Number(d)]);}
+async function lockRows(pool:Pool,groupId:number){await seed(pool,groupId);return (await pool.query("SELECT rule_key,section,enabled,config FROM content_lock_rules WHERE group_id=$1 ORDER BY id",[groupId])).rows;}
+function lockStateLine(enabledValue:boolean){return enabledValue?"● فعال":"○ خاموش";}
+async function lockSectionText(pool:Pool,groupId:number,section:string,title:string,limit=100){
+  const rows=(await lockRows(pool,groupId)).filter((x:any)=>x.section===section);
+  const active=rows.filter((x:any)=>x.enabled).length;
+  const body=[
+    "━━━━━━━━━━━━━━━━━━━━━━━━","◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ - "+title,"━━━━━━━━━━━━━━━━━━━━━━━━","",
+    "⛂ - وضعیت بخش : "+(active?"● فعال":"○ خاموش")+"","⛂ - قوانین : "+lockFmt(rows.length),"⛂ - فعال : "+lockFmt(active),"⛂ - خاموش : "+lockFmt(Math.max(0,rows.length-active)),"",
+    "─────━━───── ◈ ─────━━─────"
+  ];
+  for(const row of rows.slice(0,limit)) body.push("⛂ - "+(LOCK_LABELS[row.rule_key]||row.rule_key)+" : "+lockStateLine(!!row.enabled));
+  return body.join("\n");
+}
+async function lockCenterText(pool:Pool,groupId:number){
+  const rows=await lockRows(pool,groupId);
+  const sections=["normal","media","links","advertising","forwarding","files","messages","interactions","advanced","anti_attack"];
+  const names:any={normal:"قفل‌های حالت عادی",media:"رسانه",links:"لینک‌ها",advertising:"تبلیغات",forwarding:"فوروارد و اشتراک‌گذاری",files:"فایل و سند",messages:"پیام‌ها",interactions:"تعامل و ویرایش",advanced:"پیشرفته",anti_attack:"امنیت و ضداتک"};
+  const body=["━━━━━━━━━━━━━━━━━━━━━━━━","◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ - Lᴏᴄᴋ Cᴇɴᴛᴇʀ","━━━━━━━━━━━━━━━━━━━━━━━━","",
+    "⛂ - سیستم قفل : ● فعال","⛂ - مجموع قوانین : "+lockFmt(rows.length),"⛂ - قوانین فعال : "+lockFmt(rows.filter((r:any)=>r.enabled).length),"","","─────━━───── ◈ ─────━━─────"];
+  for(const sec of sections){const rs=rows.filter((r:any)=>r.section===sec);body.push("⛂ - "+names[sec]+" : "+lockFmt(rs.filter((r:any)=>r.enabled).length)+" / "+lockFmt(rs.length));}
+  body.push("","برای کنترل یک مورد، بنویسید: «قفل + نوع» یا «بازکردن + نوع».","مثال: قفل رسانه · قفل عکس · قفل تبلیغات");
+  return body.join("\n");
+}
+export async function runContentLockCommand(pool:Pool,ctx:LockCommandContext,commandId:string,args:string[]):Promise<string>{
+  const normalizedArgs=lockNorm(args.join(" "));
+  if(commandId==="lockall"||((commandId==="lock")&&normalizedArgs==="همه")){await pool.query("UPDATE content_lock_rules SET enabled=TRUE,updated_at=NOW() WHERE group_id=$1",[ctx.chatId]);cache.delete(ctx.chatId);return "━━━━━━━━━━━━━━━━━━━━━━━━\n◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ - Lᴏᴄᴋ Aʟʟ\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n✓ همه قفل‌های سیستم فعال شدند.\n⛂ - قوانین فعال : "+lockFmt((await lockRows(pool,ctx.chatId)).length); }
+  if(commandId==="unlockall"||((commandId==="unlock")&&normalizedArgs==="همه")){await pool.query("UPDATE content_lock_rules SET enabled=FALSE,updated_at=NOW() WHERE group_id=$1",[ctx.chatId]);cache.delete(ctx.chatId);return "━━━━━━━━━━━━━━━━━━━━━━━━\n◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ - Uɴʟᴏᴄᴋ Aʟʟ\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n✓ همه قفل‌های سیستم خاموش شدند."; }
+  if(commandId==="lock"&&(!normalizedArgs||normalizedArgs==="وضعیت"||normalizedArgs==="status"||normalizedArgs==="ها"||normalizedArgs==="همه قفل‌ها"||normalizedArgs==="قفل‌ها"))return lockCenterText(pool,ctx.chatId);
+  if(commandId==="lock"&&(normalizedArgs==="حالت عادی"||normalizedArgs==="قفل‌های حالت عادی"||normalizedArgs==="normal"||normalizedArgs==="normal locks"))return lockSectionText(pool,ctx.chatId,"normal","Nᴏʀᴍᴀʟ Lᴏᴄᴋs");
+  if(commandId==="lock"&&normalizedArgs){
+    const key=lockKey(args);if(!key)return "✗ نوع قفل شناخته نشد. «قفل» را ارسال کنید تا فهرست دسته‌ها نمایش داده شود.";
+    const row=(await pool.query("SELECT rule_key,enabled FROM content_lock_rules WHERE group_id=$1 AND rule_key=$2",[ctx.chatId,key])).rows[0];
+    if(!row)return "✗ این قفل در هسته ثبت نشده است.";
+    if(row.enabled)return "⛂ - "+(LOCK_LABELS[key]||key)+" : ● قبلاً فعال است.";
+    await pool.query("UPDATE content_lock_rules SET enabled=TRUE,updated_at=NOW() WHERE group_id=$1 AND rule_key=$2",[ctx.chatId,key]);cache.delete(ctx.chatId);
+    return "✓ قفل «"+(LOCK_LABELS[key]||key)+"» فعال شد.\n⛂ - وضعیت : ● فعال";
+  }
+  if(commandId==="unlock"){
+    if(!normalizedArgs)return lockCenterText(pool,ctx.chatId);
+    const key=lockKey(args);if(!key)return "✗ نوع قفل شناخته نشد.";
+    const row=(await pool.query("SELECT rule_key,enabled FROM content_lock_rules WHERE group_id=$1 AND rule_key=$2",[ctx.chatId,key])).rows[0];
+    if(!row)return "✗ این قفل در هسته ثبت نشده است.";
+    if(!row.enabled)return "⛂ - "+(LOCK_LABELS[key]||key)+" : ○ از قبل خاموش است.";
+    await pool.query("UPDATE content_lock_rules SET enabled=FALSE,updated_at=NOW() WHERE group_id=$1 AND rule_key=$2",[ctx.chatId,key]);cache.delete(ctx.chatId);
+    return "✓ قفل «"+(LOCK_LABELS[key]||key)+"» خاموش شد.\n⛂ - وضعیت : ○ خاموش";
+  }
+  return lockCenterText(pool,ctx.chatId);
+}
+
 export async function enforceContentLocks(input:Input):Promise<boolean>{
   if(!input.pool||input.message.chat.type==="private")return false;
   const data=await load(input.pool,input.groupId);
@@ -281,12 +341,37 @@ export async function enforceContentLocks(input:Input):Promise<boolean>{
   const text=input.text||"";
   const entities=[...(input.message.entities??[]),...(input.message.caption_entities??[])];
 
+  if(input.edited&&enabled(data,"normal_edit")&&await block(input,data,"normal_edit","edited_message","قفل ویرایش حالت عادی"))return true;
   if(input.edited&&enabled(data,"edit_lock")&&await block(input,data,"edit_lock","edited_message","پیام ویرایش‌شده"))return true;
+  if(input.message.reply_to_message&&enabled(data,"normal_reply")&&await block(input,data,"normal_reply","reply","قفل ریپلای حالت عادی"))return true;
   if(input.message.reply_to_message&&await block(input,data,"reply_lock","reply","پیام ریپلای‌شده"))return true;
 
   const fwd=forwarded(input.message);
+  if(input.message.new_chat_members?.length){
+    const bots=input.message.new_chat_members.filter((u)=>u.is_bot===true);
+    if(bots.length&&enabled(data,"normal_bot")&&!(await exceptionMatches(data,input,"normal","normal_bot"))){
+      try{await telegramApi("deleteMessage",{chat_id:input.groupId,message_id:input.message.message_id});}catch{}
+      for(const bot of bots){try{await telegramApi("banChatMember",{chat_id:input.groupId,user_id:bot.id});}catch{}}
+      await log(input.pool!,input,"normal_bot","bot_join","delete_ban",{bots:bots.map((b)=>b.id)});
+      return true;
+    }
+    if(bots.length&&enabled(data,"bot_join_lock")&&!(await exceptionMatches(data,input,"advanced","bot_join_lock"))){
+      try{await telegramApi("deleteMessage",{chat_id:input.groupId,message_id:input.message.message_id});}catch{}
+      for(const bot of bots){try{await telegramApi("banChatMember",{chat_id:input.groupId,user_id:bot.id});}catch{}}
+      await log(input.pool!,input,"bot_join_lock","bot_join","delete_ban",{bots:bots.map((b)=>b.id)});
+      return true;
+    }
+    if(enabled(data,"attack_join_flood")){
+      const r=config(data,"attack_join_flood"),count=Number(r.count||5),win=Number(r.window_seconds||30)*1000,a=joinWindows.get(input.groupId)??[],now=Date.now();
+      while(a.length&&now-a[0]>win)a.shift();
+      for(const _bot of input.message.new_chat_members){a.push(now);}
+      joinWindows.set(input.groupId,a);
+      if(a.length>count&&await block(input,data,"attack_join_flood","attack","Join flood"))return true;
+    }
+  }
   if(fwd){
     const specific=fwd.kind==="channel"?"forward_channels":fwd.kind==="group"?"forward_groups":fwd.kind==="private"?"forward_private":"forward_all";
+    if(enabled(data,"normal_forward")&&await block(input,data,"normal_forward","forward","قفل فوروارد حالت عادی",fwd.sourceId))return true;
     const key=enabled(data,"forward_all")?"forward_all":specific;
     if(enabled(data,key)&&await block(input,data,key,"forward","فوروارد از "+fwd.kind,fwd.sourceId))return true;
   }
@@ -295,6 +380,7 @@ export async function enforceContentLocks(input:Input):Promise<boolean>{
   if(linkList.length){
     const allowedDomains=new Set(data.domains.filter((d:Domain)=>d.enabled).map((d:Domain)=>d.domain));
     const allowed=linkList.some((u:string)=>allowedDomains.has(domainOf(u)));
+    if(enabled(data,"normal_links")&&!allowed&&await block(input,data,"normal_links","link","قفل لینک حالت عادی"))return true;
     const hasTelegram=linkList.some((u:string)=>/(^|\/)(t\.me|telegram\.me)\//i.test(u));
     const invite=linkList.some((u:string)=>/(t\.me|telegram\.me)\/(\+|joinchat\/)/i.test(u));
     const key=invite&&enabled(data,"links_invites")?"links_invites":hasTelegram&&enabled(data,"links_telegram")?"links_telegram":enabled(data,"links_external")&&!hasTelegram?"links_external":enabled(data,"links_all")?"links_all":null;
@@ -302,7 +388,16 @@ export async function enforceContentLocks(input:Input):Promise<boolean>{
   }
 
   const type=mediaType(input.message);
+  const normalMediaTypes=new Set(["photo","video","audio","animation","sticker","voice","video_note"]);
   if(type){
+    if(normalMediaTypes.has(type)&&enabled(data,"normal_media")&&await block(input,data,"normal_media",type,"قفل رسانه حالت عادی"))return true;
+    if(type==="document"&&enabled(data,"normal_files")&&await block(input,data,"normal_files","file","قفل فایل حالت عادی"))return true;
+    if(type==="contact"&&enabled(data,"normal_contact")&&await block(input,data,"normal_contact","contact","قفل تماس حالت عادی"))return true;
+    if(type==="location"&&enabled(data,"normal_location")&&await block(input,data,"normal_location","location","قفل موقعیت حالت عادی"))return true;
+    if(type==="poll"&&enabled(data,"normal_poll")&&await block(input,data,"normal_poll","poll","قفل نظرسنجی حالت عادی"))return true;
+    if(type==="dice"&&enabled(data,"normal_dice")&&await block(input,data,"normal_dice","dice","قفل تاس حالت عادی"))return true;
+    if(type==="game"&&enabled(data,"normal_game")&&await block(input,data,"normal_game","game","قفل بازی حالت عادی"))return true;
+    if(type==="web_app"&&enabled(data,"normal_web_app")&&await block(input,data,"normal_web_app","web_app","قفل وب‌اپ حالت عادی"))return true;
     const key=type==="video_note"?"media_video_note":"media_"+type;
     const r=getRule(data,key);
     if(r?.enabled){
@@ -341,6 +436,7 @@ export async function enforceContentLocks(input:Input):Promise<boolean>{
   if(rateRule?.enabled&&track(windows,input.groupId+":"+input.userId+":messages",Number(rateRule.config?.window_seconds||60)*1000)>Number(rateRule.config?.count||10)&&await block(input,data,"message_rate_limit","text","نرخ پیام"))return true;
 
   const hashtags=(text.match(/#[\p{L}\p{N}_-]+/gu)||[]).length;
+  if(enabled(data,"normal_mention")&&/@[A-Za-z0-9_]{3,64}/.test(text)&&await block(input,data,"normal_mention","mention","قفل منشن حالت عادی"))return true;
   if(enabled(data,"hashtag_limit")&&hashtags>Number(config(data,"hashtag_limit").max_hashtags||5)&&await block(input,data,"hashtag_limit","text","تعداد هشتگ"))return true;
   const mentions=(text.match(/@[A-Za-z0-9_]{3,64}/g)||[]).length;
   if(enabled(data,"mention_limit")&&mentions>Number(config(data,"mention_limit").max_mentions||5)&&await block(input,data,"mention_limit","text","تعداد منشن"))return true;
@@ -353,6 +449,21 @@ export async function enforceContentLocks(input:Input):Promise<boolean>{
   if(input.message.dice&&await block(input,data,"dice_lock","dice","Dice"))return true;
   if(input.message.game&&await block(input,data,"game_lock","game","Game"))return true;
   if(input.message.web_app_data&&await block(input,data,"web_app_lock","web_app","Web App"))return true;
+
+  const phoneFound=/(?:\+?\d{1,3}[\s-]?)?(?:0?\d{8,12})/.test(text);
+  const emailFound=/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(text);
+  const usernameFound=/(^|\s)@[A-Za-z0-9_]{3,64}\b/.test(text);
+  const adHint=/(تبلیغ|تبلیغات|فروش|خرید|تخفیف|فالو|عضو(?:گیری|شو)|کسب درآمد|درآمد|promo|advertis|discount|sale|buy|join now)/i.test(text);
+  if(enabled(data,"normal_ads")&&(adHint||linkList.length>0||phoneFound)&&await block(input,data,"normal_ads","advertising","قفل تبلیغات حالت عادی"))return true;
+  if(enabled(data,"advertising_text")&&adHint&&await block(input,data,"advertising_text","advertising","متن تبلیغاتی"))return true;
+  if(enabled(data,"advertising_links")&&linkList.length&&await block(input,data,"advertising_links","advertising","لینک تبلیغاتی"))return true;
+  const inviteDetected=linkList.some((u:string)=>/(t\.me|telegram\.me)\/(\+|joinchat\/)/i.test(u));
+  if(enabled(data,"advertising_invites")&&inviteDetected&&await block(input,data,"advertising_invites","advertising","دعوت تبلیغاتی"))return true;
+  if(enabled(data,"advertising_phone")&&phoneFound&&await block(input,data,"advertising_phone","advertising","شماره تبلیغاتی"))return true;
+  if(enabled(data,"advertising_username")&&usernameFound&&await block(input,data,"advertising_username","advertising","یوزرنیم تبلیغاتی"))return true;
+  if(enabled(data,"phone_lock")&&phoneFound&&await block(input,data,"phone_lock","text","شماره تلفن"))return true;
+  if(enabled(data,"email_lock")&&emailFound&&await block(input,data,"email_lock","text","ایمیل"))return true;
+  if(enabled(data,"username_lock")&&usernameFound&&await block(input,data,"username_lock","text","یوزرنیم"))return true;
 
   const raw=text;
   const base=input.groupId+":"+input.userId;
