@@ -5,6 +5,15 @@ import { telegramApi } from "../src/lib/telegram/api.ts";
 import type { Rank } from "../src/lib/bot/registry.ts";
 import { ensureContentLocks, editRichLockCenter } from "../src/lib/bot/content-locks.ts";
 import { glassKeyboard } from "../src/lib/bot/panel-design.ts";
+import {
+  ensurePanelSessionSchema,
+  runWithPanelScope,
+  currentPanelScope,
+  bindPanelMessage,
+  touchPanelMessage,
+  panelMessageOwnedBy,
+  unbindPanelMessage,
+} from "../src/lib/bot/panel-session.ts";
 
 type TgUser={id:number;first_name?:string;username?:string};
 type TgChat={id:number;type:string;title?:string;username?:string};
@@ -35,12 +44,28 @@ function clearSession(uid:number){sessions.delete(uid);}
 function allowed(uid:number){const now=Date.now(),last=throttles.get(uid)||0;if(now-last<800)return false;throttles.set(uid,now);return true;}
 function sleep(ms:number){return new Promise(resolve=>setTimeout(resolve,ms));}
 async function answer(id:string){await telegramApi("answerCallbackQuery",{callback_query_id:id});}
-async function send(chatId:number,message:string,markup:any=null){return telegramApi("sendMessage",{chat_id:chatId,text:message,reply_markup:markup});}
+async function send(chatId:number,message:string,markup:any=null){
+  const result=await telegramApi("sendMessage",{chat_id:chatId,text:message,reply_markup:markup});
+  const scope=currentPanelScope();
+  if(result.ok&&scope&&markup?.inline_keyboard){
+    const messageId=Number((result.result as any)?.message_id);
+    if(Number.isSafeInteger(messageId)&&messageId>0){
+      await bindPanelMessage(scope.pool,chatId,messageId,scope.userId);
+    }
+  }
+  return result;
+}
 async function edit(chatId:number,messageId:number,message:string,markup:any=null){
-  // Telegram does not expose a custom page-transition API for inline keyboards.
-  // A tiny centralized delay keeps rapid callback navigation visually less abrupt.
+  // Telegram does not expose a custom page-transition API.
+  // Keep the existing soft transition while preserving message ownership.
   await sleep(75);
-  return telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,text:message,reply_markup:markup});
+  const result=await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,text:message,reply_markup:markup});
+  const scope=currentPanelScope();
+  if(result.ok&&scope){
+    if(markup?.inline_keyboard) await touchPanelMessage(scope.pool,chatId,messageId,scope.userId);
+    else await unbindPanelMessage(scope.pool,chatId,messageId,scope.userId);
+  }
+  return result;
 }
 async function audit(pool:Pool,actor:string,action:string,target:string,meta:any={}){await pool.query("INSERT INTO audit_logs(actor_id,action,target,after_data,source) VALUES($1,$2,$3,$4::jsonb,'telegram_panel')",[actor,action,target,JSON.stringify(meta)]).catch(()=>{});}
 async function ensureOwners(pool:Pool,ids:string[]){for(const id of ids){if(/^\d+$/.test(id))await pool.query("INSERT INTO bot_panel_owners(user_id) VALUES($1) ON CONFLICT DO NOTHING",[id]);}}
@@ -407,19 +432,34 @@ async function handleInput(pool:Pool,msg:TgMessage){
 }
 
 export async function dispatchPanelMessage(pool:Pool,msg:TgMessage,ownerIds:string[]){
-  if(!msg.from)return false;if(!allowed(msg.from.id))return true;
-  if(await handleInput(pool,msg))return true;
-  if(await handleOwner(pool,msg,ownerIds))return true;
-  return await handleCustomer(pool,msg,ownerIds);
+  if(!msg.from)return false;
+  await ensurePanelSessionSchema(pool);
+  return runWithPanelScope(msg.from.id,pool,async()=>{
+    // Panel throttling must never consume group messages; content-lock
+    // enforcement needs to see every message, including rapid photo bursts.
+    if(!allowed(msg.from.id))return false;
+    if(await handleInput(pool,msg))return true;
+    if(await handleOwner(pool,msg,ownerIds))return true;
+    return await handleCustomer(pool,msg,ownerIds);
+  });
 }
 export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
-  if(!allowed(cb.from.id))return;
-  const data=String(cb.data||"");
+  if(!cb.message)return;
+  await ensurePanelSessionSchema(pool);
+  const owned=await panelMessageOwnedBy(pool,cb.message.chat.id,cb.message.message_id,cb.from.id);
+  if(!owned){
+    await answer(cb.id);
+    return;
+  }
+  return runWithPanelScope(cb.from.id,pool,async()=>{
+    if(!allowed(cb.from.id))return;
+    const data=String(cb.data||"");
   // Customer/lock panel callbacks must keep their customer context even for the bot owner.
   // Otherwise ownerCallback receives c:/cl:/clt:/cls: actions and silently ignores them.
-  if(data.startsWith("c:")||data.startsWith("cl:")||data.startsWith("clt:")||data.startsWith("cls:")){
+    if(data.startsWith("c:")||data.startsWith("cl:")||data.startsWith("clt:")||data.startsWith("cls:")){
+      return customerCallback(pool,cb,ownerIds);
+    }
+    if(await isOwner(pool,cb.from.id,ownerIds))return ownerCallback(pool,cb,ownerIds);
     return customerCallback(pool,cb,ownerIds);
-  }
-  if(await isOwner(pool,cb.from.id,ownerIds))return ownerCallback(pool,cb,ownerIds);
-  return customerCallback(pool,cb,ownerIds);
+  });
 }
