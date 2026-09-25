@@ -35,7 +35,7 @@ function userStats(chatId:number,userId:number){
   const daily=userMessageDailyCounts.get(key);
   return { total:userMessageCounts.get(key)??0, today:daily?.day===dayKey()?daily.count:0 };
 }
-function groupStats(chatId:number){
+export function getGroupStats(chatId:number){
   const daily=groupMessageDailyCounts.get(chatId);
   const joins=memberJoins.get(String(chatId))??[];
   const today=dayKey();
@@ -115,7 +115,7 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
     }
     case "id": {
       const us=userStats(ctx.chatId,ctx.userId);
-      const gs=groupStats(ctx.chatId);
+      const gs=getGroupStats(ctx.chatId);
       const username=ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName;
       const faText=[
         "◈ اطلاعات کاربر",
