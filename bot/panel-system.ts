@@ -133,7 +133,7 @@ const BUTTON_LABELS:Record<string,Partial<Record<BotLang,string>>> = {
   "مرکز قفل و فیلتر":{en:"Lock & filter",ar:"القفل والتصفية",ru:"Блокировки и фильтры",tr:"Kilit ve filtre",zh:"锁定与过滤"},
   "زبان ربات":{en:"Bot language",ar:"لغة البوت",ru:"Язык бота",tr:"Bot dili",zh:"机器人语言"},
   "مرکز امنیت":{en:"Security center",ar:"مركز الأمان",ru:"Безопасность",tr:"Güvenlik",zh:"安全中心"},
-  "اخطار و جریمه":{en:"Warnings & penalties",ar:"التحذيرات والعقوبات",ru:"Предупреждения и санкции",tr:"Uyarılar ve cezalar",zh:"警告与处罚"},"مرکز مجازات":{en:"Penalty center",ar:"مركز العقوبات",ru:"Центр наказаний",tr:"Ceza Merkezi",zh:"处罚中心"},"مرکز مجازات":{en:"Pᴇɴᴀʟᴛʏ Cᴇɴᴛᴇʀ",ar:"مركز العقوبات",ru:"Центр наказаний",tr:"Ceza Merkezi",zh:"处罚中心"},
+  "اخطار و جریمه":{en:"Warnings & penalties",ar:"التحذيرات والعقوبات",ru:"Предупреждения и санкции",tr:"Uyarılar ve cezalar",zh:"警告与处罚"},"مرکز مجازات":{en:"Pᴇɴᴀʟᴛʏ Cᴇɴᴛᴇʀ",ar:"مركز العقوبات",ru:"Центр наказаний",tr:"Ceza Merkezi",zh:"处罚中心"},
   "مدیریت اعضا":{en:"Members",ar:"الأعضاء",ru:"Участники",tr:"Üyeler",zh:"成员"},
   "مرکز اتوماسیون":{en:"Automation center",ar:"الأتمتة",ru:"Автоматизация",tr:"Otomasyon",zh:"自动化"},
   "استودیو دستورات":{en:"Command studio",ar:"استوديو الأوامر",ru:"Студия команд",tr:"Komut stüdyosu",zh:"命令工作室"},
@@ -851,8 +851,8 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   }
   if(data==="w:clear"){session(uid,"warn_clear",{chatId:groupId});return edit(msg.chat.id,msg.message_id,panelTitle("پاک‌کردن اخطار","آیدی عددی کاربر را ارسال کنید."),menu([[["‹ بازگشت","c:warnings"]]]));}
   if(data==="w:history"){
-    const r=await pool.query("SELECT user_id,action_type,violation_type,penalty_type,created_at FROM warning_events WHERE group_id=$1 ORDER BY created_at DESC LIMIT 30");
-    return edit(msg.chat.id,msg.message_id,panelTitle("تاریخچه اخطار",r.rows.length?r.rows.map((x:any)=>"⛂ - "+faDate(x.created_at)+" · کاربر : "+x.user_id+" · عملیات : "+x.action_type).join("\n"):"⛂ - وضعیت : تاریخچه‌ای ثبت نشده است."),menu([[["‹ بازگشت","c:warnings"]]]));
+    const r=await pool.query("SELECT actor_id,target_id,action_type,duration_seconds,reason,created_at FROM moderation_actions WHERE group_id=$1 ORDER BY created_at DESC LIMIT 50").catch(()=>({rows:[] as any[]}));
+    return edit(msg.chat.id,msg.message_id,panelTitle("تاریخچه عملیات",r.rows.length?r.rows.map((x:any)=>"⛂ - "+faDate(x.created_at)+" · کاربر : "+x.target_id+" · عملیات : "+x.action_type+" · دلیل : "+(x.reason||"—")).join("\n"):"⛂ - وضعیت : تاریخچه‌ای ثبت نشده است."),menu([[["‹ بازگشت","c:warnings"]]]));
   }
 
   if(data==="c:members")return edit(msg.chat.id,msg.message_id,panelTitle("مدیریت اعضا","⛂ - وضعیت : ابزارهای جستجو، سکوت، اخراج و عملیات گروهی آماده است."),menu([
