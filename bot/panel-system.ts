@@ -36,7 +36,12 @@ function allowed(uid:number){const now=Date.now(),last=throttles.get(uid)||0;if(
 function sleep(ms:number){return new Promise(resolve=>setTimeout(resolve,ms));}
 async function answer(id:string){await telegramApi("answerCallbackQuery",{callback_query_id:id});}
 async function send(chatId:number,message:string,markup:any=null){return telegramApi("sendMessage",{chat_id:chatId,text:message,reply_markup:markup});}
-async function edit(chatId:number,messageId:number,message:string,markup:any=null){return telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,text:message,reply_markup:markup});}
+async function edit(chatId:number,messageId:number,message:string,markup:any=null){
+  // Telegram does not expose a custom page-transition API for inline keyboards.
+  // A tiny centralized delay keeps rapid callback navigation visually less abrupt.
+  await sleep(75);
+  return telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,text:message,reply_markup:markup});
+}
 async function audit(pool:Pool,actor:string,action:string,target:string,meta:any={}){await pool.query("INSERT INTO audit_logs(actor_id,action,target,after_data,source) VALUES($1,$2,$3,$4::jsonb,'telegram_panel')",[actor,action,target,JSON.stringify(meta)]).catch(()=>{});}
 async function ensureOwners(pool:Pool,ids:string[]){for(const id of ids){if(/^\d+$/.test(id))await pool.query("INSERT INTO bot_panel_owners(user_id) VALUES($1) ON CONFLICT DO NOTHING",[id]);}}
 async function isOwner(pool:Pool,uid:number,envOwners:string[]){const all=new Set([...BUILTIN_OWNER_IDS,...envOwners]);if(all.has(String(uid)))return true;const r=await pool.query("SELECT 1 FROM bot_panel_owners WHERE user_id=$1 LIMIT 1",[uid]);return !!r.rowCount;}
