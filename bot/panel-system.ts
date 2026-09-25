@@ -297,8 +297,9 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     return editRichLockCenter(pool,msg.chat.id,msg.message_id,uid);
   }
   if(data.startsWith("clt:")){
-    const key=data.slice(4);const r=await pool.query("SELECT enabled,title,section FROM content_lock_rules WHERE group_id=$1 AND rule_key=$2",[groupId,key]);if(!r.rowCount)return;
-    const next=!r.rows[0].enabled;
+    const parts=data.split(":");const key=parts[1];const requested=parts[2];
+    const r=await pool.query("SELECT enabled,title,section FROM content_lock_rules WHERE group_id=$1 AND rule_key=$2",[groupId,key]);if(!r.rowCount)return;
+    const next=requested==="on"?true:requested==="off"?false:!r.rows[0].enabled;
     await pool.query("UPDATE content_lock_rules SET enabled=$1,updated_at=NOW() WHERE group_id=$2 AND rule_key=$3",[next,groupId,key]);
     await audit(pool,String(uid),"content_lock_rule_changed",key,{groupId,enabled:next});
     const section=String(r.rows[0].section),names:any={normal:"قفل‌های حالت عادی",media:"رسانه",links:"لینک‌ها",advertising:"تبلیغات",forwarding:"فوروارد و اشتراک‌گذاری",files:"فایل و سند",messages:"پیام و نرخ ارسال",interactions:"تعامل و هویت",advanced:"محتوای پیشرفته",anti_attack:"امنیت و ضد اتک",language:"قفل زبان"};
@@ -307,8 +308,8 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     const buttons:any=[];
     for(let i=0;i<rows.rows.length;i+=2){
       const a=rows.rows[i],b=rows.rows[i+1];
-      const row:any=[[(a.enabled?"● ":"○ ")+(labels[a.rule_key]||a.title||a.rule_key),"clt:"+a.rule_key]];
-      if(b)row.push([(b.enabled?"● ":"○ ")+(labels[b.rule_key]||b.title||b.rule_key),"clt:"+b.rule_key]);
+      const row:any=[[(labels[a.rule_key]||a.title||a.rule_key),"clt:"+a.rule_key+":"+(a.enabled?"off":"on")]];
+      if(b)row.push([(labels[b.rule_key]||b.title||b.rule_key),"clt:"+b.rule_key+":"+(b.enabled?"off":"on")]);
       buttons.push(row);
     }
     buttons.unshift([["✓ فعال‌سازی بخش","cls:"+section+":on"],["× خاموش‌سازی بخش","cls:"+section+":off"]]);
@@ -336,7 +337,7 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     const section=data.slice(3);
     if(section==="exceptions")return edit(msg.chat.id,msg.message_id,
       "◈ استثناها و دامنه‌های مجاز\n\nاین بخش برای استثناکردن کاربر، نقش یا منبع فوروارد استفاده می‌شود.",
-      menu([[["› مدیریت در پنل وب","cl:web"]],[["‹ بازگشت","c:locks"]]])
+      menu([[["مدیریت استثناها","c:exceptions"]],[["‹ بازگشت","c:locks"]]])
     );
     await ensureContentLocks(pool,groupId);
     const names:any={normal:"قفل‌های حالت عادی",media:"رسانه",links:"لینک‌ها",advertising:"تبلیغات",forwarding:"فوروارد و اشتراک‌گذاری",files:"فایل و سند",messages:"پیام و نرخ ارسال",interactions:"تعامل و هویت",advanced:"محتوای پیشرفته",anti_attack:"امنیت و ضد اتک",language:"قفل زبان"};
@@ -345,9 +346,9 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     const buttons:any=[];
     for(let i=0;i<rows.rows.length;i+=2){
       const a=rows.rows[i],b=rows.rows[i+1];
-      const ar=[(a.enabled?"● ":"○ ")+(labels[a.rule_key]||a.title||a.rule_key),"clt:"+a.rule_key];
+      const ar=[(labels[a.rule_key]||a.title||a.rule_key),"clt:"+a.rule_key+":"+(a.enabled?"off":"on")];
       const row:any=[ar];
-      if(b)row.push([(b.enabled?"● ":"○ ")+(labels[b.rule_key]||b.title||b.rule_key),"clt:"+b.rule_key]);
+      if(b)row.push([(labels[b.rule_key]||b.title||b.rule_key),"clt:"+b.rule_key+":"+(b.enabled?"off":"on")]);
       buttons.push(row);
     }
     const active=rows.rows.filter((x:any)=>x.enabled).length;
