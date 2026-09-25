@@ -326,7 +326,7 @@ function richEscape(value:unknown){
 
 const LOCK_PANEL_SEPARATOR="─────━━───── ◈ ─────━━─────";
 
-function lockRichPlain(text:string){return {type:"plain",text};}
+function lockRichPlain(text:string){return text;}
 function lockCenterTitle(lang:BotLang){
   const suffix:Record<BotLang,string>={fa:"Lᴏᴄᴋ Cᴇɴᴛᴇʀ",en:"Lᴏᴄᴋ Cᴇɴᴛᴇʀ",ar:"مركز القفل",ru:"Центр блокировок",tr:"Kilit Merkezi",zh:"锁定中心"};
   return "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · "+suffix[lang];
