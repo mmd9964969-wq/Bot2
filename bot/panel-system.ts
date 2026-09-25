@@ -288,13 +288,14 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   if(data.startsWith("cls:")){
     const parts=data.split(":");const section=parts[1],value=parts[2]==="on";
     const allowedSections=new Set(["normal","media","links","advertising","forwarding","files","messages","interactions","advanced","anti_attack"]);
+    const sectionNames:any={normal:"قفل‌های حالت عادی",media:"رسانه",links:"لینک‌ها",advertising:"تبلیغات",forwarding:"فوروارد و اشتراک‌گذاری",files:"فایل و سند",messages:"پیام و نرخ ارسال",interactions:"تعامل و هویت",advanced:"محتوای پیشرفته",anti_attack:"امنیت و ضد اتک"};
     if(!allowedSections.has(section))return;
     const result=await pool.query("UPDATE content_lock_rules SET enabled=$1,updated_at=NOW() WHERE group_id=$2 AND section=$3 RETURNING rule_key",[value,groupId,section]);
     await audit(pool,String(uid),"content_lock_section_changed",section,{groupId,enabled:value,changed:result.rowCount||0});
     const rows=await pool.query("SELECT rule_key,enabled,title FROM content_lock_rules WHERE group_id=$1 AND section=$2 ORDER BY id",[groupId,section]);
     const active=rows.rows.filter((x:any)=>x.enabled).length;
     return edit(msg.chat.id,msg.message_id,
-      "━━━━━━━━━━━━━━━━━━━━━━━━\n◈ "+(names[section]||section)+"\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n✓ بخش "+(value?"فعال":"خاموش")+" شد.\n⛂ - فعال : "+active+" از "+rows.rows.length,
+      "━━━━━━━━━━━━━━━━━━━━━━━━\n◈ "+(sectionNames[section]||section)+"\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n✓ بخش "+(value?"فعال":"خاموش")+" شد.\n⛂ - فعال : "+active+" از "+rows.rows.length,
       menu([[["✓ فعال‌سازی بخش","cls:"+section+":on"],["× خاموش‌سازی بخش","cls:"+section+":off"]],[["‹ بازگشت به قفل‌ها","c:locks"]]])
     );
   }
