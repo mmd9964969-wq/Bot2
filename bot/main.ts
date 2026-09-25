@@ -8,6 +8,7 @@ import { rankAtLeast } from "../src/lib/bot/registry.ts";
 import { runLiveCommand, recordMessage, getGroupStats } from "../src/lib/bot/runtime.ts";
 import { enforceContentLocks, runContentLockCommand, sendContentLockCenter, type ContentLockMessage } from "../src/lib/bot/content-locks.ts";
 import { isRuntimeMaintenance, startRuntimeControlServer } from "./runtime-control.ts";
+import { ensureAutomationSchema, runAutomations, tickSchedules } from "../src/lib/bot/automation-engine.ts";
 import { dispatchPanelMessage, dispatchPanelCallback } from "./panel-system.ts";
 import { ensureInstallationSchema, installationGate, handleInstallationCallback } from "./installation.ts";
 
@@ -636,7 +637,7 @@ async function chatAdmins(chatId: number): Promise<Set<number>> {
   return ids;
 }
 
-async function handleMessage(msg: TgMessage, edited = false) {
+async function processMessage(msg: TgMessage, edited = false) {
   const text = (msg.text || msg.caption || "").trim();
   if (!msg.from) return;
 
@@ -708,6 +709,18 @@ async function handleMessage(msg: TgMessage, edited = false) {
     if (blocked) return;
   }
 
+  if (!edited && studioPool) {
+    const automated = await runAutomations(
+      studioPool,
+      chat.id,
+      msg.from.id,
+      msg.from.first_name,
+      text,
+      msg.message_id,
+    );
+    if (automated) return;
+  }
+
   if (isRuntimeMaintenance() && !["owner","sudo"].includes(ctx.userRank)) {
     await telegramApi("sendMessage", { chat_id: chat.id, text: ctx.lang === "fa" ? "⏸️ ربات موقتاً در حالت تعمیر است. لطفاً بعداً دوباره تلاش کنید." : "⏸️ The bot is temporarily in maintenance mode. Please try again later.", reply_to_message_id: msg.message_id });
     return;
@@ -756,14 +769,32 @@ async function acquirePollingLock(): Promise<Client | null> {
 
     console.warn("[poll-lock] another polling instance is active; waiting 5s");
     await sleep(5000);
+  }}
+
+const groupMessageQueues = new Map<number, Promise<void>>();
+
+async function handleMessage(msg:TgMessage, edited=false){
+  if(msg.chat.type==="private") return processMessage(msg,edited);
+  const groupId=msg.chat.id;
+  const previous=groupMessageQueues.get(groupId)??Promise.resolve();
+  const current=previous.then(()=>processMessage(msg,edited));
+  const tail=current.then(()=>undefined,()=>undefined);
+  groupMessageQueues.set(groupId,tail);
+  try{
+    await current;
+  }finally{
+    if(groupMessageQueues.get(groupId)===tail)groupMessageQueues.delete(groupId);
   }
-}
 
 async function poll() {
   let offset = 0;
   await refreshStudio();
-  if (studioPool) await ensureInstallationSchema(studioPool);
+  if (studioPool) {
+    await ensureInstallationSchema(studioPool);
+    await ensureAutomationSchema(studioPool);
+  }
   setInterval(() => void refreshStudio(), 5000);
+  setInterval(() => { if (studioPool) void tickSchedules(studioPool).catch(error => console.error("[scheduler]", error)); }, 5000);
 
   console.log("nizam two-phase polling as " + config.botName);
 
