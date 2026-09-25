@@ -521,7 +521,10 @@ const server = http.createServer(async (req,res) => {
       }));
     }
 
-    if (url.pathname.startsWith("/api/settings")) { const handled = await settingsApi(req,res,url); if (handled !== null) return handled; }\n    if (url.pathname.startsWith("/api/database")) { const handled = await databaseApi(req,res,url); if (handled !== null) return handled; }\n    if (url.pathname.startsWith("/api/audit")) { const handled = await auditApi(req,res,url); if (handled !== null) return handled; }\n    if (url.pathname.startsWith("/api/installations")) { const handled = await installationsApi(req,res,url); if (handled !== null) return handled; }
+    if (url.pathname.startsWith("/api/settings")) { const handled = await settingsApi(req,res,url); if (handled !== null) return handled; }
+    if (url.pathname.startsWith("/api/database")) { const handled = await databaseApi(req,res,url); if (handled !== null) return handled; }
+    if (url.pathname.startsWith("/api/audit")) { const handled = await auditApi(req,res,url); if (handled !== null) return handled; }
+    if (url.pathname.startsWith("/api/installations")) { const handled = await installationsApi(req,res,url); if (handled !== null) return handled; }
     if (url.pathname.startsWith("/api/warnings")) { const handled = await warningsApi(req,res,url); if (handled !== null) return handled; }
     if (url.pathname.startsWith("/api/content-locks")) { const handled = await contentLocksApi(req,res,url); if (handled !== null) return handled; }
     if (url.pathname.startsWith("/api/runtime")) { const handled = await runtimeApi(req,res,url); if (handled !== null) return handled; }
