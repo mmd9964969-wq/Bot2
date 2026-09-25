@@ -5,7 +5,7 @@ import { telegramApi } from "../src/lib/telegram/api.ts";
 import type { Rank } from "../src/lib/bot/registry.ts";
 import { ensureContentLocks, editRichLockCenter } from "../src/lib/bot/content-locks.ts";
 import { glassKeyboard } from "../src/lib/bot/panel-design.ts";
-import { getGroupLanguage, setGroupLanguage, normalizeBotLang, languageNative, languageButtonLabel, SUPPORTED_LANGUAGES, type BotLang } from "../src/lib/bot/i18n.ts";
+import { getGroupLanguage, setGroupLanguage, ensureGroupLanguageSchema, normalizeBotLang, languageNative, languageButtonLabel, SUPPORTED_LANGUAGES, type BotLang } from "../src/lib/bot/i18n.ts";
 import { AUTOMATION_ACTIONS } from "../src/lib/bot/automation-engine.ts";
 import { executeRuntimeAction, isRuntimeMaintenance } from "./runtime-control.ts";
 import {
