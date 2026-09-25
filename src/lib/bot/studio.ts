@@ -5,7 +5,7 @@ export type StudioRank = Rank;
 export type StudioCapability = { id: string; phase: StudioPhaseId; titleFa: string; titleEn: string; descriptionFa: string; descriptionEn: string; enabled: boolean };
 export type StudioCommand = { id: string; capabilityId: string; phase: StudioPhaseId; aliasesFa: string[]; aliasesEn: string[]; minRank: StudioRank; enabled: boolean; responseFa: string; responseEn: string };
 export type StudioResponseTemplate = { id: string; phase: StudioPhaseId; titleFa: string; titleEn: string; responseFa: string; responseEn: string };
-export type StudioDocument = { version: string; updatedAt: string; activePhase: StudioPhaseId; settings: { botName: string; defaultLang: "fa" | "en"; bareCommands: boolean; compactReplies: boolean }; capabilities: StudioCapability[]; commands: StudioCommand[]; responseTemplates: StudioResponseTemplate[] };
+export type StudioDocument = { version: string; updatedAt: string; activePhase: StudioPhaseId; settings: { botName: string; defaultLang: import("./registry.ts").Lang; bareCommands: boolean; compactReplies: boolean }; capabilities: StudioCapability[]; commands: StudioCommand[]; responseTemplates: StudioResponseTemplate[] };
 
 const capabilities: StudioCapability[] = [
   { id: "phase-1", phase: 1, titleFa: "هسته و اطلاعات", titleEn: "Core & information", descriptionFa: "ربات، آیدی، ادمین، اطلاعات گروه، مقام و پروفایل شخصی.", descriptionEn: "Robot, identity, admin access, group info, ranks and profile.", enabled: true },
