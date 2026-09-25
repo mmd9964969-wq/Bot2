@@ -460,6 +460,55 @@ FROM commands c ORDER BY c.id DESC`);
   return null;
 }
 
+
+async function settingsApi(req,res,url){
+  if(req.method==="GET" && url.pathname==="/api/settings"){
+    const rows=await query("SELECT key,value,updated_at FROM settings ORDER BY key");
+    const settings={}; for(const row of rows.rows) settings[row.key]=row.value;
+    return send(res,200,JSON.stringify({settings,updated_at:rows.rows.reduce((m,x)=>x.updated_at>m?x.updated_at:m,"")}));
+  }
+  const match=url.pathname.match(/^\/api\/settings\/([a-z0-9_.-]+)$/);
+  if(match && req.method==="PUT"){
+    const key=match[1], allowed=["default_language","timezone","confirm_sensitive","panel_density","refresh_interval","number_locale"];
+    if(!allowed.includes(key)) return send(res,400,JSON.stringify({error:"Invalid setting key"}));
+    const body=await readBody(req);
+    if(!Object.prototype.hasOwnProperty.call(body,"value")) return send(res,400,JSON.stringify({error:"value is required"}));
+    const value=JSON.stringify(body.value);
+    const result=await query("INSERT INTO settings(key,value,updated_at) VALUES($1,$2::jsonb,NOW()) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=NOW() RETURNING key,value,updated_at",[key,value]);
+    await audit("setting_changed",body.actor_id||"PANEL_OWNER",key,null,result.rows[0]);
+    return send(res,200,JSON.stringify({setting:result.rows[0]}));
+  }
+  return null;
+}
+
+async function databaseApi(req,res,url){
+  if(req.method==="GET" && url.pathname==="/api/database/summary"){
+    const health=await checkConnection();
+    const tables=(await query("SELECT table_name FROM information_schema.tables WHERE table_schema='public' ORDER BY table_name")).rows.map(x=>x.table_name);
+    const counts={};
+    const candidates=["users","commands","response_templates","audit_logs","bot_groups","bot_customer_groups","content_lock_rules","warning_cases","warning_events","bot_schedules","bot_group_installations"];
+    for(const table of candidates){
+      if(!tables.includes(table)) continue;
+      try{const row=(await query("SELECT COUNT(*)::int AS count FROM "+table)).rows[0];counts[table]=Number(row?.count||0);}catch{counts[table]=null;}
+    }
+    return send(res,200,JSON.stringify({database:health,tables,counts,timestamp:new Date().toISOString()}));
+  }
+  return null;
+}
+
+async function auditApi(req,res,url){
+  if(req.method==="GET" && url.pathname==="/api/audit"){
+    const limit=Math.min(Math.max(Number(url.searchParams.get("limit")||100),1),500);
+    const action=String(url.searchParams.get("action")||"").trim();
+    const params=[]; let where="";
+    if(action){params.push(action);where=" WHERE action=$1";}
+    params.push(limit);
+    const rows=await query("SELECT id,actor_id,action,target,before_data,after_data,source,created_at FROM audit_logs"+where+" ORDER BY created_at DESC LIMIT $"+params.length,params);
+    return send(res,200,JSON.stringify({logs:rows.rows}));
+  }
+  return null;
+}
+
 const server = http.createServer(async (req,res) => {
   try {
     const url = new URL(req.url,"http://localhost");
@@ -472,7 +521,7 @@ const server = http.createServer(async (req,res) => {
       }));
     }
 
-    if (url.pathname.startsWith("/api/installations")) { const handled = await installationsApi(req,res,url); if (handled !== null) return handled; }
+    if (url.pathname.startsWith("/api/settings")) { const handled = await settingsApi(req,res,url); if (handled !== null) return handled; }\n    if (url.pathname.startsWith("/api/database")) { const handled = await databaseApi(req,res,url); if (handled !== null) return handled; }\n    if (url.pathname.startsWith("/api/audit")) { const handled = await auditApi(req,res,url); if (handled !== null) return handled; }\n    if (url.pathname.startsWith("/api/installations")) { const handled = await installationsApi(req,res,url); if (handled !== null) return handled; }
     if (url.pathname.startsWith("/api/warnings")) { const handled = await warningsApi(req,res,url); if (handled !== null) return handled; }
     if (url.pathname.startsWith("/api/content-locks")) { const handled = await contentLocksApi(req,res,url); if (handled !== null) return handled; }
     if (url.pathname.startsWith("/api/runtime")) { const handled = await runtimeApi(req,res,url); if (handled !== null) return handled; }
