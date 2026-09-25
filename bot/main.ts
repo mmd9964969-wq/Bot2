@@ -2,7 +2,7 @@ import { Client, Pool } from "pg";
 import { DEFAULT_CONFIG, type BotConfig } from "../src/lib/bot/defaults.ts";
 import type { BotContext } from "../src/lib/bot/engine.ts";
 import { cloneStudioDefaults, type StudioDocument } from "../src/lib/bot/studio.ts";
-import type { Lang, Rank } from "../src/lib/bot/registry.ts";
+import { rankAtLeast, type Lang, type Rank } from "../src/lib/bot/registry.ts";
 import { telegramApi } from "../src/lib/telegram/api.ts";
 import { rankAtLeast } from "../src/lib/bot/registry.ts";
 import { runLiveCommand, recordMessage, getGroupStats } from "../src/lib/bot/runtime.ts";
@@ -10,6 +10,7 @@ import { enforceContentLocks, runContentLockCommand, sendContentLockCenter, type
 import { isRuntimeMaintenance, startRuntimeControlServer } from "./runtime-control.ts";
 import { ensureAutomationSchema, runAutomations, tickSchedules } from "../src/lib/bot/automation-engine.ts";
 import { dispatchPanelMessage, dispatchPanelCallback } from "./panel-system.ts";
+import { ensureGroupLanguageSchema, getGroupLanguage, normalizeBotLang, setGroupLanguage, languageChangedText, languagePickerText, SUPPORTED_LANGUAGES } from "../src/lib/bot/i18n.ts";
 import { ensureInstallationSchema, installationGate, handleInstallationCallback } from "./installation.ts";
 
 const TOKEN = process.env.BOT_TOKEN ?? "";
@@ -20,7 +21,7 @@ const config: BotConfig = {
   ...DEFAULT_CONFIG,
   botName: process.env.BOT_NAME || DEFAULT_CONFIG.botName,
   botUsername: process.env.BOT_USERNAME || DEFAULT_CONFIG.botUsername,
-  defaultLang: process.env.DEFAULT_LANG === "en" ? "en" : "fa",
+  defaultLang: normalizeBotLang(process.env.DEFAULT_LANG) ?? "fa",
   ownerIds: splitIds(process.env.OWNER_IDS),
   sudoIds: splitIds(process.env.SUDO_IDS),
   prefixes: [],
@@ -453,6 +454,21 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
   // Commands are plain words only; slash/prefix forms are intentionally disabled.
   if(/^[/!.]/.test(raw))return null;
   const token=normalizeCommand(raw);
+  const commandArgs=raw.split(/\\s+/).slice(1);
+  if(["lang","language","زبان","تغییر زبان"].includes(token)){
+    if(!rankAtLeast(ctx.userRank,"admin")){
+      return ctx.lang==="fa" ? "✗ فقط مدیر گروه یا مالک می‌تواند زبان گروه را تغییر دهد." : "✗ Only a group admin or owner can change the group language.";
+    }
+    const selected=normalizeBotLang(commandArgs.join(" "));
+    if(!selected){
+      const options=SUPPORTED_LANGUAGES.map(x=>x.code+" · "+x.native).join("\n");
+      return languagePickerText(ctx.lang,ctx.chatTitle)+"\n\n"+options;
+    }
+    await setGroupLanguage(studioPool!,ctx.chatId,selected);
+    ctx.lang=selected;
+    await logCommandAccess(ctx,"lang","command_executed","allowed","ADMIN");
+    return languageChangedText(selected);
+  }
   const studioCommand=studio.commands.find(item=>item.enabled&&item.phase<=2&&commandMatches(token,[...item.aliasesFa,...item.aliasesEn]));
   const panelCommand=panelCommands.find(item=>commandMatches(token,[item.command_key,item.fa_name,item.en_name]));
   if(!studioCommand && !panelCommand)return null;
@@ -602,7 +618,6 @@ function render(template: string, ctx: BotContext) {
   return template.replace(/{{\s*([a-z0-9_]+)\s*}}/gi, (_, key) => values[key] ?? "—");
 }
 
-const chatLang = new Map<number, Lang>();
 const adminCache = new Map<number, { at: number; ids: Set<number> }>();
 
 type TgUser = { id: number; first_name?: string; username?: string };
@@ -660,7 +675,7 @@ async function processMessage(msg: TgMessage, edited = false) {
   if (!isPrivate) {
     try { adminIds = await chatAdmins(chat.id); } catch (error) { console.error("[admins] lookup failed", error); }
   }
-  const lang = chatLang.get(chat.id) ?? config.defaultLang;
+  const lang = await getGroupLanguage(studioPool, chat.id, config.defaultLang);
 
   await recordMessage(chat.id, msg.from.id, msg.message_id);
 
@@ -793,6 +808,7 @@ async function poll() {
   if (studioPool) {
     await ensureInstallationSchema(studioPool);
     await ensureAutomationSchema(studioPool);
+    await ensureGroupLanguageSchema(studioPool);
   }
   setInterval(() => void refreshStudio(), 5000);
   setInterval(() => { if (studioPool) void tickSchedules(studioPool).catch(error => console.error("[scheduler]", error)); }, 5000);
