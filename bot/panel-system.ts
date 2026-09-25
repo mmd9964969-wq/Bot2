@@ -65,21 +65,21 @@ function panelTitle(title:string,body:string){
     "مرکز تحلیل و آمار":"مرکز تحلیل و آمار",
     "مرکز دسترسی":"مرکز دسترسی",
     "سلامت ربات":"سلامت ربات",
-    "Group Audit":"ممیزی گروه",
+    "ممیزی گروه":"ممیزی گروه",
     "مرکز استثناها":"مرکز استثناها",
     "فهرست دامنه‌های مجاز":"فهرست دامنه‌های مجاز",
-    "Exception Builder":"سازنده استثنا",
-    "Exception Manager":"مدیریت استثناها",
+    "سازنده استثنا":"سازنده استثنا",
+    "مدیریت استثناها":"مدیریت استثناها",
     "مرکز Runtime":"مرکز Runtime",
-    "Runtime Error":"خطای Runtime",
+    "خطای Runtime":"خطای Runtime",
     "مرکز گروه‌ها":"مرکز گروه‌ها",
     "کنترل گروه":"کنترل گروه",
     "مرکز ممیزی":"مرکز ممیزی",
     "مرکز امنیت":"مرکز امنیت",
     "مدیریت قابلیت‌ها":"مرکز قابلیت‌ها",
     "مرکز هوش مصنوعی":"مرکز هوش مصنوعی",
-    "License Center":"مرکز لایسنس",
-    "Customer Center":"مرکز مشتریان"
+    "مرکز لایسنس":"مرکز لایسنس",
+    "مرکز مشتریان":"مرکز مشتریان"
   };
   const fa=map[title]||title;
   const content=String(body??"").trim();
@@ -293,10 +293,10 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
         "⛂ - Maintenance : "+(isRuntimeMaintenance()?"● فعال":"○ خاموش"),
         "",
         "─────━━───── ◈ ─────━━─────",
-        "عملیات روی Runtime واقعی Bot Core اجرا شد."
+        "عملیات روی هسته اجرایی واقعی ربات اجرا شد."
       ].join("\n")),menu([[["مرکز Runtime","o:runtime"],["‹ بازگشت","o:home"]]]));
     }catch(error){
-      return edit(msg.chat.id,msg.message_id,panelTitle("Runtime Error",[
+      return edit(msg.chat.id,msg.message_id,panelTitle("خطای Runtime",[
         "⛂ - عملیات : "+action,
         "⛂ - خطا : "+(error instanceof Error?error.message:String(error))
       ].join("\n")),menu([[["‹ بازگشت","o:runtime"]]]));
@@ -318,8 +318,8 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
       "─────━━───── ◈ ─────━━─────",
       "این بخش کنترل واقعی Runtime را در اختیار مالک قرار می‌دهد."
     ].join("\n")),menu([
-      [["Health Check","o:runtime:health_check"],["Reload Config","o:runtime:reload_config"]],
-      [[maintenance?"خاموش‌سازی Maintenance":"فعال‌سازی Maintenance",maintenance?"o:runtime:maintenance_off":"o:runtime:maintenance_on"],["Restart Runtime","o:runtime:restart_requested"]],
+      [["بررسی سلامت","o:runtime:health_check"],["بارگذاری مجدد تنظیمات","o:runtime:reload_config"]],
+      [[maintenance?"خاموش‌سازی Maintenance":"فعال‌سازی Maintenance",maintenance?"o:runtime:maintenance_off":"o:runtime:maintenance_on"],["راه‌اندازی مجدد","o:runtime:restart_requested"]],
       [["‹ بازگشت","o:home"]]
     ]));
   }
@@ -354,18 +354,18 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     await pool.query("CREATE TABLE IF NOT EXISTS bot_feature_flags (name TEXT PRIMARY KEY,enabled BOOLEAN NOT NULL DEFAULT FALSE,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
     const r=await pool.query("INSERT INTO bot_feature_flags(name,enabled) VALUES($1,TRUE) ON CONFLICT(name) DO UPDATE SET enabled=NOT bot_feature_flags.enabled,updated_at=NOW() RETURNING enabled",[name]);
     await audit(pool,String(uid),"feature_flag_changed",name,{enabled:r.rows[0]?.enabled});
-    return edit(msg.chat.id,msg.message_id,"✓ وضعیت Feature Flag تغییر کرد.\n\n⛂ - نام : "+name+"\n⛂ - وضعیت : "+(r.rows[0]?.enabled?"● فعال":"○ غیرفعال"),menu([[ ["مدیریت مدیریت قابلیت‌ها","o:features"] ],[["‹ بازگشت","o:home"]]]));
+    return edit(msg.chat.id,msg.message_id,"✓ وضعیت قابلیت تغییر کرد.\n\n⛂ - نام : "+name+"\n⛂ - وضعیت : "+(r.rows[0]?.enabled?"● فعال":"○ غیرفعال"),menu([[ ["مدیریت مدیریت قابلیت‌ها","o:features"] ],[["‹ بازگشت","o:home"]]]));
   }
   if(data==="o:ai"){
     const configured=Boolean(process.env.OPENAI_API_KEY||process.env.AI_API_KEY);
     await pool.query("CREATE TABLE IF NOT EXISTS bot_feature_flags (name TEXT PRIMARY KEY,enabled BOOLEAN NOT NULL DEFAULT FALSE,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
     const flag=(await pool.query("SELECT enabled FROM bot_feature_flags WHERE name='ai_engine' LIMIT 1")).rows[0]?.enabled;
     return edit(msg.chat.id,msg.message_id,panelTitle("مرکز هوش مصنوعی",[
-      "⛂ - Provider : "+(configured?"● پیکربندی شده":"○ تنظیم نشده"),
+      "⛂ - ارائه‌دهنده : "+(configured?"● پیکربندی شده":"○ تنظیم نشده"),
       "⛂ - AI Engine : "+(flag?"● فعال":"○ غیرفعال"),
       "⛂ - وضعیت Runtime : ● آماده برای اتصال",
       "",
-      configured?"کلید سرویس موجود است؛ فعال‌سازی موتور از مدیریت قابلیت‌ها انجام می‌شود.":"برای اجرای واقعی قابلیت‌های AI، API Key سرویس موردنظر باید در Railway Variables تنظیم شود."
+      configured?"کلید سرویس موجود است؛ فعال‌سازی موتور از مدیریت قابلیت‌ها انجام می‌شود.":"برای اجرای واقعی قابلیت‌های AI، کلید سرویس سرویس موردنظر باید در Railway Variables تنظیم شود."
     ].join("\\n")),menu([[ ["مدیریت قابلیت‌ها","o:features"],["‹ بازگشت","o:home"] ]]));
   }
   if(data==="o:logs"){const r=await pool.query("SELECT action,target,created_at FROM audit_logs ORDER BY created_at DESC LIMIT 50");const lines=r.rows.length?r.rows.map((x:any)=>"• "+faDate(x.created_at)+" · "+x.action+" · "+(x.target||"—")).join("\n"):"لاگی ثبت نشده است.";return edit(msg.chat.id,msg.message_id,"◈ ۵۰ رویداد مهم اخیر\n\n"+lines,menu([[["‹ بازگشت","o:home"]]]));}
@@ -571,6 +571,42 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     ),menu([[["بازکردن بخش","cl:"+section],["‹ بازگشت به قفل‌ها","c:locks"]]]));
   }
 
+  if(data==="c:automation"){
+    return edit(msg.chat.id,msg.message_id,panelTitle("مرکز اتوماسیون","⛂ - وضعیت : موتور اتوماسیون آماده اجراست."),menu([
+      [["ساخت اتوماسیون","auto:add"],["فهرست اتوماسیون","auto:list"]],
+      [["فعال / غیرفعال","auto:toggle"],["حذف اتوماسیون","auto:delete"]],
+      [["‹ بازگشت","c:home"]]
+    ]));
+  }
+  if(data==="auto:list"){
+    await pool.query("CREATE TABLE IF NOT EXISTS bot_group_automations(id BIGSERIAL PRIMARY KEY,group_id BIGINT NOT NULL,name TEXT NOT NULL,trigger_type TEXT NOT NULL DEFAULT 'keyword',trigger_value TEXT NOT NULL,action_type TEXT NOT NULL,action_payload TEXT NOT NULL DEFAULT '',cooldown_seconds INTEGER NOT NULL DEFAULT 10,enabled BOOLEAN NOT NULL DEFAULT TRUE,created_by BIGINT NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),UNIQUE(group_id,name))");
+    const r=await pool.query("SELECT id,name,trigger_value,action_type,enabled FROM bot_group_automations WHERE group_id=$1 ORDER BY id DESC LIMIT 40",[groupId]);
+    const body=r.rows.length?r.rows.map((x:any)=>"⛂ - شناسه : #"+x.id+" · نام : "+x.name+" · محرک : "+x.trigger_value+" · عملیات : "+x.action_type+" · وضعیت : "+(x.enabled?"● فعال":"○ خاموش")).join("\n"):"⛂ - وضعیت : اتوماسیونی ثبت نشده است.";
+    return edit(msg.chat.id,msg.message_id,panelTitle("مرکز اتوماسیون",body),menu([
+      [["ساخت اتوماسیون","auto:add"],["تغییر وضعیت","auto:toggle"]],
+      [["حذف اتوماسیون","auto:delete"],["‹ بازگشت","c:home"]]
+    ]));
+  }
+  if(data==="auto:add"){
+    session(uid,"automation_add_name",{chatId:groupId});
+    return edit(msg.chat.id,msg.message_id,panelTitle("سازنده اتوماسیون","⛂ - مرحله ۱ : نام اتوماسیون را ارسال کنید."),menu([[["‹ انصراف","c:automation"]]]));
+  }
+  if(data==="auto:toggle"||data==="auto:delete"){
+    session(uid,"automation_manage",{chatId:groupId,action:data==="auto:toggle"?"toggle":"delete"});
+    return edit(msg.chat.id,msg.message_id,panelTitle("مدیریت اتوماسیون","⛂ - شناسه : شناسه Rule را ارسال کنید."),menu([[["‹ انصراف","c:automation"]]]));
+  }
+  if(data.startsWith("auto:action:")){
+    const current=getSession(uid);const action=data.slice(12);
+    if(!current||current.flow!=="automation_action"||!["reply","delete","mute","kick"].includes(action))return true;
+    current.data.action=action;
+    if(action==="reply"){
+      current.flow="automation_payload";session(uid,current.flow,current.data);
+      return edit(msg.chat.id,msg.message_id,panelTitle("سازنده اتوماسیون","⛂ - مرحله ۴ : متن پاسخ را ارسال کنید.\n⛂ - متغیر مجاز : {{user_name}}"),menu([[["‹ انصراف","c:automation"]]]));
+    }
+    await pool.query("INSERT INTO bot_group_automations(group_id,name,trigger_value,action_type,action_payload,created_by) VALUES($1,$2,$3,$4,'',$5) ON CONFLICT(group_id,name) DO UPDATE SET trigger_value=EXCLUDED.trigger_value,action_type=EXCLUDED.action_type,action_payload='',enabled=TRUE,updated_at=NOW()",[groupId,current.data.name,current.data.keyword,action,uid]);
+    clearSession(uid);
+    return send(msg.chat.id,panelTitle("مرکز اتوماسیون","⛂ - وضعیت : Rule ساخته و فعال شد."),menu([[["فهرست اتوماسیون","auto:list"]]]));
+  }
   if(data==="c:warnings"){
     return edit(msg.chat.id,msg.message_id,panelTitle("اخطار و جریمه","سامانه چندمرحله‌ای اخطار، سطح جریمه و تاریخچه در دسترس است."),menu([
       [["اعضای دارای اخطار","w:list"],["صدور اخطار","w:issue"]],
