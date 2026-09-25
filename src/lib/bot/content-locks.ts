@@ -354,7 +354,7 @@ function lockCenterRichBlocks(rows:any[],lang:BotLang="fa"){
     {type:"paragraph",text:lockRichPlain(LOCK_PANEL_SEPARATOR)},
     {type:"paragraph",text:lockRichPlain("راهنمای کنترل\nهر بخش، فهرست قفل‌های همان حوزه را باز می‌کند. وضعیت هر قانون مستقیماً از همین مرکز قابل تغییر است.")}
   ];
-  return {blocks,is_rtl:true};
+  return {blocks,is_rtl:lang==="fa"||lang==="ar"};
 }
 
 async function sendRichLockCenter(pool:Pool,chatId:number,ownerId?:number){
