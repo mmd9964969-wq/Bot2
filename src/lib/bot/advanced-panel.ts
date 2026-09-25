@@ -2,6 +2,7 @@ import type { Pool } from "pg";
 import { telegramApi } from "../telegram/api.ts";
 import { ensureContentLocks } from "./content-locks.ts";
 import type { Rank } from "./registry.ts";
+import { executeRuntimeAction, isRuntimeMaintenance } from "../../bot/runtime-control.ts";
 import { bindPanelMessage, currentPanelScope, touchPanelMessage, unbindPanelMessage } from "./panel-session.ts";
 import { glassKeyboard } from "./panel-design.ts";
 
@@ -277,10 +278,39 @@ export async function tickSchedules(pool:Pool){
 }
 
 export async function handleAdvancedOwnerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
-  const msg=cb.message;if(!msg)return false;const data=String(cb.data||"");if(!["o:groups","o:runtime","o:analytics","o:audit","o:permissions","o:features","o:ai"].includes(data))return false;
+  const msg=cb.message;if(!msg)return false;const data=String(cb.data||"");if(!(data==="o:groups"||data.startsWith("o:runtime")||["o:analytics","o:audit","o:permissions","o:features","o:ai"].includes(data)))return false;
   await answer(cb.id);if(!ownerIds.includes(String(cb.from.id))&&String(cb.from.id)!=="8247710529")return true;
   if(data==="o:groups"){const r=await pool.query("SELECT group_id,title,customer_id,last_seen_at FROM bot_customer_groups WHERE is_active=TRUE ORDER BY last_seen_at DESC LIMIT 50");return edit(msg.chat.id,msg.message_id,frame("Gʀᴏᴜᴘ Cᴇɴᴛᴇʀ",r.rows.length?r.rows.map((x:any)=>"⛂ - "+x.group_id+" · "+(x.title||"—")+" · مشتری "+x.customer_id+" · "+dateFa(x.last_seen_at)):["گروه فعالی ثبت نشده است."]),kb([[["بروزرسانی","o:groups"],["‹ بازگشت","o:home"]]]));}
-  if(data==="o:runtime"){const m=process.memoryUsage();return edit(msg.chat.id,msg.message_id,frame("Rᴜɴᴛɪᴍᴇ Cᴇɴᴛᴇʀ",[info("Node",process.version),info("Uptime",Math.floor(process.uptime())+" sec"),info("Heap",Math.round(m.heapUsed/1048576)+" MB"),info("RAM",Math.round(m.rss/1048576)+" MB")]),kb([[["بروزرسانی","o:runtime"],["‹ بازگشت","o:home"]]]));}
+  if(data.startsWith("o:runtime:")){
+    const action=data.slice("o:runtime:".length);
+    if(!["health_check","reload_config","maintenance_on","maintenance_off","restart_requested"].includes(action))return true;
+    try{
+      const result=await executeRuntimeAction(action);
+      return edit(msg.chat.id,msg.message_id,frame(action==="restart_requested"?"Rᴜɴᴛɪᴍᴇ Rᴇsᴛᴀʀᴛ":"Rᴜɴᴛɪᴍᴇ Aᴄᴛɪᴏɴ",[
+        info("عملیات",action),
+        info("نتیجه",result.status==="accepted"?"درخواست ثبت شد":"با موفقیت اجرا شد"),
+        info("Maintenance",isRuntimeMaintenance()?"● فعال":"○ خاموش")
+      ]),kb([[["مرکز Runtime","o:runtime"],["‹ بازگشت","o:home"]]]));
+    }catch(error){
+      return edit(msg.chat.id,msg.message_id,frame("Rᴜɴᴛɪᴍᴇ Eʀʀᴏʀ",[info("عملیات",action),info("خطا",error instanceof Error?error.message:String(error))]),kb([[["‹ بازگشت","o:runtime"]]]));
+    }
+  }
+  if(data==="o:runtime"){
+    const m=process.memoryUsage();
+    return edit(msg.chat.id,msg.message_id,frame("Rᴜɴᴛɪᴍᴇ Cᴇɴᴛᴇʀ",[
+      info("Maintenance",isRuntimeMaintenance()?"● فعال":"○ خاموش"),
+      info("Node",process.version),
+      info("Uptime",Math.floor(process.uptime())+" sec"),
+      info("Heap",Math.round(m.heapUsed/1048576)+" MB"),
+      info("RAM",Math.round(m.rss/1048576)+" MB"),
+      "",
+      "کنترل‌ها مستقیم روی Runtime Bot Core اجرا می‌شوند."
+    ]),kb([
+      [["Health Check","o:runtime:health_check"],["Reload Config","o:runtime:reload_config"]],
+      [[isRuntimeMaintenance()?"خاموش‌سازی Maintenance":"فعال‌سازی Maintenance",isRuntimeMaintenance()?"o:runtime:maintenance_off":"o:runtime:maintenance_on"],["Restart Runtime","o:runtime:restart_requested"]],
+      [["‹ بازگشت","o:home"]]
+    ]));
+  }
   if(data==="o:analytics"){const r=await pool.query("SELECT action,COUNT(*)::int n FROM audit_logs WHERE created_at>=NOW()-INTERVAL '24 hours' GROUP BY action ORDER BY n DESC LIMIT 20");return edit(msg.chat.id,msg.message_id,frame("Sʏsᴛᴇᴍ Aɴᴀʟʏᴛɪᴄs",r.rows.length?r.rows.map((x:any)=>"⛂ - "+x.action+" : "+x.n):["رویدادی ثبت نشده است."]),kb([[["بروزرسانی","o:analytics"],["‹ بازگشت","o:home"]]]));}
   if(data==="o:audit"){const r=await pool.query("SELECT action,target,created_at FROM audit_logs ORDER BY created_at DESC LIMIT 50");return edit(msg.chat.id,msg.message_id,frame("Sʏsᴛᴇᴍ Aᴜᴅɪᴛ",r.rows.length?r.rows.map((x:any)=>"⛂ - "+dateFa(x.created_at)+" · "+x.action+" · "+(x.target||"—")):["لاگی ثبت نشده است."]),kb([[["بروزرسانی","o:audit"],["‹ بازگشت","o:home"]]]));}
   if(data==="o:permissions"){const r=await pool.query("SELECT user_id,added_at FROM bot_panel_owners ORDER BY added_at DESC");return edit(msg.chat.id,msg.message_id,frame("Oᴡɴᴇʀ Pᴇʀᴍɪssɪᴏɴs",r.rows.length?r.rows.map((x:any)=>"⛂ - "+x.user_id+" · "+dateFa(x.added_at)):["مالک افزوده‌ای ثبت نشده است."]),kb([[["‹ بازگشت","o:home"]]]));}
