@@ -1,6 +1,7 @@
 
 import type { Pool } from "pg";
 import { telegramApi } from "../telegram/api.ts";
+import { glassKeyboard } from "./panel-design.ts";
 import type { Rank } from "./registry.ts";
 
 type Entity={type?:string;offset?:number;length?:number;url?:string};
@@ -291,16 +292,16 @@ function lockFmt(v:number){return String(v).replace(/\d/g,d=>"۰۱۲۳۴۵۶۷۸
 async function lockRows(pool:Pool,groupId:number){await seed(pool,groupId);return (await pool.query("SELECT rule_key,section,enabled,config FROM content_lock_rules WHERE group_id=$1 ORDER BY id",[groupId])).rows;}
 function lockStateLine(enabledValue:boolean){return enabledValue?"● فعال":"○ خاموش";}
 export async function ensureContentLocks(pool:Pool,groupId:number){await seed(pool,groupId);}
-export function contentLockCenterKeyboard(){return {inline_keyboard:[
-  [{text:"› قفل‌های حالت عادی",callback_data:"cl:normal"},{text:"› رسانه",callback_data:"cl:media"}],
-  [{text:"› لینک‌ها",callback_data:"cl:links"},{text:"› تبلیغات",callback_data:"cl:advertising"}],
-  [{text:"› فوروارد و اشتراک‌گذاری",callback_data:"cl:forwarding"},{text:"› فایل و سند",callback_data:"cl:files"}],
-  [{text:"› پیام و نرخ ارسال",callback_data:"cl:messages"},{text:"› تعامل و هویت",callback_data:"cl:interactions"}],
-  [{text:"› محتوای پیشرفته",callback_data:"cl:advanced"},{text:"› امنیت و ضد اتک",callback_data:"cl:anti_attack"}],
-  [{text:"› استثناها و دامنه مجاز",callback_data:"cl:exceptions"}],
-  [{text:"› قفل زبان",callback_data:"cl:language"}],
-  [{text:"‹ بازگشت",callback_data:"c:home"}]
-]};}
+export function contentLockCenterKeyboard(){return glassKeyboard([
+  [["قفل‌های حالت عادی","cl:normal"],["رسانه","cl:media"]],
+  [["لینک‌ها","cl:links"],["تبلیغات","cl:advertising"]],
+  [["فوروارد و اشتراک‌گذاری","cl:forwarding"],["فایل و سند","cl:files"]],
+  [["پیام و نرخ ارسال","cl:messages"],["تعامل و هویت","cl:interactions"]],
+  [["محتوای پیشرفته","cl:advanced"],["امنیت و ضد اتک","cl:anti_attack"]],
+  [["استثناها و دامنه مجاز","cl:exceptions"]],
+  [["قفل زبان","cl:language"]],
+  [["‹ بازگشت","c:home"]]
+]);}
 export async function sendContentLockCenter(pool:Pool,chatId:number){
   const message=await lockCenterText(pool,chatId);
   return telegramApi("sendMessage",{chat_id:chatId,text:message,reply_markup:contentLockCenterKeyboard()});
