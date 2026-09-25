@@ -466,7 +466,7 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
     try{
       const commandArgs=raw.split(/\\s+/).slice(1);
       if(studioCommand.id==="lock" && ["","ها","قفل‌ها","قفل ها","وضعیت","status"].includes(normalizeCommand(commandArgs.join(" ")))){
-        const opened=await sendContentLockCenter(studioPool!,ctx.chatId);
+        const opened=await sendContentLockCenter(studioPool!,ctx.chatId,ctx.userId);
         await logCommandAccess(ctx,studioCommand.id,"command_executed","allowed",auth.role);
         if(!opened.ok)return ctx.lang==="fa"?"✗ بازکردن مرکز قفل ناموفق بود.":"✗ Could not open the lock center.";
         return null;
