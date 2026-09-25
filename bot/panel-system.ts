@@ -263,6 +263,42 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
       ])
     );
   }
+  if(data.startsWith("clt:")){
+    const key=data.slice(4);const r=await pool.query("SELECT enabled,title,section FROM content_lock_rules WHERE group_id=$1 AND rule_key=$2",[groupId,key]);if(!r.rowCount)return;
+    const next=!r.rows[0].enabled;
+    await pool.query("UPDATE content_lock_rules SET enabled=$1,updated_at=NOW() WHERE group_id=$2 AND rule_key=$3",[next,groupId,key]);
+    await audit(pool,String(uid),"content_lock_rule_changed",key,{groupId,enabled:next});
+    const section=String(r.rows[0].section),names:any={normal:"قفل‌های حالت عادی",media:"رسانه",links:"لینک‌ها",advertising:"تبلیغات",forwarding:"فوروارد و اشتراک‌گذاری",files:"فایل و سند",messages:"پیام و نرخ ارسال",interactions:"تعامل و هویت",advanced:"محتوای پیشرفته",anti_attack:"امنیت و ضد اتک",language:"قفل زبان"};
+    const labels:any={normal_media:"رسانه",normal_links:"لینک",normal_ads:"تبلیغات",normal_files:"فایل",normal_forward:"فوروارد",normal_contact:"تماس",normal_location:"موقعیت",normal_poll:"نظرسنجی",normal_dice:"تاس",normal_game:"بازی",normal_web_app:"وب‌اپ",normal_reply:"ریپلای",normal_edit:"ویرایش",normal_mention:"منشن",normal_bot:"ورود ربات",media_photo:"عکس",media_video:"ویدیو",media_audio:"موزیک",media_animation:"GIF",media_sticker:"استیکر",media_voice:"ویس",media_video_note:"ویدیو نوت",links_all:"تمام لینک‌ها",links_telegram:"لینک تلگرام",links_external:"لینک خارجی",links_invites:"لینک دعوت",links_username:"یوزرنیم لینک",links_phone:"شماره در لینک",links_auto_delete:"حذف خودکار لینک",links_notify:"اعلان لینک",advertising_text:"متن تبلیغاتی",advertising_links:"لینک تبلیغاتی",advertising_invites:"دعوت تبلیغاتی",advertising_phone:"شماره تبلیغاتی",advertising_username:"یوزرنیم تبلیغاتی",forward_all:"همه فورواردها",forward_groups:"فوروارد گروه‌ها",forward_channels:"فوروارد کانال‌ها",forward_private:"فوروارد پیوی",forward_auto_delete:"حذف خودکار فوروارد",forward_notify:"اعلان فوروارد",file_documents:"اسناد",file_archives:"فایل فشرده",file_executables:"فایل اجرایی",file_auto_delete:"حذف فایل",file_max_size:"حداکثر حجم فایل",message_min_length:"حداقل طول",message_max_length:"حداکثر طول",message_rate_limit:"محدودیت نرخ",reply_lock:"ریپلای",edit_lock:"ویرایش",hashtag_limit:"محدودیت هشتگ",mention_limit:"محدودیت منشن",username_lock:"یوزرنیم",phone_lock:"شماره تلفن",email_lock:"ایمیل",web_preview_lock:"پیش‌نمایش لینک",story_share_lock:"اشتراک‌گذاری استوری",contact_lock:"Contact",location_lock:"Location",poll_lock:"Poll",dice_lock:"Dice",game_lock:"Game",web_app_lock:"Web App",bot_join_lock:"ورود ربات",attack_flood:"ضد فلود",attack_duplicate:"ضد پیام تکراری",attack_caps:"کنترل CAPS",attack_link_burst:"ضد حمله لینک",attack_media_burst:"ضد حمله رسانه",attack_join_flood:"ضد هجوم عضو",language_persian:"زبان فارسی",language_english:"زبان انگلیسی",language_arabic:"زبان عربی",language_russian:"زبان روسی",language_turkish:"زبان ترکی",language_chinese:"زبان چینی",language_japanese:"زبان ژاپنی",language_korean:"زبان کره‌ای"};
+    const rows=await pool.query("SELECT rule_key,enabled,title FROM content_lock_rules WHERE group_id=$1 AND section=$2 ORDER BY id",[groupId,section]);
+    const buttons:any=[];
+    for(let i=0;i<rows.rows.length;i+=2){
+      const a=rows.rows[i],b=rows.rows[i+1];
+      const row:any=[[(a.enabled?"● ":"○ ")+(labels[a.rule_key]||a.title||a.rule_key),"clt:"+a.rule_key]];
+      if(b)row.push([(b.enabled?"● ":"○ ")+(labels[b.rule_key]||b.title||b.rule_key),"clt:"+b.rule_key]);
+      buttons.push(row);
+    }
+    buttons.unshift([["✓ فعال‌سازی بخش","cls:"+section+":on"],["× خاموش‌سازی بخش","cls:"+section+":off"]]);
+    buttons.push([["‹ بازگشت","c:locks"]]);
+    return edit(msg.chat.id,msg.message_id,
+      "━━━━━━━━━━━━━━━━━━━━━━━━\n◈ "+(names[section]||section)+"\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n✓ "+(labels[key]||key)+" : "+(next?"● فعال":"○ خاموش")+"\n⛂ - روی هر دکمه بزنید تا فقط همان قفل تغییر کند.",
+      menu(buttons)
+    );
+  }
+  if(data.startsWith("cls:")){
+    const parts=data.split(":");const section=parts[1],value=parts[2]==="on";
+    const allowedSections=new Set(["normal","media","links","advertising","forwarding","files","messages","interactions","advanced","anti_attack","language"]);
+    const sectionNames:any={normal:"قفل‌های حالت عادی",media:"رسانه",links:"لینک‌ها",advertising:"تبلیغات",forwarding:"فوروارد و اشتراک‌گذاری",files:"فایل و سند",messages:"پیام و نرخ ارسال",interactions:"تعامل و هویت",advanced:"محتوای پیشرفته",anti_attack:"امنیت و ضد اتک",language:"قفل زبان"};
+    if(!allowedSections.has(section))return;
+    const result=await pool.query("UPDATE content_lock_rules SET enabled=$1,updated_at=NOW() WHERE group_id=$2 AND section=$3 RETURNING rule_key",[value,groupId,section]);
+    await audit(pool,String(uid),"content_lock_section_changed",section,{groupId,enabled:value,changed:result.rowCount||0});
+    const rows=await pool.query("SELECT rule_key,enabled,title FROM content_lock_rules WHERE group_id=$1 AND section=$2 ORDER BY id",[groupId,section]);
+    const active=rows.rows.filter((x:any)=>x.enabled).length;
+    return edit(msg.chat.id,msg.message_id,
+      "━━━━━━━━━━━━━━━━━━━━━━━━\n◈ "+(sectionNames[section]||section)+"\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n✓ بخش "+(value?"فعال":"خاموش")+" شد.\n⛂ - فعال : "+active+" از "+rows.rows.length,
+      menu([[["✓ فعال‌سازی بخش","cls:"+section+":on"],["× خاموش‌سازی بخش","cls:"+section+":off"]],[["‹ بازگشت به قفل‌ها","c:locks"]]])
+    );
+  }
   if(data.startsWith("cl:")){
     const section=data.slice(3);
     if(section==="exceptions")return edit(msg.chat.id,msg.message_id,
@@ -286,42 +322,6 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     buttons.push([["‹ بازگشت","c:locks"]]);
     return edit(msg.chat.id,msg.message_id,
       "━━━━━━━━━━━━━━━━━━━━━━━━\n◈ "+(names[section]||section)+"\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n⛂ - فعال : "+active+" از "+rows.rows.length+"\n⛂ - برای تغییر، روی همان قفل بزنید.",
-      menu(buttons)
-    );
-  }
-  if(data.startsWith("cls:")){
-    const parts=data.split(":");const section=parts[1],value=parts[2]==="on";
-    const allowedSections=new Set(["normal","media","links","advertising","forwarding","files","messages","interactions","advanced","anti_attack","language"]);
-    const sectionNames:any={normal:"قفل‌های حالت عادی",media:"رسانه",links:"لینک‌ها",advertising:"تبلیغات",forwarding:"فوروارد و اشتراک‌گذاری",files:"فایل و سند",messages:"پیام و نرخ ارسال",interactions:"تعامل و هویت",advanced:"محتوای پیشرفته",anti_attack:"امنیت و ضد اتک",language:"قفل زبان"};
-    if(!allowedSections.has(section))return;
-    const result=await pool.query("UPDATE content_lock_rules SET enabled=$1,updated_at=NOW() WHERE group_id=$2 AND section=$3 RETURNING rule_key",[value,groupId,section]);
-    await audit(pool,String(uid),"content_lock_section_changed",section,{groupId,enabled:value,changed:result.rowCount||0});
-    const rows=await pool.query("SELECT rule_key,enabled,title FROM content_lock_rules WHERE group_id=$1 AND section=$2 ORDER BY id",[groupId,section]);
-    const active=rows.rows.filter((x:any)=>x.enabled).length;
-    return edit(msg.chat.id,msg.message_id,
-      "━━━━━━━━━━━━━━━━━━━━━━━━\n◈ "+(sectionNames[section]||section)+"\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n✓ بخش "+(value?"فعال":"خاموش")+" شد.\n⛂ - فعال : "+active+" از "+rows.rows.length,
-      menu([[["✓ فعال‌سازی بخش","cls:"+section+":on"],["× خاموش‌سازی بخش","cls:"+section+":off"]],[["‹ بازگشت به قفل‌ها","c:locks"]]])
-    );
-  }
-  if(data.startsWith("clt:")){
-    const key=data.slice(4);const r=await pool.query("SELECT enabled,title,section FROM content_lock_rules WHERE group_id=$1 AND rule_key=$2",[groupId,key]);if(!r.rowCount)return;
-    const next=!r.rows[0].enabled;
-    await pool.query("UPDATE content_lock_rules SET enabled=$1,updated_at=NOW() WHERE group_id=$2 AND rule_key=$3",[next,groupId,key]);
-    await audit(pool,String(uid),"content_lock_rule_changed",key,{groupId,enabled:next});
-    const section=String(r.rows[0].section),names:any={normal:"قفل‌های حالت عادی",media:"رسانه",links:"لینک‌ها",advertising:"تبلیغات",forwarding:"فوروارد و اشتراک‌گذاری",files:"فایل و سند",messages:"پیام و نرخ ارسال",interactions:"تعامل و هویت",advanced:"محتوای پیشرفته",anti_attack:"امنیت و ضد اتک"};
-    const labels:any={normal_media:"رسانه",normal_links:"لینک",normal_ads:"تبلیغات",normal_files:"فایل",normal_forward:"فوروارد",normal_contact:"تماس",normal_location:"موقعیت",normal_poll:"نظرسنجی",normal_dice:"تاس",normal_game:"بازی",normal_web_app:"وب‌اپ",normal_reply:"ریپلای",normal_edit:"ویرایش",normal_mention:"منشن",normal_bot:"ورود ربات",media_photo:"عکس",media_video:"ویدیو",media_audio:"موزیک",media_animation:"GIF",media_sticker:"استیکر",media_voice:"ویس",media_video_note:"ویدیو نوت",links_all:"تمام لینک‌ها",links_telegram:"لینک تلگرام",links_external:"لینک خارجی",links_invites:"لینک دعوت",links_username:"یوزرنیم لینک",links_phone:"شماره در لینک",links_auto_delete:"حذف خودکار لینک",links_notify:"اعلان لینک",advertising_text:"متن تبلیغاتی",advertising_links:"لینک تبلیغاتی",advertising_invites:"دعوت تبلیغاتی",advertising_phone:"شماره تبلیغاتی",advertising_username:"یوزرنیم تبلیغاتی",forward_all:"همه فورواردها",forward_groups:"فوروارد گروه‌ها",forward_channels:"فوروارد کانال‌ها",forward_private:"فوروارد پیوی",forward_auto_delete:"حذف خودکار فوروارد",forward_notify:"اعلان فوروارد",file_documents:"اسناد",file_archives:"فایل فشرده",file_executables:"فایل اجرایی",file_auto_delete:"حذف فایل",file_max_size:"حداکثر حجم فایل",message_min_length:"حداقل طول",message_max_length:"حداکثر طول",message_rate_limit:"محدودیت نرخ",reply_lock:"ریپلای",edit_lock:"ویرایش",hashtag_limit:"محدودیت هشتگ",mention_limit:"محدودیت منشن",username_lock:"یوزرنیم",phone_lock:"شماره تلفن",email_lock:"ایمیل",web_preview_lock:"پیش‌نمایش لینک",story_share_lock:"اشتراک‌گذاری استوری",contact_lock:"Contact",location_lock:"Location",poll_lock:"Poll",dice_lock:"Dice",game_lock:"Game",web_app_lock:"Web App",bot_join_lock:"ورود ربات",attack_flood:"ضد فلود",attack_duplicate:"ضد پیام تکراری",attack_caps:"کنترل CAPS",attack_link_burst:"ضد حمله لینک",attack_media_burst:"ضد حمله رسانه",attack_join_flood:"ضد هجوم عضو"};
-    const rows=await pool.query("SELECT rule_key,enabled,title FROM content_lock_rules WHERE group_id=$1 AND section=$2 ORDER BY id",[groupId,section]);
-    const buttons:any=[];
-    for(let i=0;i<rows.rows.length;i+=2){
-      const a=rows.rows[i],b=rows.rows[i+1];
-      const row:any=[[(a.enabled?"● ":"○ ")+(labels[a.rule_key]||a.title||a.rule_key),"clt:"+a.rule_key]];
-      if(b)row.push([(b.enabled?"● ":"○ ")+(labels[b.rule_key]||b.title||b.rule_key),"clt:"+b.rule_key]);
-      buttons.push(row);
-    }
-    buttons.unshift([["✓ فعال‌سازی بخش","cls:"+section+":on"],["× خاموش‌سازی بخش","cls:"+section+":off"]]);
-    buttons.push([["‹ بازگشت","c:locks"]]);
-    return edit(msg.chat.id,msg.message_id,
-      "━━━━━━━━━━━━━━━━━━━━━━━━\n◈ "+(names[section]||section)+"\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n✓ "+(labels[key]||key)+" : "+(next?"● فعال":"○ خاموش")+"\n⛂ - روی هر دکمه بزنید تا فقط همان قفل تغییر کند.",
       menu(buttons)
     );
   }
