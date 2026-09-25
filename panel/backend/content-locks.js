@@ -90,6 +90,14 @@ function defaultRules(){
   add("advanced","game_lock","قفل Game","Game کنترل شود.",false,{action:"delete"});
   add("advanced","web_app_lock","قفل Web App","Web App Data کنترل شود.",false,{action:"delete"});
   add("advanced","bot_join_lock","قفل ورود ربات","ورود ربات‌ها مسدود شود.",false,{action:"delete_ban"});
+  add("language","language_persian","زبان فارسی","پیام‌های فارسی/پارسی کنترل شوند.",false,{action:"delete"});
+  add("language","language_english","زبان انگلیسی","پیام‌های انگلیسی کنترل شوند.",false,{action:"delete"});
+  add("language","language_arabic","زبان عربی","پیام‌های عربی کنترل شوند.",false,{action:"delete"});
+  add("language","language_russian","زبان روسی","پیام‌های روسی/سیریلیک کنترل شوند.",false,{action:"delete"});
+  add("language","language_turkish","زبان ترکی","پیام‌های ترکی کنترل شوند.",false,{action:"delete"});
+  add("language","language_chinese","زبان چینی","پیام‌های چینی کنترل شوند.",false,{action:"delete"});
+  add("language","language_japanese","زبان ژاپنی","پیام‌های ژاپنی کنترل شوند.",false,{action:"delete"});
+  add("language","language_korean","زبان کره‌ای","پیام‌های کره‌ای کنترل شوند.",false,{action:"delete"});
   add("anti_attack","attack_flood","ضد فلود سریع","Burst پیام کنترل شود.",true,{count:8,window_seconds:5,action:"delete"});
   add("anti_attack","attack_duplicate","ضد پیام تکراری","پیام مشابه در بازه کوتاه مسدود شود.",true,{count:3,window_seconds:30,action:"delete"});
   add("anti_attack","attack_caps","کنترل CAPS","پیام‌های بیش از حد با CAPS کنترل شوند.",false,{percent:90,min_letters:20,action:"delete"});
