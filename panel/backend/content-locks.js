@@ -162,9 +162,12 @@ async function contentLocksApi(req,res,url){
       const body=await readBody(req),groupId=validId(body.group_id),section=sectionMatch[1];
       if(!groupId)return send(res,400,json({error:"group_id is required"}));
       await ensureGroup(groupId);
-      const before=(await query("SELECT COUNT(*)::int AS count FROM content_lock_rules WHERE group_id=$1 AND section=$2 AND enabled=TRUE",[groupId,section])).rows[0]?.count||0;
       const value=body.enabled===true;
-      const result=(await query("UPDATE content_lock_rules SET enabled=$1,updated_at=NOW() WHERE group_id=$2 AND section=$3 RETURNING rule_key",[value,groupId,section])).rows;
+      const whereSection=section==="all"?"TRUE":"section=$3";
+      const before=(await query("SELECT COUNT(*)::int AS count FROM content_lock_rules WHERE group_id=$1 AND "+whereSection+(section==="all"?" AND enabled=TRUE":" AND enabled=TRUE"),section==="all"?[groupId]:[groupId,section])).rows[0]?.count||0;
+      const result=section==="all"
+        ? (await query("UPDATE content_lock_rules SET enabled=$1,updated_at=NOW() WHERE group_id=$2 RETURNING rule_key",[value,groupId])).rows
+        : (await query("UPDATE content_lock_rules SET enabled=$1,updated_at=NOW() WHERE group_id=$2 AND section=$3 RETURNING rule_key",[value,groupId,section])).rows;
       await audit("content_lock_section_changed",body.actor_id,section,{active:before},{enabled:value,changed:result.length});
       return send(res,200,json({success:true,section,enabled:value,changed:result.length}));
     }
