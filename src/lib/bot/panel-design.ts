@@ -14,23 +14,34 @@ export function glassLabel(value:string){
   return "› "+label.replace(/^❯›\s*/,"");
 }
 
+function semanticStyle(label:string,callbackData:string):TelegramButtonStyle|undefined{
+  const raw=(label+" "+callbackData).toLowerCase();
+
+  // Destructive actions are red.
+  if(
+    /(^|:)(delete|remove|block|ban|kick|exit|off|disable|danger|reset|clear)/i.test(callbackData) ||
+    /(حذف|پاک|مسدود|بن|اخراج|خروج|خاموش|غیرفعال|خطر|بازنشانی)/i.test(label)
+  ) return "danger";
+
+  // Positive / enabling actions are green.
+  if(
+    /(^|:)(confirm|enable|on|approve|accept|success)/i.test(callbackData) ||
+    /(تایید|تأیید|فعال|روشن|ادامه|بله|ثبت)/i.test(label)
+  ) return "success";
+
+  // Primary blue is intentionally reserved for top-level navigation only.
+  if(
+    /^c:(locks|warnings|members|welcome|commands|stats|schedule|security|status)$/.test(callbackData) ||
+    /^(مدیریت گروه|مرکز قفل|قفل و کنترل محتوا|اخطار و جریمه|مدیریت اعضا|آمار|امنیت|تنظیمات)$/i.test(raw.trim())
+  ) return "primary";
+
+  // Neutral buttons remain transparent, creating the premium/glass hierarchy.
+  return undefined;
+}
+
 export function glassButton(label:string,callbackData:string):DesignedButton{
   const text=glassLabel(label);
-  let style:TelegramButtonStyle|undefined;
-
-  if(
-    /(^|:)(delete|remove|block|ban|kick|exit|off|disable|danger|reset)/i.test(callbackData) ||
-    /(حذف|پاک|مسدود|بن|اخراج|خروج|خاموش|غیرفعال|بازنشانی)/i.test(label)
-  ) style="danger";
-  else if(
-    /(^|:)(confirm|enable|on|approve|accept|success)/i.test(callbackData) ||
-    /(تایید|فعال|ادامه|بله|تأیید)/i.test(label)
-  ) style="success";
-  else if(
-    /(^|:)(home|stats|status|settings|customers|licenses|locks|warnings|members|security|commands|schedule)/i.test(callbackData) ||
-    /(مدیریت|مرکز|وضعیت|آمار|تنظیمات|قفل|اخطار|اعضا|امنیت|دستورات|زمان)/i.test(label)
-  ) style="primary";
-
+  const style=semanticStyle(label,callbackData);
   return style ? {text,callback_data:callbackData,style} : {text,callback_data:callbackData};
 }
 
