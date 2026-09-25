@@ -18,23 +18,24 @@ function semanticStyle(label:string,callbackData:string):TelegramButtonStyle|und
   const text=String(label??"").trim();
   const data=String(callbackData??"");
 
-  // Back/navigation remains the only always-blue action.
+  // Back/navigation is the only always-blue navigation action.
   if(text.startsWith("‹")||text.startsWith("←")) return "primary";
 
-  // Only explicit state-changing ON/OFF controls receive colors.
+  // Only explicit ON/OFF state controls are colored.
   if(
-    /(^|:)(on|enable|confirm|approve|accept)(:|$)/i.test(data) ||
-    /^(فعال|روشن|تأیید|تایید|ادامه|ثبت)(\s|$)/i.test(text)
+    /(^|:)(on|enable)(:|$)/i.test(data) ||
+    /^(فعال‌سازی|فعال سازی|روشن)(\s|$)/i.test(text)
   ) return "primary";
 
   if(
-    /(^|:)(off|disable|delete|remove|block|ban|kick|danger|reset|clear)(:|$)/i.test(data) ||
-    /^(خاموش|غیرفعال|حذف|پاک|مسدود|بن|اخراج|بازنشانی)(\s|$)/i.test(text)
+    /(^|:)(off|disable)(:|$)/i.test(data) ||
+    /^(خاموش‌سازی|خاموش سازی|خاموش|غیرفعال‌سازی|غیرفعال سازی)(\s|$)/i.test(text)
   ) return "danger";
 
-  // All ordinary buttons stay neutral/glass.
+  // Every other button remains neutral/glass.
   return undefined;
 }
+
 
 export function glassButton(label:string,callbackData:string):DesignedButton{
   const text=glassLabel(label);
