@@ -27,17 +27,14 @@ function semanticStyle(label:string,callbackData:string):TelegramButtonStyle|und
 function visualButtonLabel(label:string,style:TelegramButtonStyle|undefined){
   const raw=rawButtonText(label);
   const clean=cleanButtonLabel(raw);
-  if(!clean)return "›";
-  if(style==="primary")return "🔵 ‹ "+clean;
-  if(style==="success")return "🟢 › "+clean;
-  if(style==="danger")return "🔴 › "+clean;
+  if(!clean)return style==="primary"?"‹":"›";
+  if(style==="primary")return "‹ "+clean;
   return "› "+clean;
 }
 
 export function glassButton(label:string,callbackData:string):DesignedButton{
   const style=semanticStyle(label,callbackData);
-  // Telegram InlineKeyboardButton has no background-color/style field.
-  // Keep the inline keyboard compatible and restore semantic color cues in the label.
+  // Telegram Bot API native button styles carry the color; labels stay clean.
   return {text:visualButtonLabel(label,style),callback_data:callbackData,...(style?{style}: {})};
 }
 
