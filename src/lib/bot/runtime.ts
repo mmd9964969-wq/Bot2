@@ -4,7 +4,7 @@ import type { BotConfig } from "./defaults.ts";
 
 export type LiveContext = BotContext & { messageId:number; replyToUserId?:number; replyToName?:string; replyToMessageId?:number };
 export type BotContext = {
-  text:string; chatType:"private"|"group"|"supergroup"; chatId:number; chatTitle:string;
+  text:string; chatType:"private"|"group"|"supergroup"; chatId:number; chatTitle:string; chatUsername?:string;
   membersCount:number; userId:number; userName:string; userRank:Rank; lang:Lang;
   config:BotConfig; now:number; staff:{id:number;name:string;rank:Rank}[];
 };
