@@ -783,8 +783,10 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     const buttons:any=[];
     for(let i=0;i<rows.rows.length;i+=2){
       const a=rows.rows[i],b=rows.rows[i+1];
-      const row:any=[[(labels[a.rule_key]||a.title||a.rule_key),"clt:"+a.rule_key+":"+(a.enabled?"off":"on")]];
-      if(b)row.push([(labels[b.rule_key]||b.title||b.rule_key),"clt:"+b.rule_key+":"+(b.enabled?"off":"on")]);
+      const aLabel=labels[a.rule_key]||a.title||a.rule_key;
+      const bLabel=b?(labels[b.rule_key]||b.title||b.rule_key):"";
+      const row:any=[[(a.enabled?"خاموش‌سازی":"فعال‌سازی")+" | "+aLabel,"clt:"+a.rule_key+":"+(a.enabled?"off":"on")]];
+      if(b)row.push([((b.enabled?"خاموش‌سازی":"فعال‌سازی")+" | "+bLabel),"clt:"+b.rule_key+":"+(b.enabled?"off":"on")]);
       buttons.push(row);
     }
     const active=rows.rows.filter((x:any)=>x.enabled).length;
