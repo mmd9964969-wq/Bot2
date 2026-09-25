@@ -704,7 +704,7 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   }
 
   if(data==="c:audit"){
-    const r=await pool.query("SELECT actor_id,action,target,created_at FROM audit_logs WHERE target=$1 OR after_data::text LIKE $2 ORDER BY created_at DESC LIMIT 30",[String(groupId),"%\\"groupId\\":"+groupId+"%"]);
+    const r=await pool.query("SELECT actor_id,action,target,created_at FROM audit_logs WHERE target=$1 ORDER BY created_at DESC LIMIT 30",[String(groupId)]);
     const lines=r.rows.length?r.rows.map((x:any)=>"⛂ - "+faDate(x.created_at)+" · "+valueOrDash(x.action)+" · اجراکننده : "+valueOrDash(x.actor_id)).join("\n"):"⛂ - وضعیت : رویدادی برای این گروه ثبت نشده است.";
     return edit(msg.chat.id,msg.message_id,panelTitle("ممیزی گروه",lines),menu([[["بروزرسانی","c:audit"],["‹ بازگشت","c:home"]]]));
   }
