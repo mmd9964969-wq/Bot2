@@ -19,3 +19,13 @@
 .content-lock-modal{max-width:760px}.content-lock-modal.compact{max-width:520px}.test-match-list{display:grid;gap:5px}.test-match-list>div{display:grid;grid-template-columns:20px 1fr auto;align-items:center;gap:7px;padding:8px;border:1px solid rgba(216,173,91,.12);border-radius:8px;background:rgba(216,173,91,.03)}.test-match-list span{color:var(--gold2)}.test-match-list b{font-size:8px}.test-match-list small{color:#697382;font-size:7px}
 @media(max-width:1100px){.content-lock-hero{align-items:flex-start;flex-direction:column}.content-lock-layout{grid-template-columns:1fr}.content-lock-sidebar{height:auto}.content-lock-tabs{display:grid;grid-template-columns:repeat(4,1fr)}.content-lock-subgrid{grid-template-columns:1fr}.content-lock-subgrid>div+div{border-right:0;border-top:1px solid var(--line)}}
 @media(max-width:700px){.content-lock-stats{grid-template-columns:1fr 1fr}.content-rule-controls{grid-template-columns:1fr;margin-right:0;margin-left:0}.content-lock-tabs{grid-template-columns:1fr 1fr}.content-lock-secondary-head{align-items:flex-start;flex-direction:column}.content-lock-hero-actions{width:100%}.content-lock-hero-actions select{min-width:0;width:100%}}
+
+/* Lock Center v3 · Normal Locks + Bulk Presets */
+.content-lock-quick-actions{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 18px;margin-bottom:14px;border:1px solid rgba(216,173,91,.12);border-radius:14px;background:linear-gradient(110deg,rgba(216,173,91,.055),rgba(255,255,255,.018));}
+.content-lock-quick-actions>div:first-child{display:flex;flex-direction:column;gap:4px}
+.content-lock-quick-actions>div:first-child>b{font-size:12px;color:#dce2e9}
+.content-lock-quick-actions>div:first-child>small{font-size:8px;color:#687382}
+.content-lock-quick-actions .toolbar-actions{display:flex;flex-wrap:wrap;justify-content:flex-start}
+.content-lock-quick-actions button{min-height:38px}
+.content-lock-tabs [data-tab="normal"]{border-color:rgba(216,173,91,.22);background:linear-gradient(110deg,rgba(216,173,91,.065),rgba(255,255,255,.015))}
+@media(max-width:800px){.content-lock-quick-actions{align-items:flex-start;flex-direction:column}.content-lock-quick-actions .toolbar-actions{width:100%}.content-lock-quick-actions button{flex:1}}
