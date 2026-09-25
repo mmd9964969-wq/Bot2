@@ -383,11 +383,41 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     if(!(await isGroupAdmin(groupId,uid))&&!data.startsWith("c:support"))return edit(msg.chat.id,msg.message_id,"فقط مدیر گروه می‌تواند تنظیمات مدیریتی این بخش را تغییر دهد.",menu([[["‹ بازگشت","c:home"]]]));
   }
   if(data==="c:home"){return edit(msg.chat.id,msg.message_id,mainCustomerMessage(),menu(K.customerMain));}
-  if(data==="c:automation")return edit(msg.chat.id,msg.message_id,panelTitle("Automation Center","اتوماسیون‌ها در سه موتور اصلی اجرا می‌شوند."),menu([
+  if(data==="c:automation")return edit(msg.chat.id,msg.message_id,panelTitle("Automation Center","موتور اجرای Ruleهای واقعی گروه؛ تریگر، عملیات و وضعیت هر Rule در PostgreSQL نگهداری می‌شود."),menu([
+    [["ایجاد اتوماسیون","auto:add"],["فهرست اتوماسیون","auto:list"]],
+    [["فعال / غیرفعال","auto:toggle"],["حذف اتوماسیون  if(data==="auto:list"){
+    await pool.query("CREATE TABLE IF NOT EXISTS bot_group_automations(id BIGSERIAL PRIMARY KEY,group_id BIGINT NOT NULL,name TEXT NOT NULL,trigger_type TEXT NOT NULL DEFAULT 'keyword',trigger_value TEXT NOT NULL,action_type TEXT NOT NULL,action_payload TEXT NOT NULL DEFAULT '',cooldown_seconds INTEGER NOT NULL DEFAULT 10,enabled BOOLEAN NOT NULL DEFAULT TRUE,created_by BIGINT NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),UNIQUE(group_id,name))");
+    const r=await pool.query("SELECT id,name,trigger_value,action_type,enabled FROM bot_group_automations WHERE group_id=$1 ORDER BY id DESC LIMIT 40",[groupId]);
+    const lines=r.rows.length?r.rows.map((x:any)=>"⛂ - #"+x.id+" · "+x.name+" · "+x.trigger_value+" · "+x.action_type+" · "+(x.enabled?"● فعال":"○ خاموش")).join("\n"):"اتوماسیون ثبت نشده است.";
+    return edit(msg.chat.id,msg.message_id,panelTitle("Automation Center",lines),menu([[["ایجاد اتوماسیون","auto:add"],["فعال / غیرفعال","auto:toggle"]],[["حذف اتوماسیون","auto:delete"],["‹ بازگشت","c:home"]]]));
+  }
+  if(data==="auto:add"){
+    session(uid,"automation_add_name",{chatId:groupId});
+    return edit(msg.chat.id,msg.message_id,panelTitle("Automation Builder","نام Rule را ارسال کنید."),menu([[["‹ انصراف","c:automation"]]]));
+  }
+  if(data==="auto:toggle"||data==="auto:delete"){
+    session(uid,"automation_manage",{chatId:groupId,action:data==="auto:toggle"?"toggle":"delete"});
+    return edit(msg.chat.id,msg.message_id,panelTitle("Automation Manager","شناسه Rule را ارسال کنید."),menu([[["‹ انصراف","c:automation"]]]));
+  }
+  if(data.startsWith("auto:action:")){
+    const action=data.slice(12);
+    const current=getSession(uid);
+    if(!current||current.flow!=="automation_action"||(AUTOMATION_ACTIONS as readonly string[]).indexOf(action)<0)return true;
+    current.data.action=action;
+    if(action==="reply"){
+      current.flow="automation_payload";
+      session(uid,current.flow,current.data);
+      return edit(msg.chat.id,msg.message_id,panelTitle("Automation Builder","متن پاسخ را ارسال کنید. متغیر مجاز: {{user_name}}"),menu([[["‹ انصراف","c:automation"]]]));
+    }
+    await pool.query("INSERT INTO bot_group_automations(group_id,name,trigger_value,action_type,action_payload,created_by) VALUES($1,$2,$3,$4,'',$5)",[groupId,current.data.name,current.data.keyword,action,uid]);
+    clearSession(uid);
+    return send(msg.chat.id,"✓ Rule اتوماسیون ساخته و فعال شد.",menu([[["اتوماسیون‌ها","auto:list"]]]));
+  }
+","auto:delete"]],
     [["خوش‌آمدگویی و خروج","c:welcome"],["دستورات خودکار","c:commands"]],
-    [["زمان‌بندی","c:schedule"],["قفل‌های خودکار","c:locks"]],
-    [["‹ بازگشت","c:home"]]
+    [["زمان‌بندی","c:schedule"],["‹ بازگشت","c:home"]]
   ]));
+
   if(data==="c:content")return edit(msg.chat.id,msg.message_id,panelTitle("Content Studio","مدیریت محتوای واکنشی، قفل محتوا و پاسخ‌های اختصاصی گروه."),menu([
     [["قفل و فیلتر محتوا","c:locks"],["Command Studio","c:commands"]],
     [["Welcome / Goodbye","c:welcome"],["‹ بازگشت","c:home"]]
@@ -441,14 +471,54 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     return edit(msg.chat.id,msg.message_id,panelTitle("Group Audit",lines),menu([[ ["بروزرسانی","c:audit"],["‹ بازگشت","c:home"] ]]));
   }
   if(data==="c:exceptions"){
-    await pool.query("CREATE TABLE IF NOT EXISTS bot_panel_exceptions (id BIGSERIAL PRIMARY KEY,group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,kind TEXT NOT NULL DEFAULT 'user',note TEXT,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),UNIQUE(group_id,user_id,kind))");
-    const r=await pool.query("SELECT id,user_id,kind,note FROM bot_panel_exceptions WHERE group_id=$1 ORDER BY id DESC LIMIT 30",[groupId]);
-    const rows:any[]=r.rows.map((x:any)=>[["کاربر "+x.user_id+" · "+valueOrDash(x.kind),"ex:remove:"+x.id]]);
-    rows.push([["افزودن استثنای کاربر","ex:add"]],[["‹ بازگشت","c:home"]]);
-    return edit(msg.chat.id,msg.message_id,panelTitle("Exception Center","کاربران استثناشده در موتور قفل از اینجا مدیریت می‌شوند."),menu(rows));
+    const [e,d]=await Promise.all([
+      pool.query("SELECT id,exception_type,target_id,target_label,enabled FROM content_lock_exceptions WHERE group_id=$1 ORDER BY id DESC LIMIT 40",[groupId]),
+      pool.query("SELECT id,domain,enabled FROM content_lock_domains WHERE group_id=$1 ORDER BY id DESC LIMIT 40",[groupId])
+    ]);
+    const lines=[
+      "⛂ - استثناها : "+e.rows.length,
+      "⛂ - دامنه‌های مجاز : "+d.rows.length,
+      "",
+      ...e.rows.map((x:any)=>"⛂ - #"+x.id+" · "+x.exception_type+" · "+(x.target_label||x.target_id||"—")+" · "+(x.enabled?"● فعال":"○ خاموش")),
+      ...(d.rows.length?["","─────━━───── ◈ ─────━━─────",...d.rows.map((x:any)=>"⛂ - #D"+x.id+" · "+x.domain+" · "+(x.enabled?"● فعال":"○ خاموش"))]:[])
+    ].join("\n");
+    const rows:any[]=[
+      [["کاربر","ex:add:user"],["نقش","ex:add:role"]],
+      [["منبع فوروارد","ex:add:forward_source"],["دامنه مجاز","ex:add:domain"]],
+      [["مدیریت دامنه‌ها","ex:domains"],["حذف استثنا","ex:delete"]],
+      [["‹ بازگشت","c:home"]]
+    ];
+    return edit(msg.chat.id,msg.message_id,panelTitle("Exception Center",lines),menu(rows));
   }
-  if(data==="ex:add"){session(uid,"exception_add",{chatId:groupId});return edit(msg.chat.id,msg.message_id,"⛂ - آیدی عددی کاربر را ارسال کنید.",menu([[ ["‹ بازگشت","c:exceptions"] ]]));}
-  if(data.startsWith("ex:remove:")){const id=Number(data.slice(10));if(!Number.isSafeInteger(id))return;await pool.query("DELETE FROM bot_panel_exceptions WHERE id=$1 AND group_id=$2",[id,groupId]);await audit(pool,String(uid),"group_exception_removed",String(id),{groupId});return edit(msg.chat.id,msg.message_id,"✓ استثنا حذف شد.",menu([[ ["‹ بازگشت","c:exceptions"] ]]));}
+  if(data==="ex:domains"){
+    const r=await pool.query("SELECT id,domain,enabled FROM content_lock_domains WHERE group_id=$1 ORDER BY id DESC LIMIT 50",[groupId]);
+    const lines=r.rows.length?r.rows.map((x:any)=>"⛂ - #"+x.id+" · "+x.domain+" · "+(x.enabled?"● فعال":"○ خاموش")).join("\n"):"دامنه مجازی ثبت نشده است.";
+    const rows:any[]=r.rows.map((x:any)=>[[x.enabled?"خاموش‌سازی":"فعال‌سازی","ex:domain:toggle:"+x.id]]);
+    rows.push([["افزودن دامنه","ex:add:domain"],["حذف دامنه","ex:domain:delete"]]);
+    rows.push([["‹ بازگشت","c:exceptions"]]);
+    return edit(msg.chat.id,msg.message_id,panelTitle("Domain Allowlist",lines),menu(rows));
+  }
+  if(data.startsWith("ex:domain:toggle:")){
+    const id=Number(data.slice(17));if(!Number.isSafeInteger(id))return;
+    await pool.query("UPDATE content_lock_domains SET enabled=NOT enabled WHERE id=$1 AND group_id=$2",[id,groupId]);
+    await audit(pool,String(uid),"content_lock_domain_toggled",String(id),{groupId});
+    return edit(msg.chat.id,msg.message_id,"✓ وضعیت دامنه تغییر کرد.",menu([[["فهرست دامنه‌ها","ex:domains"],["‹ بازگشت","c:exceptions"]]]));
+  }
+  if(data==="ex:add:user"||data==="ex:add:role"||data==="ex:add:forward_source"||data==="ex:add:domain"){
+    const kind=data.slice(7);
+    session(uid,"exception_add",{chatId:groupId,kind});
+    const prompt=kind==="user"?"آیدی عددی کاربر را ارسال کنید.":kind==="role"?"نقش را ارسال کنید؛ owner / sudo / admin / member":kind==="domain"?"دامنه را ارسال کنید؛ مثال: example.com":"آیدی عددی منبع فوروارد را ارسال کنید.";
+    return edit(msg.chat.id,msg.message_id,panelTitle("Exception Builder",prompt),menu([[["‹ انصراف","c:exceptions"]]]));
+  }
+  if(data==="ex:delete"){
+    session(uid,"exception_delete",{chatId:groupId});
+    return edit(msg.chat.id,msg.message_id,panelTitle("Exception Manager","شناسه استثنا را ارسال کنید."),menu([[["‹ انصراف","c:exceptions"]]]));
+  }
+  if(data==="ex:domain:delete"){
+    session(uid,"domain_delete",{chatId:groupId});
+    return edit(msg.chat.id,msg.message_id,panelTitle("Domain Manager","شناسه دامنه را ارسال کنید."),menu([[["‹ انصراف","ex:domains"]]]));
+  }
+
   if(data==="c:status"){return edit(msg.chat.id,msg.message_id,await customerStatus(pool,uid,groupId),menu([[["بروزرسانی","c:status"],["‹ بازگشت","c:home"]]]));}
   if(data==="c:locks"){
     await ensureContentLocks(pool,groupId);
@@ -552,12 +622,34 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
 async function handleInput(pool:Pool,msg:TgMessage){
   if(!msg.from)return false;const uid=msg.from.id,s=getSession(uid);if(!s||s.expires<Date.now())return false;const value=(msg.text||"").trim();const groupId=Number(s.data.chatId||msg.chat.id);
   if(s.flow==="exception_add"){
-    const id=Number(value);if(!Number.isSafeInteger(id)||id<=0)return send(msg.chat.id,"⛂ - آیدی معتبر نیست.",menu([[ ["‹ بازگشت","c:exceptions"] ]]));
-    await pool.query("CREATE TABLE IF NOT EXISTS bot_panel_exceptions (id BIGSERIAL PRIMARY KEY,group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,kind TEXT NOT NULL DEFAULT 'user',note TEXT,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),UNIQUE(group_id,user_id,kind))");
-    await pool.query("INSERT INTO bot_panel_exceptions(group_id,user_id,kind,note) VALUES($1,$2,'user','استثنای مدیریت گروه') ON CONFLICT(group_id,user_id,kind) DO NOTHING",[groupId,id]);
-    clearSession(uid);await audit(pool,String(uid),"group_exception_added",String(id),{groupId});
-    return send(msg.chat.id,"✓ کاربر به Exception Center اضافه شد.",menu([[ ["مدیریت استثناها","c:exceptions"] ]]));
+    const kind=String(s.data.kind||"user");
+    if(kind==="domain"){
+      const domain=value.toLowerCase().replace(/^https?:\/\//,"").split("/")[0].replace(/^www\./,"");
+      if(!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain))return send(msg.chat.id,"دامنه معتبر نیست؛ نمونه: example.com");
+      await pool.query("INSERT INTO content_lock_domains(group_id,domain,enabled) VALUES($1,$2,TRUE) ON CONFLICT(group_id,domain) DO UPDATE SET enabled=TRUE",[groupId,domain]);
+      clearSession(uid);await audit(pool,String(uid),"content_lock_domain_added",domain,{groupId});
+      return send(msg.chat.id,"✓ دامنه در Allowlist ثبت و فعال شد.",menu([[["فهرست دامنه‌ها","ex:domains"]]]));
+    }
+    if(kind==="user"&&!/^\d+$/.test(value))return send(msg.chat.id,"آیدی کاربر باید عددی باشد.");
+    if(kind==="forward_source"&&!/^-?\d+$/.test(value))return send(msg.chat.id,"آیدی منبع فوروارد معتبر نیست.");
+    if(kind==="role"&&!/^(owner|sudo|admin|member)$/i.test(value))return send(msg.chat.id,"نقش مجاز: owner / sudo / admin / member");
+    await pool.query("INSERT INTO content_lock_exceptions(group_id,exception_type,target_id,target_label,scope,enabled) VALUES($1,$2,$3,$4,'["all"]'::jsonb,TRUE) ON CONFLICT(group_id,exception_type,target_id) DO UPDATE SET target_label=EXCLUDED.target_label,enabled=TRUE,updated_at=NOW()",[groupId,kind,value,value.toLowerCase()]);
+    clearSession(uid);await audit(pool,String(uid),"content_lock_exception_added",value,{groupId,type:kind});
+    return send(msg.chat.id,"✓ استثنا ثبت و فعال شد.",menu([[["Exception Center","c:exceptions"]]]));
   }
+  if(s.flow==="exception_delete"){
+    const id=Number(value);if(!Number.isSafeInteger(id))return send(msg.chat.id,"شناسه معتبر نیست.");
+    await pool.query("DELETE FROM content_lock_exceptions WHERE id=$1 AND group_id=$2",[id,groupId]);
+    clearSession(uid);await audit(pool,String(uid),"content_lock_exception_removed",String(id),{groupId});
+    return send(msg.chat.id,"✓ استثنا حذف شد.",menu([[["Exception Center","c:exceptions"]]]));
+  }
+  if(s.flow==="domain_delete"){
+    const id=Number(value);if(!Number.isSafeInteger(id))return send(msg.chat.id,"شناسه معتبر نیست.");
+    await pool.query("DELETE FROM content_lock_domains WHERE id=$1 AND group_id=$2",[id,groupId]);
+    clearSession(uid);await audit(pool,String(uid),"content_lock_domain_removed",String(id),{groupId});
+    return send(msg.chat.id,"✓ دامنه حذف شد.",menu([[["فهرست دامنه‌ها","ex:domains"]]]));
+  }
+
   if(s.flow==="owner_extend"||s.flow==="owner_reduce"){const days=Number(value);const sign=s.flow==="owner_extend"?1:-1;const lic=(await pool.query("SELECT * FROM bot_licenses WHERE customer_id=$1 AND status='active' ORDER BY id DESC LIMIT 1",[s.data.customerId])).rows[0];if(!lic?.expires_at)return send(msg.chat.id,"مادام‌العمر یا بدون تاریخ انقضا است.");const newDate=new Date(new Date(lic.expires_at).getTime()+sign*days*86400000);await pool.query("UPDATE bot_licenses SET expires_at=$1 WHERE id=$2",[newDate,lic.id]);clearSession(uid);return send(msg.chat.id,"✓ تاریخ انقضا به "+faDate(newDate)+" تغییر کرد.");}
   if(s.flow==="owner_message"){const r=await telegramApi("sendMessage",{chat_id:Number(s.data.customerId),text:value});clearSession(uid);return send(msg.chat.id,r.ok?"✓ پیام خصوصی ارسال شد.":"✗ ارسال پیام ناموفق بود: "+(r.description||"Telegram error"));}
   if(s.flow==="owner_owner_add"){const id=Number(value);if(!Number.isSafeInteger(id))return send(msg.chat.id,"آیدی معتبر نیست.");await pool.query("INSERT INTO bot_panel_owners(user_id) VALUES($1) ON CONFLICT DO NOTHING",[id]);clearSession(uid);return send(msg.chat.id,"✓ مالک جدید ثبت شد.");}
