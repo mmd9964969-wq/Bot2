@@ -1523,12 +1523,15 @@ export async function dispatchPanelMessage(pool:Pool,msg:TgMessage,ownerIds:stri
 export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   if(!cb.message)return;
   await ensurePanelSessionSchema(pool);
-  const owned=await panelMessageOwnedBy(pool,cb.message.chat.id,cb.message.message_id,cb.from.id);
-  if(!owned){
-    await answer(cb.id);
-    return;
-  }
+  // Do not reject legacy/previously-rendered panel messages solely because their
+  // session row expired or was created before the session table was introduced.
+  // Authorization is enforced again inside ownerCallback/customerCallback.
+  const owned=await panelMessageOwnedBy(pool,cb.message.chat.id,cb.message.message_id,cb.from.id).catch(()=>false);
   return runWithPanelScope(cb.from.id,pool,async()=>{
+    if(!owned){
+      // Keep old panels interactive; refresh their session ownership for this user.
+      await bindPanelMessage(pool,cb.message!.chat.id,cb.message!.message_id,cb.from.id).catch(()=>{});
+    }
     if(!allowed(cb.from.id))return;
     const data=String(cb.data||"");
   // Customer/lock panel callbacks must keep their customer context even for the bot owner.
