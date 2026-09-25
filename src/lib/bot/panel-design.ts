@@ -36,10 +36,9 @@ function visualButtonLabel(label:string,style:TelegramButtonStyle|undefined){
 
 export function glassButton(label:string,callbackData:string):DesignedButton{
   const style=semanticStyle(label,callbackData);
-  // Telegram InlineKeyboardButton does not expose a background-color/style API.
-  // We preserve the glass inline-keyboard behavior and restore semantic color cues
-  // with compact colored status markers: blue=back, green=on, red=off.
-  return {text:visualButtonLabel(label,style),callback_data:callbackData,style};
+  // Telegram InlineKeyboardButton has no background-color/style field.
+  // Keep the inline keyboard compatible and restore semantic color cues in the label.
+  return {text:visualButtonLabel(label,style),callback_data:callbackData};
 }
 
 export function glassKeyboard(rows:string[][][]){
