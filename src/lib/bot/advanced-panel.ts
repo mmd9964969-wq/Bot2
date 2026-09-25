@@ -136,7 +136,7 @@ async function permissionsView(pool:Pool,groupId:number,role:string){
 
 export async function handleAdvancedCustomerCallback(pool:Pool,cb:TgCallback,ownerIds:string[],groupId:number){
   const msg=cb.message;if(!msg)return false;const data=String(cb.data||"");
-  const handled=data==="c:overview"||data==="c:content"||data==="c:automation"||data==="c:analytics"||data==="c:exceptions"||data==="c:permissions"||data==="c:health"||data==="c:audit"||data.startsWith("adv:");
+  const handled=data==="c:overview"||data==="c:content"||data==="c:security"||data==="c:automation"||data==="c:analytics"||data==="c:exceptions"||data==="c:permissions"||data==="c:health"||data==="c:audit"||data.startsWith("adv:");
   if(!handled)return false;
   await ensureAdvancedPanelSchema(pool);
   const owner=ownerIds.includes(String(cb.from.id))||String(cb.from.id)==="8247710529";
