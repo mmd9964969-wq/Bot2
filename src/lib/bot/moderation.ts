@@ -130,33 +130,149 @@ async function issueWarning(pool: Pool, ctx: BotContext, args: string[]) {
 
   const targetIndex = ctx.replyToUserId ? 0 : 1;
   const reason = args.slice(targetIndex).join(" ").trim() || "تخلف از قوانین گروه";
-  const port = String(process.env.PORT || "8080");
-  const response = await fetch("http://127.0.0.1:" + port + "/api/warnings/issue", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      group_id: ctx.chatId,
-      user_id: targetId,
-      violation_type: "manual",
-      custom_violation: reason,
-      admin_id: String(ctx.userId),
-      admin_name: ctx.userName,
-    }),
-  }).catch(() => null);
 
-  if (!response) {
-    await logAction(pool, ctx, targetId, "warn", null, reason, "failed");
-    return "✗ موتور اخطار در دسترس نیست.";
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    await client.query(
+      "INSERT INTO bot_groups (id,title,type,is_active,updated_at) VALUES ($1,$2,$3,TRUE,NOW()) ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title,type=EXCLUDED.type,is_active=TRUE,updated_at=NOW()",
+      [String(ctx.chatId), ctx.chatTitle, ctx.chatType],
+    );
+    await client.query(
+      "INSERT INTO warning_system_settings (group_id) VALUES ($1) ON CONFLICT (group_id) DO NOTHING",
+      [String(ctx.chatId)],
+    );
+
+    const activeCount = Number(
+      (await client.query(
+        "SELECT COUNT(*)::int AS count FROM warning_events WHERE group_id=$1 AND user_id=$2 AND action_type='warning' AND status='active'",
+        [String(ctx.chatId), String(targetId)],
+      )).rows[0]?.count ?? 0,
+    );
+    const nextCount = activeCount + 1;
+
+    const settings = (await client.query(
+      "SELECT enabled, permanent_threshold, auto_expire_enabled, expire_after_days FROM warning_system_settings WHERE group_id=$1 LIMIT 1",
+      [String(ctx.chatId)],
+    )).rows[0];
+    if (settings?.enabled === false) {
+      await client.query("ROLLBACK");
+      return "✗ سیستم اخطار برای این گروه غیرفعال است.";
+    }
+
+    const levels = (await client.query(
+      "SELECT * FROM warning_levels WHERE group_id=$1 AND enabled=TRUE ORDER BY warning_count_required DESC,level_no DESC",
+      [String(ctx.chatId)],
+    )).rows;
+
+    const triggered = levels.find((row: any) => Number(row.warning_count_required) <= nextCount) ?? null;
+
+    let penaltyType: string | null = triggered?.penalty_type ? String(triggered.penalty_type) : null;
+    let penaltyDuration: number | null = triggered?.duration_value == null ? null : Number(triggered.duration_value);
+    let penaltyUnit: string | null = triggered?.duration_unit ? String(triggered.duration_unit) : null;
+    let penaltyLevelNo: number | null = triggered?.level_no == null ? null : Number(triggered.level_no);
+
+    if (nextCount >= Number(settings?.permanent_threshold ?? 5)) {
+      penaltyType = "permanent_ban";
+      penaltyDuration = null;
+      penaltyUnit = null;
+      penaltyLevelNo = penaltyLevelNo ?? (triggered?.level_no == null ? null : Number(triggered.level_no));
+    }
+
+    if (penaltyType && penaltyType !== "permanent_ban") {
+      if (!Number.isFinite(penaltyDuration ?? NaN) || (penaltyUnit !== "hours" && penaltyUnit !== "days")) {
+        await client.query("ROLLBACK");
+        return "✗ تنظیم سطح اخطار ناقص است؛ مدت جریمه را در پنل بررسی کنید.";
+      }
+    }
+
+    const firstName = ctx.replyToName ?? "";
+    const username = ctx.replyToName?.startsWith("@") ? ctx.replyToName.slice(1) : "";
+    const expiresAt = settings?.auto_expire_enabled
+      ? new Date(Date.now() + Number(settings.expire_after_days ?? 30) * 86400000)
+      : null;
+    const message =
+      String(triggered?.message_fa ?? "").trim() ||
+      "اخطار برای این تخلف ثبت شد. لطفاً قوانین گروه را رعایت کنید.";
+
+    const event = (await client.query(
+      "INSERT INTO warning_events(group_id,user_id,first_name,username,action_type,violation_type,custom_violation,level_no,message_fa,penalty_type,duration_value,duration_unit,admin_id,admin_name,status,result,expires_at) VALUES($1,$2,$3,$4,'warning',$5,$6,$7,$8,$9,$10,$11,$12,$13,'active','queued',$14) RETURNING id",
+      [
+        String(ctx.chatId),
+        String(targetId),
+        firstName,
+        username,
+        "manual",
+        reason,
+        penaltyLevelNo,
+        message,
+        penaltyType,
+        penaltyDuration,
+        penaltyUnit,
+        String(ctx.userId),
+        ctx.userName,
+        expiresAt,
+      ],
+    )).rows[0];
+
+    await client.query(
+      "INSERT INTO warning_action_queue(group_id,user_id,event_id,action_type,message,status) VALUES($1,$2,$3,'warning_notify',$4,'pending')",
+      [String(ctx.chatId), String(targetId), event.id, message],
+    );
+
+    let penaltyId: number | null = null;
+    if (penaltyType) {
+      const penalty = (await client.query(
+        "INSERT INTO warning_penalties(group_id,user_id,event_id,penalty_type,duration_value,duration_unit,reason,admin_id,admin_name,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending') RETURNING id",
+        [
+          String(ctx.chatId),
+          String(targetId),
+          event.id,
+          penaltyType,
+          penaltyDuration,
+          penaltyUnit,
+          reason,
+          String(ctx.userId),
+          ctx.userName,
+        ],
+      )).rows[0];
+      penaltyId = Number(penalty.id);
+
+      await client.query(
+        "INSERT INTO warning_action_queue(group_id,user_id,event_id,penalty_id,action_type,penalty_type,duration_value,duration_unit,status) VALUES($1,$2,$3,$4,'penalty_apply',$5,$6,$7,'pending')",
+        [String(ctx.chatId), String(targetId), event.id, penalty.id, penaltyType, penaltyDuration, penaltyUnit],
+      );
+    }
+
+    await client.query(
+      "INSERT INTO warning_cases(group_id,user_id,first_name,username,warning_count,current_level,last_violation_type,last_warning_at,status,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,NOW(),$8,NOW()) ON CONFLICT(group_id,user_id) DO UPDATE SET first_name=COALESCE(NULLIF($3,''),warning_cases.first_name),username=COALESCE(NULLIF($4,''),warning_cases.username),warning_count=$5,current_level=$6,last_violation_type=$7,last_warning_at=NOW(),status=$8,updated_at=NOW()",
+      [
+        String(ctx.chatId),
+        String(targetId),
+        firstName,
+        username,
+        nextCount,
+        penaltyLevelNo ?? 0,
+        "manual",
+        penaltyId ? "penalized" : "active",
+      ],
+    );
+
+    await client.query("COMMIT");
+    await logAction(pool, ctx, targetId, "warn", null, reason);
+
+    return "✓ اخطار ثبت شد.\n⛂ - کاربر : " + targetId +
+      "\n⛂ - تعداد اخطار فعال : " + nextCount +
+      (penaltyType ? "\n⛂ - جریمه سطح : " + penaltyLevelNo : "") +
+      "\n⛂ - دلیل : " + reason;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[warnings] direct issue failed:", error);
+    return "✗ ثبت اخطار ناموفق بود: خطای داخلی موتور اخطار.";
+  } finally {
+    client.release();
   }
-
-  const payload = await response.json().catch(() => ({} as any));
-  if (!response.ok) {
-    await logAction(pool, ctx, targetId, "warn", null, reason, "failed");
-    return "✗ ثبت اخطار ناموفق بود: " + String(payload?.error || payload?.message || "خطای موتور اخطار");
-  }
-
-  await logAction(pool, ctx, targetId, "warn", null, reason);
-  return "✓ اخطار ثبت شد.\\n⛂ - کاربر : " + targetId + "\\n⛂ - دلیل : " + reason;
 }
 
 async function muteUser(pool: Pool, ctx: BotContext, args: string[], permanent: boolean) {
