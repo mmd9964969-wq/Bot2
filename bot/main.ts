@@ -6,7 +6,7 @@ import type { Lang, Rank } from "../src/lib/bot/registry.ts";
 import { telegramApi } from "../src/lib/telegram/api.ts";
 import { rankAtLeast } from "../src/lib/bot/registry.ts";
 import { runLiveCommand, recordMessage, getGroupStats } from "../src/lib/bot/runtime.ts";
-import { enforceContentLocks, type ContentLockMessage } from "../src/lib/bot/content-locks.ts";
+import { enforceContentLocks, runContentLockCommand, type ContentLockMessage } from "../src/lib/bot/content-locks.ts";
 import { isRuntimeMaintenance, startRuntimeControlServer } from "./runtime-control.ts";
 import { dispatchPanelMessage, dispatchPanelCallback } from "./panel-system.ts";
 import { ensureInstallationSchema, installationGate, handleInstallationCallback } from "./installation.ts";
@@ -464,7 +464,10 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
     }
 
     try{
-      const liveCard=await runLiveCommand({...ctx,messageId:0},studioCommand.aliasesEn[0]??studioCommand.id,raw.split(/\\s+/).slice(1));
+      const commandArgs=raw.split(/\\s+/).slice(1);
+      const liveCard=(["lock","unlock","lockall","unlockall"].includes(studioCommand.id) && studioPool)
+        ? await runContentLockCommand(studioPool,{chatId:ctx.chatId,userId:ctx.userId,userRank:ctx.userRank,lang:ctx.lang,chatTitle:ctx.chatTitle},studioCommand.id,commandArgs)
+        : await runLiveCommand({...ctx,messageId:0},studioCommand.aliasesEn[0]??studioCommand.id,commandArgs);
       await logCommandAccess(ctx,studioCommand.id,"command_executed","allowed",auth.role);
       const values:Record<string,string>={
         user_name:ctx.userName,
