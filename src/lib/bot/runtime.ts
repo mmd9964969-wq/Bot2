@@ -71,7 +71,7 @@ async function api<T=any>(method:string,data:Record<string,unknown>){const r=awa
 function target(ctx:LiveContext,args:string[]){if(ctx.replyToUserId)return ctx.replyToUserId;for(const x of args){const n=normalizeToken(x);if(/^-?\d+$/.test(n))return Number(n)}return null;}
 function duration(args:string[]){for(const x of args){const d=parseDuration(x);if(d)return d}return null;}
 function reason(args:string[]){return args.filter(x=>!x.startsWith("@")&&!/^-?\d+$/.test(normalizeToken(x))&&!parseDuration(x)).join(" ")||"—";}
-function rankLabel(l:Lang,r:Rank){return l==="fa"?({owner:"مالک",sudo:"سودو",admin:"مدیر",member:"کاربر"}[r]):r;}
+function rankLabel(l:Lang,r:Rank){return l==="fa"?(r==="owner"?"مالک":r==="member"?"کاربر":"مدیر"):r==="owner"?"owner":r==="member"?"member":"manager";}
 async function adminCount(chatId:number){const a=await api<any[]>("getChatAdministrators",{chat_id:chatId});return a.length;}
 async function realRank(ctx:LiveContext,userId:number):Promise<Rank>{
   const id=String(userId);
