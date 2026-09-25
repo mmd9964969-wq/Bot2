@@ -486,7 +486,7 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
         status_card:liveCard,
         messages_today: String(getGroupStats(ctx.chatId).messagesToday),
         messages_total: String(getGroupStats(ctx.chatId).messagesTotal),
-        chat_username: "—"
+        chat_username: ctx.chatUsername ?? "—"
       };
       const configuredTemplate=ctx.lang==="fa"?panelCommand?.response_fa:panelCommand?.response_en;
       const coreLiveIds=new Set(["robot","id","admin","info","rank","me","ping","bot","status"]);
@@ -669,6 +669,7 @@ async function handleMessage(msg: TgMessage, edited = false) {
     chatType: isPrivate ? "private" : chat.type === "group" ? "group" : "supergroup",
     chatId: chat.id,
     chatTitle: chat.title || (isPrivate ? msg.from.first_name || "pm" : "chat"),
+    chatUsername: chat.username ? "@"+chat.username : undefined,
     membersCount,
     userId: msg.from.id,
     userName: msg.from.username || msg.from.first_name || String(msg.from.id),
