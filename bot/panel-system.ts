@@ -242,9 +242,12 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   const uid=cb.from.id;const msg=cb.message;if(!msg)return;await answer(cb.id);
   const data=String(cb.data||"");const s=getSession(uid);const groupId=Number(s?.data?.chatId||msg.chat.id);
   if(["c:exit","c:support","c:renew"].includes(data)){if(data==="c:exit"){clearSession(uid);return edit(msg.chat.id,msg.message_id,"از پنل مشتری خارج شدید.",null);}if(data==="c:support")return edit(msg.chat.id,msg.message_id,"پشتیبانی PERSIAN BOT STUDIO\n\nبرای تمدید، خطا و مسائل فنی با پشتیبانی رسمی تماس بگیرید.",menu([[["← بازگشت","c:home"]]]));return edit(msg.chat.id,msg.message_id,"برای تمدید لایسنس، درخواست خود را برای پشتیبانی ارسال کنید.",menu([[["تماس با پشتیبانی","c:support"],["← بازگشت","c:home"]]]));}
-  const allowed=await customerAllowedForChat(pool,uid,groupId);
-  if(!allowed)return edit(msg.chat.id,msg.message_id,"لایسنس یا دسترسی این گروه برای شما معتبر نیست.",menu([[["تمدید لایسنس","c:renew"],["پشتیبانی","c:support"]]]));
-  if(!(await isGroupAdmin(groupId,uid))&&!data.startsWith("c:support"))return edit(msg.chat.id,msg.message_id,"فقط مدیر گروه می‌تواند تنظیمات مدیریتی این بخش را تغییر دهد.",menu([[["← بازگشت","c:home"]]]));
+  const privileged=await isOwner(pool,uid,ownerIds);
+  if(!privileged){
+    const allowed=await customerAllowedForChat(pool,uid,groupId);
+    if(!allowed)return edit(msg.chat.id,msg.message_id,"لایسنس یا دسترسی این گروه برای شما معتبر نیست.",menu([[["تمدید لایسنس","c:renew"],["پشتیبانی","c:support"]]]));
+    if(!(await isGroupAdmin(groupId,uid))&&!data.startsWith("c:support"))return edit(msg.chat.id,msg.message_id,"فقط مدیر گروه می‌تواند تنظیمات مدیریتی این بخش را تغییر دهد.",menu([[["← بازگشت","c:home"]]]));
+  }
   if(data==="c:home"){return edit(msg.chat.id,msg.message_id,mainCustomerMessage(),menu(K.customerMain));}
   if(data==="c:status"){return edit(msg.chat.id,msg.message_id,await customerStatus(pool,uid,groupId),menu([[["↻ بروزرسانی","c:status"],["← بازگشت","c:home"]]]));}
   if(data==="c:locks"){
