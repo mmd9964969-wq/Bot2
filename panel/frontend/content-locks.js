@@ -1,25 +1,29 @@
 
 const CONTENT_LOCK_SECTION_META={
-  links:{title:"لینک و تبلیغات",icon:"↗",desc:"کنترل لینک، تبلیغات، دامنه‌های مجاز و رفتار حذف."},
-  media:{title:"رسانه",icon:"◫",desc:"قفل عکس، ویدیو، موزیک، GIF، استیکر، ویس و ویدیو نوت."},
-  forwarding:{title:"فوروارد و اشتراک‌گذاری",icon:"↪",desc:"کنترل Forward، منبع فوروارد و اشتراک‌گذاری Story."},
-  files:{title:"فایل و سند",icon:"▤",desc:"کنترل پسوند، حجم، فایل‌های فشرده و اجرایی."},
-  messages:{title:"پیام و نرخ ارسال",icon:"≡",desc:"طول پیام، محدودیت تعداد پیام و کنترل الگوی ارسال."},
-  interactions:{title:"تعامل و ویرایش",icon:"✎",desc:"ریپلای، ویرایش، هشتگ، منشن و پیش‌نمایش لینک."},
-  advanced:{title:"محتوای پیشرفته",icon:"◇",desc:"Contact، Location، Poll، Dice، Game و Web App."},
-  anti_attack:{title:"ضد اتک و ضد Flood",icon:"⚡",desc:"مقابله با Burst، پیام تکراری، Link Burst و Media Burst."}
+  normal:{title:"قفل‌های حالت عادی",icon:"◈",desc:"قفل‌های اصلی و ساده؛ رسانه، لینک، تبلیغات، فایل، فوروارد و تعاملات پایه."},
+  media:{title:"رسانه",icon:"◫",desc:"کنترل دقیق عکس، ویدیو، موزیک، GIF، استیکر، ویس و ویدیو نوت."},
+  links:{title:"لینک‌ها",icon:"↗",desc:"کنترل همه لینک‌ها، دعوت‌نامه‌ها، یوزرنیم‌ها و دامنه‌های مجاز."},
+  advertising:{title:"تبلیغات",icon:"◇",desc:"تشخیص و کنترل متن، لینک، دعوت، شماره و یوزرنیم تبلیغاتی."},
+  forwarding:{title:"فوروارد و اشتراک‌گذاری",icon:"↪",desc:"کنترل Forward بر اساس نوع منبع، حذف خودکار و Story share."},
+  files:{title:"فایل و سند",icon:"▤",desc:"کنترل سند، فایل فشرده، فایل اجرایی و محدودیت حجم."},
+  messages:{title:"پیام و نرخ ارسال",icon:"≡",desc:"حداقل/حداکثر طول پیام و محدودیت نرخ ارسال."},
+  interactions:{title:"تعامل و هویت",icon:"✎",desc:"ریپلای، ویرایش، هشتگ، منشن، یوزرنیم، شماره، ایمیل و پیش‌نمایش."},
+  advanced:{title:"محتوای پیشرفته",icon:"◇",desc:"Contact، Location، Poll، Dice، Game، Web App و ورود ربات."},
+  anti_attack:{title:"امنیت و ضد اتک",icon:"⚡",desc:"ضد Flood، پیام تکراری، CAPS، Link Burst، Media Burst و هجوم عضو."}
 };
 const CONTENT_LABELS={
-  links_all:"تمام لینک‌ها",links_telegram:"لینک‌های تلگرام",links_external:"لینک‌های خارجی",links_invites:"لینک‌های دعوت",links_auto_delete:"حذف خودکار لینک غیرمجاز",links_notify:"اعلان لینک",
+  normal_media:"قفل رسانه",normal_links:"قفل لینک",normal_ads:"قفل تبلیغات",normal_files:"قفل فایل",normal_forward:"قفل فوروارد",normal_contact:"قفل تماس",normal_location:"قفل موقعیت",normal_poll:"قفل نظرسنجی",normal_dice:"قفل تاس",normal_game:"قفل بازی",normal_web_app:"قفل وب‌اپ",normal_reply:"قفل ریپلای",normal_edit:"قفل ویرایش",normal_mention:"قفل منشن",normal_bot:"قفل ورود ربات",
+  links_all:"تمام لینک‌ها",links_telegram:"لینک‌های تلگرام",links_external:"لینک‌های خارجی",links_invites:"لینک‌های دعوت",links_username:"یوزرنیم لینک",links_phone:"شماره در لینک",links_auto_delete:"حذف خودکار لینک غیرمجاز",links_notify:"اعلان لینک",
+  advertising_text:"متن تبلیغاتی",advertising_links:"لینک تبلیغاتی",advertising_invites:"دعوت تبلیغاتی",advertising_phone:"شماره تبلیغاتی",advertising_username:"یوزرنیم تبلیغاتی",
   media_photo:"عکس",media_video:"ویدیو",media_audio:"موزیک / Audio",media_animation:"GIF / Animation",media_sticker:"استیکر",media_voice:"ویس",media_video_note:"ویدیو نوت",
   forward_all:"همه فورواردها",forward_groups:"فوروارد از گروه‌ها",forward_channels:"فوروارد از کانال‌ها",forward_private:"فوروارد از پیوی",forward_auto_delete:"حذف خودکار فوروارد",forward_notify:"اعلان فوروارد",
   file_documents:"اسناد",file_archives:"فایل‌های فشرده",file_executables:"فایل‌های اجرایی",file_auto_delete:"حذف فایل غیرمجاز",file_max_size:"حداکثر حجم فایل",
   message_min_length:"حداقل طول پیام",message_max_length:"حداکثر طول پیام",message_rate_limit:"محدودیت پیام در دقیقه",
-  reply_lock:"قفل ریپلای",edit_lock:"قفل ویرایش متن",hashtag_limit:"محدودیت هشتگ",mention_limit:"محدودیت منشن",web_preview_lock:"قفل پیش‌نمایش لینک",story_share_lock:"قفل اشتراک‌گذاری Story",
-  contact_lock:"قفل Contact",location_lock:"قفل Location",poll_lock:"قفل Poll",dice_lock:"قفل Dice",game_lock:"قفل Game",web_app_lock:"قفل Web App Data",
-  attack_flood:"ضد فلود سریع",attack_duplicate:"ضد پیام تکراری",attack_caps:"کنترل CAPS",attack_link_burst:"ضد Link Burst",attack_media_burst:"ضد Media Burst"
+  reply_lock:"قفل ریپلای",edit_lock:"قفل ویرایش متن",hashtag_limit:"محدودیت هشتگ",mention_limit:"محدودیت منشن",username_lock:"قفل یوزرنیم",phone_lock:"قفل شماره تلفن",email_lock:"قفل ایمیل",web_preview_lock:"قفل پیش‌نمایش لینک",story_share_lock:"قفل اشتراک‌گذاری Story",
+  contact_lock:"قفل Contact",location_lock:"قفل Location",poll_lock:"قفل Poll",dice_lock:"قفل Dice",game_lock:"قفل Game",web_app_lock:"قفل Web App Data",bot_join_lock:"قفل ورود ربات",
+  attack_flood:"ضد فلود سریع",attack_duplicate:"ضد پیام تکراری",attack_caps:"کنترل CAPS",attack_link_burst:"ضد Link Burst",attack_media_burst:"ضد Media Burst",attack_join_flood:"ضد هجوم عضو"
 };
-const contentLockState={groupId:null,rules:[],exceptions:[],domains:[],settings:null,tab:"links",filter:""};
+const contentLockState={groupId:null,rules:[],exceptions:[],domains:[],settings:null,tab:"normal",filter:""};
 const clEsc=esc;
 function clApi(url,opts={}){return fetch(url,{cache:"no-store",...opts,headers:{"Content-Type":"application/json",...(opts.headers||{})}}).then(async r=>{const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.error||"خطای API");return d;});}
 function clActor(){return window.localStorage.getItem("pbs_actor_id")||"PANEL_OWNER";}
@@ -107,6 +111,15 @@ async function contentLocksPage(){
   shell("سیستم قفل و کنترل محتوا","فاز ۴ · CAPABILITY 13",`
     <div class="content-lock-hero"><div><span class="eyebrow">CONTENT LOCK · CONTROL CENTER</span><h1>سیستم قفل و کنترل محتوا</h1><p>کنترل دقیق رسانه، لینک، فایل، فوروارد، تعامل و ضداتک با قوانین قابل تنظیم و لاگ کامل.</p></div><div class="content-lock-hero-actions"><label>گروه فعال<select id="contentLockGroup"></select></label><button class="ghost" id="contentLockRefresh">↻ بروزرسانی</button><button class="primary" id="contentLockTester">آزمایشگر قوانین</button></div></div>
     <div class="content-lock-master"><div><b>کنترل مرکزی سیستم</b><small>خاموش‌کردن این کلید، تمام قوانین محتوایی را برای گروه متوقف می‌کند.</small></div><label class="content-switch big"><input id="contentLockMaster" type="checkbox"><span></span></label></div>
+    <div class="content-lock-quick-actions">
+      <div><span class="eyebrow">QUICK PRESETS</span><b>کنترل سریع</b><small>بخش‌های عادی را با یک عمل روشن یا خاموش کنید.</small></div>
+      <div class="toolbar-actions">
+        <button class="primary" id="clNormalOn">فعال‌سازی قفل‌های حالت عادی</button>
+        <button class="ghost" id="clNormalOff">خاموش‌سازی قفل‌های حالت عادی</button>
+        <button class="ghost" id="clAllOn">قفل همه</button>
+        <button class="ghost" id="clAllOff">بازکردن همه</button>
+      </div>
+    </div>
     <div class="stats content-lock-stats">
       <div class="stat-card"><div class="stat-top"><span class="stat-icon gold">◇</span><span class="stat-kicker">ACTIVE RULES</span></div><strong id="clActiveRules">0</strong><span>قوانین فعال</span></div>
       <div class="stat-card"><div class="stat-top"><span class="stat-icon blue">×</span><span class="stat-kicker">BLOCKED TODAY</span></div><strong id="clBlockedToday">0</strong><span>پیام مسدودشده امروز</span></div>
@@ -127,6 +140,14 @@ async function contentLocksPage(){
   select.onchange=async()=>{contentLockState.groupId=select.value;await clLoad();};
   document.getElementById("contentLockRefresh").onclick=()=>clLoad();
   document.getElementById("contentLockTester").onclick=clTester;
+  async function clSetSection(section,enabled){
+    if(!contentLockState.groupId)return;
+    try{await clApi("/api/content-locks/sections/"+encodeURIComponent(section),{method:"PUT",body:JSON.stringify({group_id:contentLockState.groupId,enabled,actor_id:clActor()})});clToast(enabled?"بخش فعال شد.":"بخش خاموش شد.");await clLoad();}catch(err){clToast(err.message,true);}
+  }
+  document.getElementById("clNormalOn").onclick=()=>clSetSection("normal",true);
+  document.getElementById("clNormalOff").onclick=()=>clSetSection("normal",false);
+  document.getElementById("clAllOn").onclick=async()=>{if(confirm("همه قوانین فعال شوند؟")){try{await clApi("/api/content-locks/sections/all",{method:"PUT",body:JSON.stringify({group_id:contentLockState.groupId,enabled:true,actor_id:clActor()})});}catch{} }};
+  document.getElementById("clAllOff").onclick=async()=>{if(confirm("همه قوانین خاموش شوند؟")){try{await clApi("/api/content-locks/sections/all",{method:"PUT",body:JSON.stringify({group_id:contentLockState.groupId,enabled:false,actor_id:clActor()})});await clLoad();}catch(err){clToast(err.message,true);}}};
   document.getElementById("contentLockMaster").onchange=async e=>{try{await clApi("/api/content-locks/settings",{method:"PUT",body:JSON.stringify({group_id:contentLockState.groupId,enabled:e.target.checked,actor_id:clActor()})});clToast(e.target.checked?"سیستم قفل محتوا فعال شد.":"سیستم قفل محتوا غیرفعال شد.");await clLoad();}catch(err){e.target.checked=!e.target.checked;clToast(err.message,true);}};
   document.getElementById("contentLockSearch").oninput=e=>{contentLockState.filter=e.target.value;clRenderRules();};
   document.getElementById("clAddException").onclick=clExceptionModal;
