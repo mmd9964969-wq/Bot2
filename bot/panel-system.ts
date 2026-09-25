@@ -69,7 +69,7 @@ async function edit(chatId:number,messageId:number,message:string,markup:any=nul
   // Telegram does not expose a custom page-transition API.
   // Keep the existing soft transition while preserving message ownership.
   await sleep(75);
-  const result=await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,text:message,reply_markup:markup});
+  const result=await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,text:normalizePanelText(message),reply_markup:markup});
   const scope=currentPanelScope();
   if(result.ok&&scope){
     if(markup?.inline_keyboard) await touchPanelMessage(scope.pool,chatId,messageId,scope.userId);
@@ -104,8 +104,8 @@ async function customerAllowedForChat(pool:Pool,uid:number,chatId:number){
 async function isGroupAdmin(chatId:number,uid:number){
   const r=await telegramApi<any>("getChatMember",{chat_id:chatId,user_id:uid});return !!(r.ok&&["administrator","creator"].includes(String(r.result?.status||"")));
 }
-function mainOwnerMessage(){return "◈ پنل مالک بات\n\nدسترسی سطح مالک فعال است. از منوی زیر بخش موردنظر را انتخاب کنید.";};
-function mainCustomerMessage(){return "◈ پنل مدیریت مشتری\n\nگروه و سرویس خود را از منوی زیر کنترل کنید.";};
+function mainOwnerMessage(){return "━━━━━━━━━━━━━━━━━━━━━━━━\n◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Oᴡɴᴇʀ Cᴏɴᴛʀᴏʟ\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n⛂ - سطح دسترسی : OWNER\n⛂ - وضعیت هسته : فعال\n⛂ - وضعیت پنل : آماده\n\nمرکز کنترل مالک برای مدیریت مشتریان، لایسنس‌ها، گروه‌ها، Runtime و ممیزی.";};
+function mainCustomerMessage(){return "━━━━━━━━━━━━━━━━━━━━━━━━\n◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Gʀᴏᴜᴘ Cᴏɴᴛʀᴏʟ\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n⛂ - دسترسی : مدیر گروه\n⛂ - هسته قفل : آماده\n⛂ - موتور کنترل : فعال\n\nمرکز کنترل عملیاتی گروه از همین پنل در دسترس است.";};
 
 async function ownerStats(pool:Pool){
   const [customers,active,expired,groups,cmd24,cmd7,warn,kick]=await Promise.all([
