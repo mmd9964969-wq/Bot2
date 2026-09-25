@@ -37,6 +37,7 @@ const K={
     [["مرکز Audit","o:audit"],["امنیت و دسترسی","o:security"]],
     [["پشتیبان‌گیری و بازیابی","o:backup"],["تنظیمات پیشرفته","o:settings"]],
     [["وضعیت سرور و منابع","o:server"],["لیست سیاه مشتریان","o:blacklist"]],
+    [["Feature Flags","o:features"],["AI Center","o:ai"]],
     [["خروج از پنل مالک","o:exit"]]
   ],
   customerMain:[
@@ -271,6 +272,34 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
       "⛂ - ثبت Audit : ● فعال",
       "⛂ - کنترل دسترسی پنل : ● فعال"
     ].join("\\n")),menu([[ ["مدیریت مالک‌ها","s:owners"],["لیست سیاه","o:blacklist"] ],[["‹ بازگشت","o:home"]]]));
+  }
+  if(data==="o:features"){
+    await pool.query("CREATE TABLE IF NOT EXISTS bot_feature_flags (name TEXT PRIMARY KEY,enabled BOOLEAN NOT NULL DEFAULT FALSE,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+    const defaults=["advanced_panel","content_lock_engine","warning_engine","automation_engine","analytics_engine","ai_engine"];
+    for(const name of defaults)await pool.query("INSERT INTO bot_feature_flags(name,enabled) VALUES($1,FALSE) ON CONFLICT(name) DO NOTHING",[name]);
+    const r=await pool.query("SELECT name,enabled FROM bot_feature_flags ORDER BY name");
+    const rows:any[]=r.rows.map((x:any)=>[[(x.enabled?"فعال":"غیرفعال")+" · "+x.name,"ff:toggle:"+x.name]]);
+    rows.push([["‹ بازگشت","o:home"]]);
+    return edit(msg.chat.id,msg.message_id,panelTitle("Feature Flags","هر تغییر به‌صورت پایدار در PostgreSQL ذخیره و در Audit ثبت می‌شود."),menu(rows));
+  }
+  if(data.startsWith("ff:toggle:")){
+    const name=data.slice(10);
+    await pool.query("CREATE TABLE IF NOT EXISTS bot_feature_flags (name TEXT PRIMARY KEY,enabled BOOLEAN NOT NULL DEFAULT FALSE,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+    const r=await pool.query("INSERT INTO bot_feature_flags(name,enabled) VALUES($1,TRUE) ON CONFLICT(name) DO UPDATE SET enabled=NOT bot_feature_flags.enabled,updated_at=NOW() RETURNING enabled",[name]);
+    await audit(pool,String(uid),"feature_flag_changed",name,{enabled:r.rows[0]?.enabled});
+    return edit(msg.chat.id,msg.message_id,"✓ وضعیت Feature Flag تغییر کرد.\n\n⛂ - نام : "+name+"\n⛂ - وضعیت : "+(r.rows[0]?.enabled?"● فعال":"○ غیرفعال"),menu([[ ["مدیریت Feature Flags","o:features"] ],[["‹ بازگشت","o:home"]]]));
+  }
+  if(data==="o:ai"){
+    const configured=Boolean(process.env.OPENAI_API_KEY||process.env.AI_API_KEY);
+    await pool.query("CREATE TABLE IF NOT EXISTS bot_feature_flags (name TEXT PRIMARY KEY,enabled BOOLEAN NOT NULL DEFAULT FALSE,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+    const flag=(await pool.query("SELECT enabled FROM bot_feature_flags WHERE name='ai_engine' LIMIT 1")).rows[0]?.enabled;
+    return edit(msg.chat.id,msg.message_id,panelTitle("AI Center",[
+      "⛂ - Provider : "+(configured?"● پیکربندی شده":"○ تنظیم نشده"),
+      "⛂ - AI Engine : "+(flag?"● فعال":"○ غیرفعال"),
+      "⛂ - وضعیت Runtime : ● آماده برای اتصال",
+      "",
+      configured?"کلید سرویس موجود است؛ فعال‌سازی موتور از Feature Flags انجام می‌شود.":"برای اجرای واقعی قابلیت‌های AI، API Key سرویس موردنظر باید در Railway Variables تنظیم شود."
+    ].join("\\n")),menu([[ ["Feature Flags","o:features"],["‹ بازگشت","o:home"] ]]));
   }
   if(data==="o:logs"){const r=await pool.query("SELECT action,target,created_at FROM audit_logs ORDER BY created_at DESC LIMIT 50");const lines=r.rows.length?r.rows.map((x:any)=>"• "+faDate(x.created_at)+" · "+x.action+" · "+(x.target||"—")).join("\n"):"لاگی ثبت نشده است.";return edit(msg.chat.id,msg.message_id,"◈ ۵۰ رویداد مهم اخیر\n\n"+lines,menu([[["← بازگشت","o:home"]]]));}
   if(data==="o:broadcast"){session(uid,"owner_broadcast_wait");return edit(msg.chat.id,msg.message_id,"پیام خود را ارسال کنید (متن یا رسانه).");}
