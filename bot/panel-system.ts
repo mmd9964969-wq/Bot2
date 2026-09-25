@@ -662,7 +662,7 @@ async function handleInput(pool:Pool,msg:TgMessage){
     if(kind==="user"&&!/^\d+$/.test(value))return send(msg.chat.id,"آیدی کاربر باید عددی باشد.");
     if(kind==="forward_source"&&!/^-?\d+$/.test(value))return send(msg.chat.id,"آیدی منبع فوروارد معتبر نیست.");
     if(kind==="role"&&!/^(owner|sudo|admin|member)$/i.test(value))return send(msg.chat.id,"نقش مجاز: owner / sudo / admin / member");
-    await pool.query("INSERT INTO content_lock_exceptions(group_id,exception_type,target_id,target_label,scope,enabled) VALUES($1,$2,$3,$4,'["all"]'::jsonb,TRUE) ON CONFLICT(group_id,exception_type,target_id) DO UPDATE SET target_label=EXCLUDED.target_label,enabled=TRUE,updated_at=NOW()",[groupId,kind,value,value.toLowerCase()]);
+        await pool.query("INSERT INTO content_lock_exceptions(group_id,exception_type,target_id,target_label,scope,enabled) VALUES($1,$2,$3,$4,$5::jsonb,TRUE) ON CONFLICT(group_id,exception_type,target_id) DO UPDATE SET target_label=EXCLUDED.target_label,enabled=TRUE,updated_at=NOW()",[groupId,kind,value,value.toLowerCase(),JSON.stringify(["all"])]);
     clearSession(uid);await audit(pool,String(uid),"content_lock_exception_added",value,{groupId,type:kind});
     return send(msg.chat.id,"✓ استثنا ثبت و فعال شد.",menu([[["Exception Center","c:exceptions"]]]));
   }
@@ -679,6 +679,32 @@ async function handleInput(pool:Pool,msg:TgMessage){
     return send(msg.chat.id,"✓ دامنه حذف شد.",menu([[["فهرست دامنه‌ها","ex:domains"]]]));
   }
 
+  if(s.flow==="automation_add_name"){
+    if(value.length<1||value.length>80)return send(msg.chat.id,"نام Rule باید بین ۱ تا ۸۰ نویسه باشد.");
+    s.data.name=value;s.flow="automation_add_keyword";session(uid,s.flow,s.data);
+    return send(msg.chat.id,panelTitle("Automation Builder","کلمه یا عبارت محرک را ارسال کنید."));
+  }
+  if(s.flow==="automation_add_keyword"){
+    if(value.length<1||value.length>120)return send(msg.chat.id,"عبارت محرک نامعتبر است.");
+    s.data.keyword=value.toLowerCase();s.flow="automation_action";session(uid,s.flow,s.data);
+    return send(msg.chat.id,panelTitle("Automation Builder","نوع عملیات را انتخاب کنید."),menu([
+      [["پاسخ خودکار","auto:action:reply"],["حذف پیام","auto:action:delete"]],
+      [["سکوت کاربر","auto:action:mute"],["اخراج کاربر","auto:action:kick"]],
+      [["‹ انصراف","c:automation"]]
+    ]));
+  }
+  if(s.flow==="automation_payload"){
+    await pool.query("INSERT INTO bot_group_automations(group_id,name,trigger_value,action_type,action_payload,created_by) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(group_id,name) DO UPDATE SET trigger_value=EXCLUDED.trigger_value,action_type=EXCLUDED.action_type,action_payload=EXCLUDED.action_payload,enabled=TRUE,updated_at=NOW()",[groupId,s.data.name,s.data.keyword,s.data.action,value,uid]);
+    clearSession(uid);await audit(pool,String(uid),"automation_created",s.data.name,{groupId,action:s.data.action});
+    return send(msg.chat.id,"✓ Rule اتوماسیون ساخته و فعال شد.",menu([[["اتوماسیون‌ها","auto:list"]]]));
+  }
+  if(s.flow==="automation_manage"){
+    const id=Number(value);if(!Number.isSafeInteger(id))return send(msg.chat.id,"شناسه Rule معتبر نیست.");
+    if(s.data.action==="toggle")await pool.query("UPDATE bot_group_automations SET enabled=NOT enabled,updated_at=NOW() WHERE id=$1 AND group_id=$2",[id,groupId]);
+    else await pool.query("DELETE FROM bot_group_automations WHERE id=$1 AND group_id=$2",[id,groupId]);
+    clearSession(uid);await audit(pool,String(uid),"automation_managed",String(id),{groupId,action:s.data.action});
+    return send(msg.chat.id,"✓ عملیات اتوماسیون اجرا شد.",menu([[["Automation Center","c:automation"]]]));
+  }
   if(s.flow==="owner_extend"||s.flow==="owner_reduce"){const days=Number(value);const sign=s.flow==="owner_extend"?1:-1;const lic=(await pool.query("SELECT * FROM bot_licenses WHERE customer_id=$1 AND status='active' ORDER BY id DESC LIMIT 1",[s.data.customerId])).rows[0];if(!lic?.expires_at)return send(msg.chat.id,"مادام‌العمر یا بدون تاریخ انقضا است.");const newDate=new Date(new Date(lic.expires_at).getTime()+sign*days*86400000);await pool.query("UPDATE bot_licenses SET expires_at=$1 WHERE id=$2",[newDate,lic.id]);clearSession(uid);return send(msg.chat.id,"✓ تاریخ انقضا به "+faDate(newDate)+" تغییر کرد.");}
   if(s.flow==="owner_message"){const r=await telegramApi("sendMessage",{chat_id:Number(s.data.customerId),text:value});clearSession(uid);return send(msg.chat.id,r.ok?"✓ پیام خصوصی ارسال شد.":"✗ ارسال پیام ناموفق بود: "+(r.description||"Telegram error"));}
   if(s.flow==="owner_owner_add"){const id=Number(value);if(!Number.isSafeInteger(id))return send(msg.chat.id,"آیدی معتبر نیست.");await pool.query("INSERT INTO bot_panel_owners(user_id) VALUES($1) ON CONFLICT DO NOTHING",[id]);clearSession(uid);return send(msg.chat.id,"✓ مالک جدید ثبت شد.");}
