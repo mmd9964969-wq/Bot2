@@ -138,7 +138,7 @@ export async function handleAdvancedCustomerCallback(pool:Pool,cb:TgCallback,own
   const msg=cb.message;if(!msg)return false;const data=String(cb.data||"");
   const handled=data==="c:overview"||data==="c:content"||data==="c:automation"||data==="c:analytics"||data==="c:exceptions"||data==="c:permissions"||data==="c:health"||data==="c:audit"||data.startsWith("adv:");
   if(!handled)return false;
-  await answer(cb.id);await ensureAdvancedPanelSchema(pool);
+  await ensureAdvancedPanelSchema(pool);
   const owner=ownerIds.includes(String(cb.from.id))||String(cb.from.id)==="8247710529";
   const role=await roleFor(pool,groupId,cb.from.id,owner);
   const module=moduleFor(data);
@@ -161,6 +161,15 @@ export async function handleAdvancedCustomerCallback(pool:Pool,cb:TgCallback,own
     const p2=await permissionsView(pool,groupId,targetRole);return edit(msg.chat.id,msg.message_id,p2.text,kb(p2.rows));
   }
   if(data==="c:automation"||data==="adv:auto:list")return edit(msg.chat.id,msg.message_id,await automationView(pool,groupId),kb([[["ایجاد اتوماسیون","adv:auto:add"],["فهرست اتوماسیون","adv:auto:list"]],[["فعال / غیرفعال","adv:auto:toggle"],["حذف اتوماسیون","adv:auto:delete"]],[["‹ بازگشت","c:overview"]]]));
+  if(data.startsWith("adv:auto:action:")){
+    const current=getSession(cb.from.id);const action=data.split(":")[3];
+    if(!current||current.flow!=="automation_action"||!["reply","delete","mute","kick"].includes(action))return edit(msg.chat.id,msg.message_id,frame("Aᴜᴛᴏᴍᴀᴛɪᴏɴ Eʀʀᴏʀ",["جلسه ساخت اتوماسیون منقضی شده است."]),kb([[["‹ بازگشت","c:automation"]]]));
+    current.data.action=action;
+    if(action==="reply"){current.flow="automation_payload";return edit(msg.chat.id,msg.message_id,frame("Aᴜᴛᴏᴍᴀᴛɪᴏɴ Bᴜɪʟᴅᴇʀ",["متن پاسخ را ارسال کنید.","متغیر مجاز: {{user_name}}"]),kb([[["‹ انصراف","c:automation"]]]));}
+    await pool.query("INSERT INTO bot_group_automations(group_id,name,trigger_value,action_type,action_payload,cooldown_seconds,enabled,created_by) VALUES($1,$2,$3,$4,'',10,TRUE,$5)",[groupId,current.data.name,current.data.keyword,action,cb.from.id]);
+    clearSession(cb.from.id);
+    return edit(msg.chat.id,msg.message_id,frame("Aᴜᴛᴏᴍᴀᴛɪᴏɴ Cʀᴇᴀᴛᴇᴅ",["اتوماسیون ثبت و فعال شد.",info("کلمه",current.data.keyword),info("عملیات",action)]),kb([[["اتوماسیون‌ها","c:automation"],["‹ بازگشت","c:overview"]]]));
+  }
   if(data==="adv:auto:add"){setSession(cb.from.id,"automation_name",{groupId});return edit(msg.chat.id,msg.message_id,frame("Aᴜᴛᴏᴍᴀᴛɪᴏɴ Bᴜɪʟᴅᴇʀ",["نام اتوماسیون را ارسال کنید."]),kb([[["‹ انصراف","c:automation"]]]));}
   if(data==="adv:auto:toggle"||data==="adv:auto:delete"){setSession(cb.from.id,"automation_manage",{groupId,action:data.endsWith("toggle")?"toggle":"delete"});return edit(msg.chat.id,msg.message_id,frame("Aᴜᴛᴏᴍᴀᴛɪᴏɴ Mᴀɴᴀɢᴇʀ",["شناسه اتوماسیون را ارسال کنید."]),kb([[["‹ انصراف","c:automation"]]]));}
   if(data==="c:exceptions"||data==="adv:exc:list")return edit(msg.chat.id,msg.message_id,await exceptionsView(pool,groupId),kb([[["استثنای کاربر","adv:exc:add:user"],["استثنای نقش","adv:exc:add:role"]],[["استثنای منبع فوروارد","adv:exc:add:forward_source"],["فهرست استثناها","adv:exc:list"]],[["حذف استثنا","adv:exc:delete"],["‹ بازگشت","c:content"]]]));
