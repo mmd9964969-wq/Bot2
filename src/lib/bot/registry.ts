@@ -24,7 +24,7 @@ const defs: CommandDef[] = [
   { id:"ping", phase:2, minRank:"member", aliasesEn:["ping"], aliasesFa:["پینگ"], usageEn:"ping", usageFa:"پینگ", descEn:"System status", descFa:"وضعیت سیستم" },
   { id:"bot", phase:2, minRank:"member", aliasesEn:["bot"], aliasesFa:["بات"], usageEn:"bot", usageFa:"بات", descEn:"Technical bot information", descFa:"اطلاعات فنی ربات" },
   { id:"status", phase:2, minRank:"member", aliasesEn:["status"], aliasesFa:["وضعیت"], usageEn:"status", usageFa:"وضعیت", descEn:"Group status", descFa:"وضعیت گروه" },
-  { id:"lock", phase:2, minRank:"admin", aliasesEn:["lock","locks"], aliasesFa:["قفل","قفل‌ها","قفل ها"], usageEn:"lock [type]", usageFa:"قفل [نوع]", descEn:"Lock center and normal/content controls", descFa:"مرکز قفل و کنترل محتوا" },
+  { id:"lock", phase:2, minRank:"admin", aliasesEn:["lock","locks"], aliasesFa:["قفل","قفل‌ها","قفل ها","قفل‌ ها"], usageEn:"lock [type]", usageFa:"قفل [نوع]", descEn:"Lock center and normal/content controls", descFa:"مرکز قفل و کنترل محتوا" },
   { id:"unlock", phase:2, minRank:"admin", aliasesEn:["unlock"], aliasesFa:["بازکردن","باز کردن"], usageEn:"unlock [type]", usageFa:"بازکردن [نوع]", descEn:"Unlock a content rule", descFa:"بازکردن یک قفل" },
   { id:"lockall", phase:2, minRank:"admin", aliasesEn:["lockall"], aliasesFa:["قفل همه","قفل‌همه"], usageEn:"lockall", usageFa:"قفل همه", descEn:"Enable all lock rules", descFa:"فعال‌سازی همه قفل‌ها" },
   { id:"unlockall", phase:2, minRank:"admin", aliasesEn:["unlockall"], aliasesFa:["بازکردن همه","بازکردن‌همه"], usageEn:"unlockall", usageFa:"بازکردن همه", descEn:"Disable all lock rules", descFa:"خاموش‌کردن همه قفل‌ها" },
