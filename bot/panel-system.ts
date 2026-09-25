@@ -719,28 +719,34 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   }
 
   if(data==="c:security"){
-    return edit(msg.chat.id,msg.message_id,panelTitle("مرکز امنیت","کنترل مستقیم قفل کامل، محافظت دعوت، ضد اکانت فیک، سن اکانت جدید و حالت اضطراری."),menu([
-      [["قفل کامل گروه","sec:lock"],["بازکردن قفل کامل","sec:unlock"]],
-      [["محافظت لینک دعوت","sec:invite"],["ضد اکانت فیک","sec:fake"]],
-      [["محدودیت اکانت جدید","sec:new"],["حالت اضطراری","sec:emergency"]],
-      [["‹ بازگشت","c:home"]]
+    const r=await pool.query("SELECT full_lock,invite_protection,fake_account_restriction,new_account_days,emergency_mode FROM bot_group_settings WHERE group_id=$1",[groupId]);
+    const x=r.rows[0]||{};
+    return edit(msg.chat.id,msg.message_id,panelTitle("مرکز امنیت",
+      "⛂ - قفل کامل : "+(x.full_lock?"● فعال":"○ خاموش")+"\n⛂ - محافظت دعوت : "+(x.invite_protection?"● فعال":"○ خاموش")+"\n⛂ - ضد اکانت فیک : "+(x.fake_account_restriction?"● فعال":"○ خاموش")+"\n⛂ - سن اکانت جدید : "+(x.new_account_days||0)+" روز\n⛂ - حالت اضطراری : "+(x.emergency_mode?"● فعال":"○ خاموش")
+    ),menu([
+      [[x.full_lock?"خاموش‌سازی قفل کامل":"فعال‌سازی قفل کامل","sec:full:"+(x.full_lock?"off":"on")],[x.invite_protection?"خاموش‌سازی محافظت دعوت":"فعال‌سازی محافظت دعوت","sec:invite:"+(x.invite_protection?"off":"on")]],
+      [[x.fake_account_restriction?"خاموش‌سازی ضد اکانت فیک":"فعال‌سازی ضد اکانت فیک","sec:fake:"+(x.fake_account_restriction?"off":"on")],[x.emergency_mode?"خاموش‌سازی حالت اضطراری":"فعال‌سازی حالت اضطراری","sec:emergency:"+(x.emergency_mode?"off":"on")]],
+      [["تنظیم سن اکانت جدید","sec:new"],["‹ بازگشت","c:home"]]
     ]));
   }
-  if(["sec:lock","sec:unlock","sec:invite","sec:fake","sec:new","sec:emergency"].includes(data)){
+
+  if(data.startsWith("sec:")){
     if(!privileged && !(await isGroupAdmin(groupId,uid)))return send(msg.chat.id,panelTitle("دسترسی رد شد","⛂ - وضعیت : فقط مدیر گروه مجاز است."));
-    if(data==="sec:lock"||data==="sec:unlock"){
-      const perms=data==="sec:lock"
+    const p=data.split(":");const setting=p[1],value=p[2]==="on";
+    if(setting==="new"){
+      session(uid,"security_new",{chatId:groupId});
+      return edit(msg.chat.id,msg.message_id,panelTitle("مرکز امنیت","⛂ - مرحله : حداقل سن حساب را برحسب روز ارسال کنید.\n⛂ - مقدار ۰ : خاموش"),menu([[["‹ بازگشت","c:security"]]]));
+    }
+    const col=setting==="full"?"full_lock":setting==="invite"?"invite_protection":setting==="fake"?"fake_account_restriction":"emergency_mode";
+    if(setting==="full"){
+      const perms=value
         ?{can_send_messages:false,can_send_audios:false,can_send_documents:false,can_send_photos:false,can_send_videos:false,can_send_video_notes:false,can_send_voice_notes:false,can_send_polls:false,can_send_other_messages:false,can_add_web_page_previews:false}
         :{can_send_messages:true,can_send_audios:true,can_send_documents:true,can_send_photos:true,can_send_videos:true,can_send_video_notes:true,can_send_voice_notes:true,can_send_polls:true,can_send_other_messages:true,can_add_web_page_previews:true};
-      const rr=await telegramApi("setChatPermissions",{chat_id:groupId,permissions:perms,use_independent_chat_permissions:true});
-      if(!rr.ok)return send(msg.chat.id,panelTitle("خطای امنیتی","⛂ - پیام Telegram : "+(rr.description||"خطای ناشناخته")));
-      await pool.query("INSERT INTO bot_group_settings(group_id,full_lock) VALUES($1,$2) ON CONFLICT(group_id) DO UPDATE SET full_lock=EXCLUDED.full_lock,updated_at=NOW()",[groupId,data==="sec:lock"]);
-      return edit(msg.chat.id,msg.message_id,panelTitle("مرکز امنیت","⛂ - قفل کامل گروه : "+(data==="sec:lock"?"● فعال":"○ خاموش")),menu([[["بررسی امنیت","c:security"],["‹ بازگشت","c:home"]]]));
+      const tg=await telegramApi("setChatPermissions",{chat_id:groupId,permissions:perms,use_independent_chat_permissions:true});
+      if(!tg.ok)return send(msg.chat.id,panelTitle("خطای امنیتی","⛂ - پیام تلگرام : "+(tg.description||"خطای ناشناخته")));
     }
-    const field=data==="sec:invite"?"invite_protection":data==="sec:fake"?"fake_account_restriction":data==="sec:emergency"?"emergency_mode":"new_account_days";
-    if(data==="sec:new"){session(uid,"security_new",{chatId:groupId});return edit(msg.chat.id,msg.message_id,panelTitle("مرکز امنیت","حداقل سن حساب را برحسب روز ارسال کنید؛ «۰» یعنی خاموش."),menu([[["‹ بازگشت","c:security"]]]));}
-    await pool.query("INSERT INTO bot_group_settings(group_id,"+field+") VALUES($1,TRUE) ON CONFLICT(group_id) DO UPDATE SET "+field+"=NOT bot_group_settings."+field+",updated_at=NOW()",[groupId]);
-    return edit(msg.chat.id,msg.message_id,panelTitle("مرکز امنیت","⛂ - تنظیم : "+field+"\n⛂ - نتیجه : تغییر وضعیت انجام شد."),menu([[["بررسی امنیت","c:security"],["‹ بازگشت","c:home"]]]));
+    await pool.query("INSERT INTO bot_group_settings(group_id,"+col+") VALUES($1,$2) ON CONFLICT(group_id) DO UPDATE SET "+col+"=EXCLUDED."+col+",updated_at=NOW()",[groupId,value]);
+    return edit(msg.chat.id,msg.message_id,panelTitle("مرکز امنیت","⛂ - تنظیم : "+(col==="full_lock"?"قفل کامل":col==="invite_protection"?"محافظت دعوت":col==="fake_account_restriction"?"ضد اکانت فیک":"حالت اضطراری")+"\n⛂ - وضعیت : "+(value?"● فعال":"○ خاموش")),menu([[["بررسی امنیت","c:security"],["‹ بازگشت","c:home"]]]));
   }
 
   return false;
@@ -835,8 +841,8 @@ async function handleInput(pool:Pool,msg:TgMessage){
   if(s.flow==="group_setting"){const a=s.data.setting,val=value.toLowerCase();if(a==="welcome"||a==="goodbye"){const col=a==="welcome"?"welcome_text":"goodbye_text";await pool.query("INSERT INTO bot_group_settings(group_id,"+col+") VALUES($1,$2) ON CONFLICT(group_id) DO UPDATE SET "+col+"=EXCLUDED."+col+",updated_at=NOW()",[groupId,value]);}else{const field=a==="verify"?"welcome_enabled":a==="rules"?"rules_on_join":a==="pv"?"pv_welcome":a;const bool=["روشن","on","1","فعال"].includes(val);await pool.query("INSERT INTO bot_group_settings(group_id,"+field+") VALUES($1,$2) ON CONFLICT(group_id) DO UPDATE SET "+field+"=EXCLUDED."+field+",updated_at=NOW()",[groupId,bool]);}clearSession(uid);return send(msg.chat.id,"✓ تنظیم با موفقیت ذخیره شد.");}
   if(s.flow==="security_new"){const d=Math.max(0,Math.min(3650,Number(value)||0));await pool.query("INSERT INTO bot_group_settings(group_id,new_account_days) VALUES($1,$2) ON CONFLICT(group_id) DO UPDATE SET new_account_days=EXCLUDED.new_account_days,updated_at=NOW()",[groupId,d]);clearSession(uid);return send(msg.chat.id,"✓ محدودیت سن حساب روی "+d+" روز تنظیم شد.");}
   if(s.flow==="group_command"){const action=s.data.action;
-    if((action==="add"||action==="edit")&&Number(s.data.step||1)===1){s.data.step=2;s.data.cmd=value.replace(/^\/+/, "").trim().toLowerCase();session(uid,s.flow,s.data);return send(msg.chat.id,"پاسخ این دستور را ارسال کنید.");}
-    if((action==="add"||action==="edit")&&Number(s.data.step||1)===2){const cmd=s.data.cmd;await pool.query("INSERT INTO bot_group_commands(group_id,command_key,aliases,response_text) VALUES($1,$2,$3,$4) ON CONFLICT(group_id,command_key) DO UPDATE SET aliases=EXCLUDED.aliases,response_text=EXCLUDED.response_text,updated_at=NOW()",[groupId,cmd,[cmd],value]);clearSession(uid);return send(msg.chat.id,"✓ دستور ذخیره شد و فعال است.");}
+    if((action==="add"||action==="edit"||action==="auto")&&Number(s.data.step||1)===1){s.data.step=2;s.data.cmd=value.replace(/^\/+/, "").trim().toLowerCase();session(uid,s.flow,s.data);return send(msg.chat.id,"پاسخ این دستور را ارسال کنید.");}
+    if((action==="add"||action==="edit"||action==="auto")&&Number(s.data.step||1)===2){const cmd=s.data.cmd;await pool.query("INSERT INTO bot_group_commands(group_id,command_key,aliases,response_text) VALUES($1,$2,$3,$4) ON CONFLICT(group_id,command_key) DO UPDATE SET aliases=EXCLUDED.aliases,response_text=EXCLUDED.response_text,updated_at=NOW()",[groupId,cmd,[cmd],value]);clearSession(uid);return send(msg.chat.id,"✓ دستور ذخیره شد و فعال است.");}
     if(action==="delete"){const id=Number(value);const before=(await pool.query("SELECT * FROM bot_group_commands WHERE id=$1 AND group_id=$2",[id,groupId])).rows[0];if(!before){clearSession(uid);return send(msg.chat.id,"دستور پیدا نشد.");}await pool.query("DELETE FROM bot_group_commands WHERE id=$1 AND group_id=$2",[id,groupId]);clearSession(uid);return send(msg.chat.id,"✓ دستور حذف شد.");}
     clearSession(uid);return send(msg.chat.id,"عملیات دستور نامعتبر است.");}
   if(s.flow==="schedule"){const a=s.data.action,step=Number(s.data.step||1);
