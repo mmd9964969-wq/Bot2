@@ -416,5 +416,13 @@ export async function dispatchPanelMessage(pool:Pool,msg:TgMessage,ownerIds:stri
   return await handleCustomer(pool,msg,ownerIds);
 }
 export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
-  if(!allowed(cb.from.id))return; if(await isOwner(pool,cb.from.id,ownerIds))return ownerCallback(pool,cb,ownerIds);return customerCallback(pool,cb,ownerIds);
+  if(!allowed(cb.from.id))return;
+  const data=String(cb.data||"");
+  // Customer/lock panel callbacks must keep their customer context even for the bot owner.
+  // Otherwise ownerCallback receives c:/cl:/clt:/cls: actions and silently ignores them.
+  if(data.startsWith("c:")||data.startsWith("cl:")||data.startsWith("clt:")||data.startsWith("cls:")){
+    return customerCallback(pool,cb,ownerIds);
+  }
+  if(await isOwner(pool,cb.from.id,ownerIds))return ownerCallback(pool,cb,ownerIds);
+  return customerCallback(pool,cb,ownerIds);
 }
