@@ -9,7 +9,7 @@ import { runLiveCommand, recordMessage, getGroupStats } from "../src/lib/bot/run
 import { enforceContentLocks, runContentLockCommand, sendContentLockCenter, type ContentLockMessage } from "../src/lib/bot/content-locks.ts";
 import { isRuntimeMaintenance, startRuntimeControlServer } from "./runtime-control.ts";
 import { ensureAutomationSchema, runAutomations, tickSchedules } from "../src/lib/bot/automation-engine.ts";
-import { dispatchPanelMessage, dispatchPanelCallback } from "./panel-system.ts";
+import { dispatchPanelMessage, dispatchPanelCallback, openModerationCenterFromCommand } from "./panel-system.ts";
 import { ensureGroupLanguageSchema, getGroupLanguage, normalizeBotLang, setGroupLanguage, languageChangedText, languagePickerText, SUPPORTED_LANGUAGES } from "../src/lib/bot/i18n.ts";
 import { ensureInstallationSchema, installationGate, handleInstallationCallback } from "./installation.ts";
 import { ensureModerationSchema, runModerationCommand } from "../src/lib/bot/moderation.ts";
@@ -483,7 +483,18 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
 
     try{
       const commandArgs=raw.split(/\\s+/).slice(1);
-      if(["warn","mute","perm_mute","unmute","ban","unban"].includes(studioCommand.id)){
+      if(["warn","mute","perm_mute","ban"].includes(studioCommand.id)){
+        const targetId=ctx.replyToUserId ?? Number(commandArgs[0]?.replace(/^@/,""));
+        if(!Number.isSafeInteger(Number(targetId)) || Number(targetId)<=0){
+          await logCommandAccess(ctx,studioCommand.id,"command_executed","missing_target",auth.role);
+          return ctx.lang==="fa" ? "✗ کاربر مشخص نیست. روی پیام کاربر ریپلای کنید یا آیدی او را وارد کنید." : "✗ Target user not specified. Reply to the user's message or provide their numeric ID.";
+        }
+        const opened=await openModerationCenterFromCommand(studioPool!,ctx.chatId,ctx.userId,studioCommand.id,Number(targetId));
+        await logCommandAccess(ctx,studioCommand.id,"command_executed","allowed",auth.role);
+        if(!opened?.ok) return ctx.lang==="fa" ? "✗ بازکردن مرکز مجازات ناموفق بود: "+(opened?.description||"خطای Telegram") : "✗ Could not open the moderation center.";
+        return null;
+      }
+      if(["unmute","unban"].includes(studioCommand.id)){
         const liveCard=await runModerationCommand(studioPool!,ctx,studioCommand.id,commandArgs);
         await logCommandAccess(ctx,studioCommand.id,"command_executed","allowed",auth.role);
         return liveCard;
