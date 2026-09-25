@@ -5,7 +5,7 @@ import { cloneStudioDefaults, type StudioDocument } from "../src/lib/bot/studio.
 import type { Lang, Rank } from "../src/lib/bot/registry.ts";
 import { telegramApi } from "../src/lib/telegram/api.ts";
 import { rankAtLeast } from "../src/lib/bot/registry.ts";
-import { runLiveCommand, recordMessage } from "../src/lib/bot/runtime.ts";
+import { runLiveCommand, recordMessage, getGroupStats } from "../src/lib/bot/runtime.ts";
 import { enforceContentLocks, type ContentLockMessage } from "../src/lib/bot/content-locks.ts";
 import { isRuntimeMaintenance, startRuntimeControlServer } from "./runtime-control.ts";
 import { dispatchPanelMessage, dispatchPanelCallback } from "./panel-system.ts";
@@ -484,9 +484,9 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
         ping_card:liveCard,
         bot_card:liveCard,
         status_card:liveCard,
-        messages_today: String((await import("../src/lib/bot/runtime.ts")).getGroupStats?.(ctx.chatId)?.messagesToday ?? "—"),
-        messages_total: String((await import("../src/lib/bot/runtime.ts")).getGroupStats?.(ctx.chatId)?.messagesTotal ?? "—"),
-        chat_username: ctx.chatTitle ? "—" : "—"
+        messages_today: String(getGroupStats(ctx.chatId).messagesToday),
+        messages_total: String(getGroupStats(ctx.chatId).messagesTotal),
+        chat_username: "—"
       };
       const configuredTemplate=ctx.lang==="fa"?panelCommand?.response_fa:panelCommand?.response_en;
       const coreLiveIds=new Set(["robot","id","admin","info","rank","me","ping","bot","status"]);
