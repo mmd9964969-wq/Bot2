@@ -72,7 +72,7 @@ const K={
   customerMain:[
     [["وضعیت و نمای کلی","c:status"],["مرکز قفل و فیلتر","c:locks"]],
     [["زبان ربات","c:language"],["مرکز امنیت","c:security"]],
-    [["اخطار و جریمه","c:warnings"],["مدیریت اعضا","c:members"]],
+    [["مرکز مجازات","c:warnings"],["مدیریت اعضا","c:members"]],
     [["مرکز اتوماسیون","c:automation"],["استودیو دستورات","c:commands"]],
     [["استودیو محتوا","c:content"],["زمان‌بندی پیام‌ها","c:schedule"]],
     [["تحلیل و آمار","c:analytics"],["مرکز دسترسی","c:permissions"]],
@@ -133,7 +133,7 @@ const BUTTON_LABELS:Record<string,Partial<Record<BotLang,string>>> = {
   "مرکز قفل و فیلتر":{en:"Lock & filter",ar:"القفل والتصفية",ru:"Блокировки и фильтры",tr:"Kilit ve filtre",zh:"锁定与过滤"},
   "زبان ربات":{en:"Bot language",ar:"لغة البوت",ru:"Язык бота",tr:"Bot dili",zh:"机器人语言"},
   "مرکز امنیت":{en:"Security center",ar:"مركز الأمان",ru:"Безопасность",tr:"Güvenlik",zh:"安全中心"},
-  "اخطار و جریمه":{en:"Warnings & penalties",ar:"التحذيرات والعقوبات",ru:"Предупреждения и санкции",tr:"Uyarılar ve cezalar",zh:"警告与处罚"},
+  "اخطار و جریمه":{en:"Warnings & penalties",ar:"التحذيرات والعقوبات",ru:"Предупреждения и санкции",tr:"Uyarılar ve cezalar",zh:"警告与处罚"},"مرکز مجازات":{en:"Penalty center",ar:"مركز العقوبات",ru:"Центр наказаний",tr:"Ceza Merkezi",zh:"处罚中心"},"مرکز مجازات":{en:"Pᴇɴᴀʟᴛʏ Cᴇɴᴛᴇʀ",ar:"مركز العقوبات",ru:"Центр наказаний",tr:"Ceza Merkezi",zh:"处罚中心"},
   "مدیریت اعضا":{en:"Members",ar:"الأعضاء",ru:"Участники",tr:"Üyeler",zh:"成员"},
   "مرکز اتوماسیون":{en:"Automation center",ar:"الأتمتة",ru:"Автоматизация",tr:"Otomasyon",zh:"自动化"},
   "استودیو دستورات":{en:"Command studio",ar:"استوديو الأوامر",ru:"Студия команд",tr:"Komut stüdyosu",zh:"命令工作室"},
@@ -264,15 +264,11 @@ async function send(chatId:number,message:string|PanelMessage,markup:any=null){
   const lang=await panelLanguageForChat(chatId);
   const panel=typeof message==="string"?panelFromString(message):message;
   const keyboard=localizeMarkup(markup,lang);
-  let result=await telegramApi("sendRichMessage",{
+  const result=await telegramApi("sendMessage",{
     chat_id:chatId,
-    rich_message:buildPanelRichMessage(panel.title,panel.body,lang),
-    reply_markup:keyboard?JSON.stringify(keyboard):undefined
+    text:buildPanelText(panel.title,panel.body,lang),
+    reply_markup:keyboard||undefined
   });
-  if(!result.ok){
-    console.warn("[panel] sendRichMessage failed; falling back to standard text:",result.description);
-    result=await telegramApi("sendMessage",{chat_id:chatId,text:buildPanelText(panel.title,panel.body,lang),reply_markup:keyboard?JSON.stringify(keyboard):undefined});
-  }
   const scope=currentPanelScope();
   if(result.ok&&scope&&keyboard?.inline_keyboard){
     const messageId=Number((result.result as any)?.message_id);
@@ -288,16 +284,12 @@ async function edit(chatId:number,messageId:number,message:string|PanelMessage,m
   const lang=await panelLanguageForChat(chatId);
   const panel=typeof message==="string"?panelFromString(message):message;
   const keyboard=localizeMarkup(markup,lang);
-  let result=await telegramApi("editMessageText",{
+  const result=await telegramApi("editMessageText",{
     chat_id:chatId,
     message_id:messageId,
-    rich_message:buildPanelRichMessage(panel.title,panel.body,lang),
-    reply_markup:keyboard
+    text:buildPanelText(panel.title,panel.body,lang),
+    reply_markup:keyboard||undefined
   });
-  if(!result.ok){
-    console.warn("[panel] edit rich message failed; falling back to standard text:",result.description);
-    result=await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,text:buildPanelText(panel.title,panel.body,lang),reply_markup:keyboard});
-  }
   const scope=currentPanelScope();
   if(result.ok&&scope){
     if(keyboard?.inline_keyboard)await touchPanelMessage(scope.pool,chatId,messageId,scope.userId);
@@ -839,10 +831,13 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     return send(msg.chat.id,panelTitle("مرکز اتوماسیون","⛂ - وضعیت : Rule ساخته و فعال شد."),menu([[["فهرست اتوماسیون","auto:list"]]]));
   }
   if(data==="c:warnings"){
-    return edit(msg.chat.id,msg.message_id,panelTitle("اخطار و جریمه","سامانه چندمرحله‌ای اخطار، سطح جریمه و تاریخچه در دسترس است."),menu([
+    return edit(msg.chat.id,msg.message_id,panelTitle("مرکز مجازات","اخطار، سکوت و بن با ثبت عملیات و تاریخچه واقعی در همین گروه."),menu([
       [["اعضای دارای اخطار","w:list"],["صدور اخطار","w:issue"]],
-      [["سطوح اخطار","w:levels"],["پاک‌کردن اخطار","w:clear"]],
-      [["تاریخچه گروه","w:history"],["‹ بازگشت","c:home"]]
+      [["سکوت موقت","m:mute"],["سکوت دائم","m:perm_mute"]],
+      [["رفع سکوت","m:unmute"],["بن عضو","m:ban"]],
+      [["رفع بن","m:unban"],["سطوح اخطار","w:levels"]],
+      [["پاک‌کردن اخطار","w:clear"],["تاریخچه عملیات","w:history"]],
+      [["‹ بازگشت","c:home"]]
     ]));
   }
   if(data==="w:list"){
@@ -868,7 +863,7 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   ]));
   if(data==="m:search"){session(uid,"member_search",{chatId:groupId});return edit(msg.chat.id,msg.message_id,panelTitle("جستجوی عضو","آیدی تلگرام یا نام کاربری را ارسال کنید."),menu([[["‹ بازگشت","c:members"]]]));}
   if(data==="m:restricted")return edit(msg.chat.id,msg.message_id,panelTitle("اعضای محدودشده","برای مدیریت سریع، عملیات موردنظر را انتخاب کنید."),menu([[["سکوت موقت","m:mute"],["اخراج عضو","m:kick"]],[["‹ بازگشت","c:members"]]]));
-  if(["m:mute","m:perm_mute","m:kick","m:role"].includes(data)){session(uid,"member_action",{chatId:groupId,action:data.slice(2)});return edit(msg.chat.id,msg.message_id,panelTitle("عملیات عضو","آیدی عددی کاربر را ارسال کنید."),menu([[["‹ بازگشت","c:members"]]]));}
+  if(["m:mute","m:perm_mute","m:unmute","m:ban","m:unban","m:kick","m:role"].includes(data)){session(uid,"member_action",{chatId:groupId,action:data.slice(2)});return edit(msg.chat.id,msg.message_id,panelTitle("عملیات عضو","آیدی عددی کاربر را ارسال کنید."),menu([[["‹ بازگشت","c:members"]]]));}
   if(data==="m:bulk"){session(uid,"member_bulk",{chatId:groupId});return edit(msg.chat.id,msg.message_id,panelTitle("عملیات گروهی","آیدی‌های کاربران را با فاصله ارسال کنید."),menu([[["‹ بازگشت","c:members"]]]));}
 
   if(data==="c:welcome")return edit(msg.chat.id,msg.message_id,panelTitle("خوش‌آمدگویی و خروج","تنظیمات پیام ورود، خروج، تأیید عضویت و قوانین گروه."),menu([
@@ -1065,7 +1060,51 @@ async function handleInput(pool:Pool,msg:TgMessage){
   }
   if(s.flow==="warn_issue"){const userId=Number(value);if(!Number.isSafeInteger(userId))return send(msg.chat.id,"آیدی معتبر نیست.");const d={group_id:groupId,user_id:userId,violation_type:"manual",custom_violation:"صدور دستی توسط مدیریت",admin_id:String(uid),admin_name:msg.from.username||msg.from.first_name||String(uid)};const settings=(await pool.query("SELECT enabled FROM warning_system_settings WHERE group_id=$1",[groupId])).rows[0];if(!settings?.enabled)return send(msg.chat.id,"سیستم اخطار این گروه غیرفعال است.");const wf=await fetch("http://127.0.0.1:"+String(process.env.PORT||0)+"/api/warnings/issue",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(d)}).catch(()=>null);clearSession(uid);return send(msg.chat.id,wf?.ok?"✓ اخطار ثبت شد.":"⚠ ثبت اخطار از این کانال انجام نشد؛ از پنل وب استفاده کنید.");}
   if(s.flow==="warn_clear"){const userId=Number(value);await pool.query("UPDATE warning_events SET status='cleared',result='cleared' WHERE group_id=$1 AND user_id=$2 AND action_type='warning' AND status='active'",[groupId,userId]);clearSession(uid);return send(msg.chat.id,"✓ اخطارهای فعال کاربر پاک شد.");}
-  if(s.flow==="member_action"){const userId=Number(value);const a=s.data.action;const method=a==="mute"||a==="perm_mute"?"restrictChatMember":a==="kick"?"banChatMember":"restrictChatMember";const perms={can_send_messages:false,can_send_audios:false,can_send_documents:false,can_send_photos:false,can_send_videos:false,can_send_video_notes:false,can_send_voice_notes:false,can_send_polls:false,can_send_other_messages:false,can_add_web_page_previews:false};const body:any={chat_id:groupId,user_id:userId};if(method==="restrictChatMember"){body.permissions=perms;body.use_independent_chat_permissions=true;if(a==="mute")body.until_date=Math.floor(Date.now()/1000)+3600;}else body.until_date=Math.floor(Date.now()/1000)+60;const r=await telegramApi(method,body);clearSession(uid);return send(msg.chat.id,r.ok?"✓ عملیات با موفقیت اجرا شد.":"✗ عملیات ناموفق بود: "+(r.description||"Telegram error"));}
+  if(s.flow==="member_action"){
+    const userId=Number(value);
+    const a=String(s.data.action||"");
+    if(!Number.isSafeInteger(userId)||userId<=0){clearSession(uid);return send(msg.chat.id,"آیدی معتبر نیست.");}
+    const target=await telegramApi<any>("getChatMember",{chat_id:groupId,user_id:userId});
+    if(!target.ok){clearSession(uid);return send(msg.chat.id,"✗ کاربر پیدا نشد: "+(target.description||"Telegram error"));}
+    const status=String(target.result?.status||"");
+    if(["administrator","creator"].includes(status)&&["mute","perm_mute","ban","kick"].includes(a)){
+      clearSession(uid);return send(msg.chat.id,"✗ مدیر یا مالک گروه قابل مجازات نیست.");
+    }
+    const base={chat_id:groupId,user_id:userId};
+    let method="";
+    let body:any={...base};
+    if(a==="mute"||a==="perm_mute"){
+      method="restrictChatMember";
+      body.permissions={
+        can_send_messages:false,can_send_audios:false,can_send_documents:false,can_send_photos:false,
+        can_send_videos:false,can_send_video_notes:false,can_send_voice_notes:false,can_send_polls:false,
+        can_send_other_messages:false,can_add_web_page_previews:false
+      };
+      body.use_independent_chat_permissions=true;
+      if(a==="mute")body.until_date=Math.floor(Date.now()/1000)+3600;
+    }else if(a==="unmute"){
+      method="restrictChatMember";
+      body.permissions={can_send_messages:true,can_send_audios:true,can_send_documents:true,can_send_photos:true,
+        can_send_videos:true,can_send_video_notes:true,can_send_voice_notes:true,can_send_polls:true,
+        can_send_other_messages:true,can_add_web_page_previews:true};
+      body.use_independent_chat_permissions=true;
+    }else if(a==="ban"){
+      method="banChatMember";
+      body.revoke_messages=true;
+    }else if(a==="unban"){
+      method="unbanChatMember";
+      body.only_if_banned=true;
+    }else{
+      clearSession(uid);return send(msg.chat.id,"✗ این عملیات هنوز در مرکز اعضا فعال نشده است.");
+    }
+    const r=await telegramApi(method,body);
+    await pool.query(
+      "INSERT INTO moderation_actions(group_id,actor_id,target_id,action_type,duration_seconds,reason,status) VALUES($1,$2,$3,$4,$5,$6,$7)",
+      [groupId,uid,userId,a,a==="mute"?3600:null,a==="perm_mute"?"سکوت دائمی":a==="mute"?"سکوت یک‌ساعته":a==="ban"?"بن دائمی":a==="unmute"?"رفع سکوت":"رفع بن",r.ok?"success":"failed"]
+    ).catch(()=>{});
+    clearSession(uid);
+    return send(msg.chat.id,r.ok?"✓ عملیات با موفقیت اجرا شد.\n⛂ - کاربر : "+userId:"✗ عملیات ناموفق بود: "+(r.description||"Telegram error"));
+  }
   if(s.flow==="member_search"){const id=value.replace(/^@/,"");const r=await pool.query("SELECT user_id,first_name,username FROM warning_cases WHERE group_id=$1 AND (user_id::text=$2 OR LOWER(username)=LOWER($3)) LIMIT 1",[groupId,id,id]);clearSession(uid);return send(msg.chat.id,r.rows[0]?"✓ کاربر در رجیستری گروه پیدا شد.\nآیدی: "+r.rows[0].user_id:"کاربر در رجیستری گروه پیدا نشد.");}
   if(s.flow==="member_bulk"){const ids=value.split(/\s+/).map(Number).filter(Number.isSafeInteger).slice(0,50);session(uid,"member_bulk_confirm",{chatId:groupId,ids});return send(msg.chat.id,"تعداد "+ids.length+" کاربر انتخاب شد. برای اخراج همه «بله، مطمئن هستم» را ارسال کنید.");}
   if(s.flow==="member_bulk_confirm"&&value==="بله، مطمئن هستم"){const ids=s.data.ids||[];let ok=0;for(const id of ids){const r=await telegramApi("banChatMember",{chat_id:groupId,user_id:id});if(r.ok)ok++;await sleep(60);}clearSession(uid);return send(msg.chat.id,"✓ عملیات گروهی انجام شد. موفق: "+ok+" از "+ids.length);}
