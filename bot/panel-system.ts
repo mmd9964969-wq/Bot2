@@ -106,6 +106,9 @@ const PANEL_TITLES:Record<string,Partial<Record<BotLang,string>>> = {
   "خطای Runtime":{en:"Rᴜɴᴛɪᴍᴇ Eʀʀᴏʀ",ar:"خطأ التشغيل",ru:"Ошибка Runtime",tr:"Runtime Hatası",zh:"运行错误"},
   "مرکز ممیزی":{en:"Aᴜᴅɪᴛ Cᴇɴᴛᴇʀ",ar:"مركز التدقيق",ru:"Центр аудита",tr:"Denetim Merkezi",zh:"审计中心"},
   "مرکز امنیت":{en:"Sᴇᴄᴜʀɪᴛʏ Cᴇɴᴛᴇʀ",ar:"مركز الأمان",ru:"Центр безопасности",tr:"Güvenlik Merkezi",zh:"安全中心"},
+  "Warning Center":{en:"Wᴀʀɴɪɴɢ Cᴇɴᴛᴇʀ",ar:"مركز التحذيرات",ru:"Центр предупреждений",tr:"Uyarı Merkezi",zh:"警告中心"},
+  "Mute Center":{en:"Mᴜᴛᴇ Cᴇɴᴛᴇʀ",ar:"مركز الكتم",ru:"Центр тишины",tr:"Sessize Alma Merkezi",zh:"禁言中心"},
+  "Ban Center":{en:"Bᴀɴ Cᴇɴᴛᴇʀ",ar:"مركز الحظر",ru:"Центр блокировок",tr:"Yasak Merkezi",zh:"封禁中心"},
   "مدیریت قابلیت‌ها":{en:"Fᴇᴀᴛᴜʀᴇ Cᴇɴᴛᴇʀ",ar:"إدارة الميزات",ru:"Управление функциями",tr:"Özellik Merkezi",zh:"功能中心"},
   "امنیت و دسترسی":{en:"Sᴇᴄᴜʀɪᴛʏ & Aᴄᴄᴇss",ar:"الأمان والصلاحيات",ru:"Безопасность и доступ",tr:"Güvenlik ve Erişim",zh:"安全与访问"},
   "ممیزی سیستم":{en:"Sʏsᴛᴇᴍ Aᴜᴅɪᴛ",ar:"تدقيق النظام",ru:"Аудит системы",tr:"Sistem Denetimi",zh:"系统审计"},
@@ -831,14 +834,78 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     return send(msg.chat.id,panelTitle("مرکز اتوماسیون","⛂ - وضعیت : Rule ساخته و فعال شد."),menu([[["فهرست اتوماسیون","auto:list"]]]));
   }
   if(data==="c:warnings"){
-    return edit(msg.chat.id,msg.message_id,panelTitle("مرکز مجازات","اخطار، سکوت و بن با ثبت عملیات و تاریخچه واقعی در همین گروه."),menu([
-      [["اعضای دارای اخطار","w:list"],["صدور اخطار","w:issue"]],
-      [["سکوت موقت","m:mute"],["سکوت دائم","m:perm_mute"]],
-      [["رفع سکوت","m:unmute"],["بن عضو","m:ban"]],
-      [["رفع بن","m:unban"],["سطوح اخطار","w:levels"]],
-      [["پاک‌کردن اخطار","w:clear"],["تاریخچه عملیات","w:history"]],
-      [["‹ بازگشت","c:home"]]
+    return edit(msg.chat.id,msg.message_id,panelTitle("مرکز مجازات","⛂ - هسته مجازات : فعال\n⛂ - اخطار : فعال\n⛂ - سکوت : فعال\n⛂ - بن : فعال"),menu([
+      [["اخطار","c:warning"],["سکوت","c:mute"]],
+      [["بن","c:ban"],["کیک","m:kick"]],
+      [["سابقه مجازات","w:history"],["قوانین مجازات","w:levels"]],
+      [["مجازات خودکار","c:auto_penalty"],["‹ بازگشت","c:home"]]
     ]));
+  }
+
+  if(data==="c:warning"){
+    return edit(msg.chat.id,msg.message_id,panelTitle("Warning Center",
+      "⛂ - کاربر : انتخاب از سابقه یا ارسال آیدی\n⛂ - اخطار فعلی : از ۵\n⛂ - وضعیت : تحت نظارت\n⛂ - آخرین اخطار : ثبت نشده\n\n⛂ - اخطار جدید : +۱\n⛂ - دلیل : قابل تنظیم\n⛂ - اقدام بعدی : طبق سطح اخطار\n⛂ - اخطار نهایی : بن\n\n⛂ - وضعیت : آماده ثبت"),menu([
+        [["اخطار +۱","w:issue"],["اخطار سفارشی","w:issue_custom"]],
+        [["کاهش اخطار","w:decrease"],["حذف اخطار","w:clear"]],
+        [["سابقه اخطار","w:list"],["تنظیم مراحل","w:levels"]],
+        [["‹ بازگشت","c:warnings"]]
+      ]));
+  }
+
+  if(data==="c:mute"){
+    return edit(msg.chat.id,msg.message_id,panelTitle("Mute Center",
+      "⛂ - کاربر : برای انتخاب، عملیات را اجرا کنید\n⛂ - وضعیت : آماده تنظیم\n⛂ - مدت : انتخاب نشده\n⛂ - زمان پایان : —\n\n⛂ - سطح محدودیت : ارسال پیام\n⛂ - حذف پیام‌های جدید : فعال\n⛂ - دلیل : —\n⛂ - اجرا توسط : —\n\n⛂ - زمان باقی‌مانده : —"),menu([
+        [["۱۰ دقیقه","mute:10m"],["۳۰ دقیقه","mute:30m"]],
+        [["۱ ساعت","mute:1h"],["۶ ساعت","mute:6h"]],
+        [["۱۲ ساعت","mute:12h"],["۲۴ ساعت","mute:24h"]],
+        [["سکوت دائمی","m:perm_mute"],["رفع سکوت","m:unmute"]],
+        [["‹ بازگشت","c:warnings"]]
+      ]));
+  }
+
+  if(data==="c:ban"){
+    return edit(msg.chat.id,msg.message_id,panelTitle("Ban Center",
+      "⛂ - کاربر : انتخاب از اعضای گروه\n⛂ - شناسه : —\n⛂ - وضعیت : عضو گروه\n⛂ - سابقه اخطار : —\n\n⛂ - نوع اقدام : بن دائمی\n⛂ - حذف پیام‌ها : فعال\n⛂ - دلیل : —\n⛂ - اجرا توسط : —\n\n⛂ - وضعیت عملیات : آماده اجرا"),menu([
+        [["بن کاربر","m:ban"],["بن با دلیل","ban:reason"]],
+        [["بن دائمی","ban:permanent"],["بن موقت","c:ban_timed"]],
+        [["حذف بن","m:unban"],["مشاهده سابقه","w:history"]],
+        [["‹ بازگشت","c:warnings"]]
+      ]));
+  }
+
+  if(data==="c:ban_timed"){
+    return edit(msg.chat.id,msg.message_id,panelTitle("Ban Center","⛂ - نوع اقدام : بن موقت\n⛂ - حذف پیام‌ها : فعال\n⛂ - مدت : انتخاب کنید"),menu([
+      [["۱۰ دقیقه","ban:10m"],["۳۰ دقیقه","ban:30m"]],
+      [["۱ ساعت","ban:1h"],["۶ ساعت","ban:6h"]],
+      [["۱۲ ساعت","ban:12h"],["۲۴ ساعت","ban:24h"]],
+      [["۷ روز","ban:7d"],["‹ بازگشت","c:ban"]]
+    ]));
+  }
+
+  if(data==="c:auto_penalty"){
+    return edit(msg.chat.id,msg.message_id,panelTitle("مجازات خودکار",
+      "⛂ - وضعیت : آماده تنظیم\n⛂ - موتور زنجیره‌ای : فعال\n⛂ - سطح ۱ : ثبت اخطار\n⛂ - سطح ۲ : اخطار\n⛂ - سطح ۳ : سکوت\n⛂ - سطح ۴ : سکوت شدید\n⛂ - سطح ۵ : بن"),menu([
+        [["تنظیم مراحل","w:levels"],["سطوح اخطار","w:levels"]],
+        [["‹ بازگشت","c:warnings"]]
+      ]));
+  }
+
+  if(data==="mute:10m"||data==="mute:30m"||data==="mute:1h"||data==="mute:6h"||data==="mute:12h"||data==="mute:24h"){
+    session(uid,"member_action",{chatId:groupId,action:"mute"});
+    return edit(msg.chat.id,msg.message_id,panelTitle("Mute Center","⛂ - مدت انتخاب شد : "+data.slice(5)+"\n⛂ - آیدی عددی کاربر را ارسال کنید."),menu([[["‹ بازگشت","c:mute"]]]));
+  }
+
+  if(data.startsWith("ban:")){
+    const action=data.slice(4);
+    if(action==="reason"){
+      session(uid,"member_action",{chatId:groupId,action:"ban"});
+      return edit(msg.chat.id,msg.message_id,panelTitle("Ban Center","⛂ - نوع اقدام : بن با دلیل\n⛂ - آیدی عددی کاربر را ارسال کنید."),menu([[["‹ بازگشت","c:ban"]]]));
+    }
+    if(action==="permanent"||["10m","30m","1h","6h","12h","24h","7d"].includes(action)){
+      session(uid,"member_action",{chatId:groupId,action:"ban"});
+      return edit(msg.chat.id,msg.message_id,panelTitle("Ban Center","⛂ - نوع اقدام : "+(action==="permanent"?"بن دائمی":"بن موقت")+
+        "\n⛂ - مدت : "+(action==="permanent"?"دائمی":action)+"\n⛂ - آیدی عددی کاربر را ارسال کنید."),menu([[["‹ بازگشت","c:ban"]]]));
+    }
   }
   if(data==="w:list"){
     const r=await pool.query("SELECT user_id,first_name,username,warning_count,current_level,status FROM warning_cases WHERE group_id=$1 AND warning_count>0 ORDER BY warning_count DESC,last_warning_at DESC LIMIT 30",[groupId]);
