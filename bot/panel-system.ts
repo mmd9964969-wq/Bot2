@@ -283,7 +283,7 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   if(data==="c:status"){return edit(msg.chat.id,msg.message_id,await customerStatus(pool,uid,groupId),menu([[["↻ بروزرسانی","c:status"],["← بازگشت","c:home"]]]));}
   if(data==="c:locks"){
     await ensureContentLocks(pool,groupId);
-    return editRichLockCenter(pool,msg.chat.id,msg.message_id);
+    return editRichLockCenter(pool,msg.chat.id,msg.message_id,uid);
   }
   if(data.startsWith("clt:")){
     const key=data.slice(4);const r=await pool.query("SELECT enabled,title,section FROM content_lock_rules WHERE group_id=$1 AND rule_key=$2",[groupId,key]);if(!r.rowCount)return;
