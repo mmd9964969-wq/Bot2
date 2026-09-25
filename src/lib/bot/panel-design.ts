@@ -6,15 +6,17 @@ export type DesignedButton = {
   style?: TelegramButtonStyle;
 };
 
-function normalizeButtonLabel(value:string){
-  const raw=String(value??"").trim();
-  if(!raw) return "›";
-  const cleaned=raw.replace(/^[^A-Za-z\u0600-\u06FF\u0660-\u0669]+/u,"").trim();
-  return cleaned ? "› "+cleaned : "›";
+function rawButtonText(value:string){
+  return String(value??"").trim();
+}
+
+function cleanButtonLabel(value:string){
+  const raw=rawButtonText(value);
+  return raw.replace(/^[^A-Za-z\u0600-\u06FF\u0660-\u0669]+/u,"").trim();
 }
 
 function semanticStyle(label:string,callbackData:string):TelegramButtonStyle|undefined{
-  const text=String(label??"").trim();
+  const text=rawButtonText(label);
   const data=String(callbackData??"");
   if(/^(?:بازگشت|‹|←)/.test(text)||/(^|:)back(?:$|:)/i.test(data)) return "primary";
   if(/(^|:)(on|enable)(:|$)/i.test(data)||/^(فعال‌سازی|فعال سازی|روشن)(\s|$)/i.test(text)) return "success";
@@ -22,11 +24,22 @@ function semanticStyle(label:string,callbackData:string):TelegramButtonStyle|und
   return undefined;
 }
 
+function visualButtonLabel(label:string,style:TelegramButtonStyle|undefined){
+  const raw=rawButtonText(label);
+  const clean=cleanButtonLabel(raw);
+  if(!clean)return "›";
+  if(style==="primary")return "🔵 ‹ "+clean;
+  if(style==="success")return "🟢 › "+clean;
+  if(style==="danger")return "🔴 › "+clean;
+  return "› "+clean;
+}
+
 export function glassButton(label:string,callbackData:string):DesignedButton{
-  const text=normalizeButtonLabel(label);
-  // Telegram InlineKeyboardButton does not accept an arbitrary "style" field.
-  // Keep semanticStyle() for local classification, but serialize only Telegram-supported fields.
-  return {text,callback_data:callbackData};
+  const style=semanticStyle(label,callbackData);
+  // Telegram InlineKeyboardButton does not expose a background-color/style API.
+  // We preserve the glass inline-keyboard behavior and restore semantic color cues
+  // with compact colored status markers: blue=back, green=on, red=off.
+  return {text:visualButtonLabel(label,style),callback_data:callbackData,style};
 }
 
 export function glassKeyboard(rows:string[][][]){
