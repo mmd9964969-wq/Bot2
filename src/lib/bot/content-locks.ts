@@ -302,9 +302,69 @@ export function contentLockCenterKeyboard(){return glassKeyboard([
   [["قفل زبان","cl:language"]],
   [["‹ بازگشت","c:home"]]
 ]);}
+
+function richEscape(value:unknown){
+  return String(value??"")
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;");
+}
+
+function lockSectionRichHtml(rows:any[]){
+  const names:any={normal:"قفل‌های حالت عادی",media:"رسانه",links:"لینک‌ها",advertising:"تبلیغات",forwarding:"فوروارد و اشتراک‌گذاری",files:"فایل و سند",messages:"پیام و نرخ ارسال",interactions:"تعامل و هویت",advanced:"محتوای پیشرفته",anti_attack:"امنیت و ضد اتک",language:"قفل زبان"};
+  const keys=["normal","media","links","advertising","forwarding","files","messages","interactions","advanced","anti_attack","language"];
+  const callbacks:any={normal:"cl:normal",media:"cl:media",links:"cl:links",advertising:"cl:advertising",forwarding:"cl:forwarding",files:"cl:files",messages:"cl:messages",interactions:"cl:interactions",advanced:"cl:advanced",anti_attack:"cl:anti_attack",language:"cl:language"};
+  const total=rows.length;
+  const active=rows.filter((x:any)=>x.enabled).length;
+  const tableRows=keys.map(key=>{
+    const section=rows.filter((x:any)=>x.section===key);
+    const on=section.filter((x:any)=>x.enabled).length;
+    return "<tr><td><b>"+richEscape(names[key])+"</b></td><td align=\"center\">"+lockFmt(on)+" / "+lockFmt(section.length)+"</td></tr>";
+  }).join("");
+  const buttonRows:string[]=[];
+  for(let i=0;i<keys.length;i+=2){
+    const a=keys[i],b=keys[i+1];
+    let html="<tg-button-row align=\"right\"><tg-button type=\"callback_data\" style=\"primary\" data=\""+callbacks[a]+"\">› "+richEscape(names[a])+"</tg-button>";
+    if(b) html+="<tg-button type=\"callback_data\" style=\"primary\" data=\""+callbacks[b]+"\">› "+richEscape(names[b])+"</tg-button>";
+    html+="</tg-button-row>";
+    buttonRows.push(html);
+  }
+  return "<h2>◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Lᴏᴄᴋ Cᴇɴᴛᴇʀ</h2>"+
+    "<p><b>● سیستم قفل:</b> فعال<br><b>⛂ قوانین فعال:</b> "+lockFmt(active)+" از "+lockFmt(total)+"</p>"+
+    "<hr/>"+
+    "<table bordered striped compact><tr><th>بخش</th><th>فعال</th></tr>"+tableRows+"</table>"+
+    "<details><summary>راهنمای کنترل</summary><p>هر بخش، فهرست قفل‌های همان حوزه را باز می‌کند. وضعیت هر قانون مستقیماً از همین مرکز قابل تغییر است.</p></details>"+
+    buttonRows.join("")+
+    "<tg-button-row align=\"right\"><tg-button type=\"callback_data\" data=\"c:home\">‹ بازگشت</tg-button></tg-button-row>";
+}
+
+async function richLockCenter(pool:Pool){
+  const rows=await lockRows(pool,arguments.length>1?Number(arguments[1]):0);
+  return lockSectionRichHtml(rows);
+}
+
+async function sendRichLockCenter(pool:Pool,chatId:number){
+  const rows=await lockRows(pool,chatId);
+  const rich_message={html:lockSectionRichHtml(rows),is_rtl:true};
+  const rich=await telegramApi("sendRichMessage",{chat_id:chatId,rich_message});
+  if(rich.ok)return rich;
+  console.warn("[content-locks] sendRichMessage failed; falling back to standard keyboard:",rich.description);
+  return telegramApi("sendMessage",{chat_id:chatId,text:await lockCenterText(pool,chatId),reply_markup:contentLockCenterKeyboard()});
+}
+
+export async function editRichLockCenter(pool:Pool,chatId:number,messageId:number){
+  const rows=await lockRows(pool,chatId);
+  const rich_message={html:lockSectionRichHtml(rows),is_rtl:true};
+  const markup=contentLockCenterKeyboard();
+  const rich=await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,rich_message,reply_markup:markup});
+  if(rich.ok)return rich;
+  console.warn("[content-locks] edit RichMessage failed; falling back to standard text:",rich.description);
+  return telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,text:await lockCenterText(pool,chatId),reply_markup:markup});
+}
+
 export async function sendContentLockCenter(pool:Pool,chatId:number){
-  const message=await lockCenterText(pool,chatId);
-  return telegramApi("sendMessage",{chat_id:chatId,text:message,reply_markup:contentLockCenterKeyboard()});
+  return sendRichLockCenter(pool,chatId);
 }
 async function lockSectionText(pool:Pool,groupId:number,section:string,title:string,limit=100){
   const rows=(await lockRows(pool,groupId)).filter((x:any)=>x.section===section);
