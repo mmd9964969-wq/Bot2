@@ -353,7 +353,23 @@ export async function runContentLockCommand(pool:Pool,ctx:LockCommandContext,com
   return lockCenterText(pool,ctx.chatId);
 }
 
+
+const enforcementQueues = new Map<number, Promise<void>>();
+
 export async function enforceContentLocks(input:Input):Promise<boolean>{
+  const groupId=input.groupId;
+  const previous=enforcementQueues.get(groupId)??Promise.resolve();
+  const current=previous.then(()=>enforceContentLocksNow(input));
+  const tail=current.then(()=>undefined,()=>undefined);
+  enforcementQueues.set(groupId,tail);
+  try{
+    return await current;
+  }finally{
+    if(enforcementQueues.get(groupId)===tail) enforcementQueues.delete(groupId);
+  }
+}
+
+async function enforceContentLocksNow(input:Input):Promise<boolean>{
   if(!input.pool||input.message.chat.type==="private")return false;
   const data=await load(input.pool,input.groupId);
   if(data.settings.enabled!==true)return false;
