@@ -4,7 +4,7 @@ import { telegramApi } from "../telegram/api.ts";
 import { glassKeyboard } from "./panel-design.ts";
 import { bindPanelMessage, touchPanelMessage } from "./panel-session.ts";
 import type { Rank } from "./registry.ts";
-import { getGroupLanguage, languageNative, type BotLang } from "./i18n.ts";
+import { getGroupLanguage, type BotLang } from "./i18n.ts";
 
 type Entity={type?:string;offset?:number;length?:number;url?:string};
 type FileLike={file_name?:string;file_size?:number;mime_type?:string};
@@ -344,7 +344,7 @@ function lockCenterRichBlocks(rows:any[],lang:BotLang="fa"){
   ].join("\n");
   const sectionLines=sections.map(section=>{
     const rs=rows.filter((x:any)=>x.section===section);
-    return names[section]+"\\n"+lockFmt(rs.filter((r:any)=>r.enabled).length)+" / "+lockFmt(rs.length);
+    return names[section]+"\n"+lockFmt(rs.filter((r:any)=>r.enabled).length)+" / "+lockFmt(rs.length);
   }).join("\n\n");
   const blocks:any[]=[
     {type:"heading",text:lockRichPlain(lockCenterTitle(lang)),size:2},
@@ -359,8 +359,8 @@ function lockCenterRichBlocks(rows:any[],lang:BotLang="fa"){
 
 async function sendRichLockCenter(pool:Pool,chatId:number,ownerId?:number){
   const rows=await lockRows(pool,chatId);
-  const rich_message=lockCenterRichBlocks(rows,lang);
   const lang=await getGroupLanguage(pool,chatId,"fa");
+  const rich_message=lockCenterRichBlocks(rows,lang);
   const keyboard=contentLockCenterKeyboard(lang);
   const rich=await telegramApi("sendRichMessage",{chat_id:chatId,rich_message,reply_markup:keyboard});
   if(rich.ok){
@@ -382,8 +382,9 @@ async function sendRichLockCenter(pool:Pool,chatId:number,ownerId?:number){
 export async function editRichLockCenter(pool:Pool,chatId:number,messageId:number,ownerId?:number){
   await new Promise(resolve=>setTimeout(resolve,75));
   const rows=await lockRows(pool,chatId);
-  const rich_message=lockCenterRichBlocks(rows);
-  const keyboard=contentLockCenterKeyboard();
+  const lang=await getGroupLanguage(pool,chatId,"fa");
+  const rich_message=lockCenterRichBlocks(rows,lang);
+  const keyboard=contentLockCenterKeyboard(lang);
   const rich=await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,rich_message,reply_markup:keyboard});
   if(rich.ok){
     if(ownerId) await touchPanelMessage(pool,chatId,messageId,ownerId);
