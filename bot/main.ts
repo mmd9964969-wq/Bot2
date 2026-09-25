@@ -812,9 +812,9 @@ async function poll() {
           });
         }
         if (upd.chat_member?.new_chat_member?.user && ["member","administrator","creator"].includes(upd.chat_member.new_chat_member.status ?? "")) {
-          void recordMemberJoin(upd.chat_member.chat.id, upd.chat_member.new_chat_member.user.id, Date.now()).catch((error) => {
-            console.error("[member] join tracking failed", error);
-          });
+          // Join tracking hook is not implemented in this runtime yet.
+          // Keep the polling loop alive so a member event cannot abort the rest of the batch.
+          console.log("[member] join observed:", upd.chat_member.chat.id, upd.chat_member.new_chat_member.user.id);
         }
       }
     } catch (err) {
