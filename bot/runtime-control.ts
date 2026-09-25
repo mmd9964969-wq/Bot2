@@ -29,6 +29,24 @@ function readBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
   });
 }
 
+let refreshStudioRef: (() => Promise<void>) | null = null;
+
+export async function executeRuntimeAction(action:string){
+  if(action==="health_check")return {success:true,action,status:"executed",maintenance};
+  if(action==="reload_config"){
+    if(!refreshStudioRef)throw new Error("Runtime control is not initialized");
+    await refreshStudioRef();
+    return {success:true,action,status:"executed"};
+  }
+  if(action==="maintenance_on"){maintenance=true;return {success:true,action,status:"executed",maintenance};}
+  if(action==="maintenance_off"){maintenance=false;return {success:true,action,status:"executed",maintenance};}
+  if(action==="restart_requested"){
+    setTimeout(()=>process.kill(process.pid,"SIGTERM"),250);
+    return {success:true,action,status:"accepted",restart:"requested"};
+  }
+  throw new Error("Invalid runtime action");
+}
+
 export function isRuntimeMaintenance() {
   return maintenance;
 }
@@ -42,6 +60,7 @@ export function startRuntimeControlServer(deps: {
 }) {
   const port = Number(process.env.CONTROL_PORT || process.env.PORT || 3000);
 
+  refreshStudioRef=deps.refreshStudio;
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://runtime");
@@ -73,33 +92,12 @@ export function startRuntimeControlServer(deps: {
       if (req.method === "POST" && url.pathname === "/internal/runtime/action") {
         const body = await readBody(req);
         const action = String(body.action ?? "");
-
-        if (action === "health_check") {
-          return json(res, 200, {success: true, action, status: "executed", maintenance});
+        try{
+          const result=await executeRuntimeAction(action);
+          return json(res,result.status==="accepted"?202:200,result);
+        }catch(error){
+          return json(res,400,{error:error instanceof Error?error.message:String(error)});
         }
-
-        if (action === "reload_config") {
-          await deps.refreshStudio();
-          return json(res, 200, {success: true, action, status: "executed"});
-        }
-
-        if (action === "maintenance_on") {
-          maintenance = true;
-          return json(res, 200, {success: true, action, status: "executed", maintenance});
-        }
-
-        if (action === "maintenance_off") {
-          maintenance = false;
-          return json(res, 200, {success: true, action, status: "executed", maintenance});
-        }
-
-        if (action === "restart_requested") {
-          json(res, 202, {success: true, action, status: "accepted", restart: "requested"});
-          setTimeout(() => process.kill(process.pid, "SIGTERM"), 250);
-          return;
-        }
-
-        return json(res, 400, {error: "Invalid runtime action"});
       }
 
       return json(res, 404, {error: "Not found"});
