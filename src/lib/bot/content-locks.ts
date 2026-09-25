@@ -2,6 +2,7 @@
 import type { Pool } from "pg";
 import { telegramApi } from "../telegram/api.ts";
 import { glassKeyboard } from "./panel-design.ts";
+import { bindPanelMessage, touchPanelMessage } from "./panel-session.ts";
 import type { Rank } from "./registry.ts";
 
 type Entity={type?:string;offset?:number;length?:number;url?:string};
@@ -328,27 +329,45 @@ function lockSectionRichHtml(rows:any[]){
     "<details><summary>راهنمای کنترل</summary><p>هر بخش، فهرست قفل‌های همان حوزه را باز می‌کند. وضعیت هر قانون مستقیماً از همین مرکز قابل تغییر است.</p></details>";
 }
 
-async function sendRichLockCenter(pool:Pool,chatId:number){
+async function sendRichLockCenter(pool:Pool,chatId:number,ownerId?:number){
   const rows=await lockRows(pool,chatId);
   const rich_message={html:lockSectionRichHtml(rows),is_rtl:true};
-  const rich=await telegramApi("sendRichMessage",{chat_id:chatId,rich_message,reply_markup:contentLockCenterKeyboard()});
-  if(rich.ok)return rich;
+  const keyboard=contentLockCenterKeyboard();
+  const rich=await telegramApi("sendRichMessage",{chat_id:chatId,rich_message,reply_markup:keyboard});
+  if(rich.ok){
+    if(ownerId){
+      const messageId=Number((rich.result as any)?.message_id);
+      if(Number.isSafeInteger(messageId)&&messageId>0) await bindPanelMessage(pool,chatId,messageId,ownerId,"customer");
+    }
+    return rich;
+  }
   console.warn("[content-locks] sendRichMessage failed; falling back to standard keyboard:",rich.description);
-  return telegramApi("sendMessage",{chat_id:chatId,text:await lockCenterText(pool,chatId),reply_markup:contentLockCenterKeyboard()});
+  const fallback=await telegramApi("sendMessage",{chat_id:chatId,text:await lockCenterText(pool,chatId),reply_markup:keyboard});
+  if(fallback.ok&&ownerId){
+    const messageId=Number((fallback.result as any)?.message_id);
+    if(Number.isSafeInteger(messageId)&&messageId>0) await bindPanelMessage(pool,chatId,messageId,ownerId,"customer");
+  }
+  return fallback;
 }
 
-export async function editRichLockCenter(pool:Pool,chatId:number,messageId:number){
+export async function editRichLockCenter(pool:Pool,chatId:number,messageId:number,ownerId?:number){
   await new Promise(resolve=>setTimeout(resolve,75));
   const rows=await lockRows(pool,chatId);
   const rich_message={html:lockSectionRichHtml(rows),is_rtl:true};
-  const rich=await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,rich_message,reply_markup:contentLockCenterKeyboard()});
-  if(rich.ok)return rich;
+  const keyboard=contentLockCenterKeyboard();
+  const rich=await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,rich_message,reply_markup:keyboard});
+  if(rich.ok){
+    if(ownerId) await touchPanelMessage(pool,chatId,messageId,ownerId);
+    return rich;
+  }
   console.warn("[content-locks] edit RichMessage failed; falling back to standard text:",rich.description);
-  return telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,text:await lockCenterText(pool,chatId),reply_markup:contentLockCenterKeyboard()});
+  const fallback=await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,text:await lockCenterText(pool,chatId),reply_markup:keyboard});
+  if(fallback.ok&&ownerId) await touchPanelMessage(pool,chatId,messageId,ownerId);
+  return fallback;
 }
 
-export async function sendContentLockCenter(pool:Pool,chatId:number){
-  return sendRichLockCenter(pool,chatId);
+export async function sendContentLockCenter(pool:Pool,chatId:number,ownerId?:number){
+  return sendRichLockCenter(pool,chatId,ownerId);
 }
 async function lockSectionText(pool:Pool,groupId:number,section:string,title:string,limit=100){
   const rows=(await lockRows(pool,groupId)).filter((x:any)=>x.section===section);
