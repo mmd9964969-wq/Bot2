@@ -9,6 +9,7 @@ import { runLiveCommand, recordMessage } from "../src/lib/bot/runtime.ts";
 import { enforceContentLocks, type ContentLockMessage } from "../src/lib/bot/content-locks.ts";
 import { isRuntimeMaintenance, startRuntimeControlServer } from "./runtime-control.ts";
 import { dispatchPanelMessage, dispatchPanelCallback } from "./panel-system.ts";
+import { ensureInstallationSchema, installationGate, handleInstallationCallback } from "./installation.ts";
 
 const TOKEN = process.env.BOT_TOKEN ?? "";
 if (!TOKEN) { console.error("BOT_TOKEN is missing"); process.exit(1); }
@@ -626,6 +627,18 @@ async function handleMessage(msg: TgMessage, edited = false) {
 
   const chat = msg.chat;
   const isPrivate = chat.type === "private";
+  if (isPrivate) return;
+  if (!studioPool) return;
+
+  const installationState = await installationGate(
+    studioPool,
+    msg,
+    config.ownerIds,
+    config.sudoIds,
+    !edited,
+  );
+  if (installationState !== "allow") return;
+
   await upsertWarningGroup(chat);
   let adminIds = new Set<number>();
   if (!isPrivate) {
@@ -733,6 +746,7 @@ async function acquirePollingLock(): Promise<Client | null> {
 async function poll() {
   let offset = 0;
   await refreshStudio();
+  if (studioPool) await ensureInstallationSchema(studioPool);
   setInterval(() => void refreshStudio(), 5000);
 
   console.log("nizam two-phase polling as " + config.botName);
@@ -757,8 +771,17 @@ async function poll() {
             console.error("[update] message handler failed", error);
           });
         }
-        if (upd.callback_query?.from && upd.callback_query.message) {
-          void dispatchPanelCallback(studioPool!, upd.callback_query as any, config.ownerIds).catch((error) => {
+        if (upd.callback_query?.from && upd.callback_query.message && upd.callback_query.message.chat.type !== "private" && studioPool) {
+          void (async () => {
+            const handled = await handleInstallationCallback(
+              studioPool!,
+              upd.callback_query as any,
+              config.ownerIds,
+              config.sudoIds,
+            );
+            if (handled) return;
+            await dispatchPanelCallback(studioPool!, upd.callback_query as any, config.ownerIds);
+          })().catch((error) => {
             console.error("[update] callback handler failed", error);
           });
         }
