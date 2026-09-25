@@ -36,7 +36,7 @@ export const ENV_KEYS = [
   { key: "BOT_TOKEN", need: true, fa: "توکن بات از BotFather", en: "Bot token" },
   { key: "OWNER_IDS", need: true, fa: "آیدی عددی مالک‌ها با ویرگول", en: "Owner user ids, comma-separated" },
   { key: "SUDO_IDS", need: false, fa: "آیدی سودو (اختیاری)", en: "Sudo user ids" },
-  { key: "DEFAULT_LANG", need: false, fa: "fa یا en — پیش‌فرض fa", en: "fa or en" },
+  { key: "DEFAULT_LANG", need: false, fa: "fa / en / ar / ru / tr / zh — پیش‌فرض fa", en: "fa / en / ar / ru / tr / zh" },
   { key: "PREFIXES", need: false, fa: "پیشوندها مثل /!,.", en: "Command prefixes" },
   { key: "BOT_NAME", need: false, fa: "نام نمایشی بات", en: "Display name" },
 ] as const;
