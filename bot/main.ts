@@ -785,6 +785,7 @@ async function handleMessage(msg:TgMessage, edited=false){
   }finally{
     if(groupMessageQueues.get(groupId)===tail)groupMessageQueues.delete(groupId);
   }
+}
 
 async function poll() {
   let offset = 0;
