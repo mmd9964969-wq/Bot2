@@ -56,34 +56,55 @@ const K={
 function kb(rows:string[][][]){return glassKeyboard(rows);}
 function back(cb:string="home"){return [[["‹ بازگشت","p:"+cb]]];}
 function menu(rows:string[][][],extra:string[][][]=[]){return kb([...rows,...extra]);}
-function panelTitle(title:string,body:string){
-  const map:Record<string,string>={
-    "مرکز اتوماسیون":"مرکز اتوماسیون",
-    "سازنده اتوماسیون":"سازنده اتوماسیون",
-    "مدیریت اتوماسیون":"مدیریت اتوماسیون",
-    "استودیو محتوا":"استودیو محتوا",
-    "مرکز تحلیل و آمار":"مرکز تحلیل و آمار",
-    "مرکز دسترسی":"مرکز دسترسی",
-    "سلامت ربات":"سلامت ربات",
-    "ممیزی گروه":"ممیزی گروه",
-    "مرکز استثناها":"مرکز استثناها",
-    "فهرست دامنه‌های مجاز":"فهرست دامنه‌های مجاز",
-    "سازنده استثنا":"سازنده استثنا",
-    "مدیریت استثناها":"مدیریت استثناها",
-    "مرکز Runtime":"مرکز Runtime",
-    "خطای Runtime":"خطای Runtime",
-    "مرکز گروه‌ها":"مرکز گروه‌ها",
-    "کنترل گروه":"کنترل گروه",
-    "مرکز ممیزی":"مرکز ممیزی",
-    "مرکز امنیت":"مرکز امنیت",
-    "مدیریت قابلیت‌ها":"مرکز قابلیت‌ها",
-    "مرکز هوش مصنوعی":"مرکز هوش مصنوعی",
-    "مرکز لایسنس":"مرکز لایسنس",
-    "مرکز مشتریان":"مرکز مشتریان"
-  };
-  const fa=map[title]||title;
+type PanelMessage={html:string;text:string;is_rtl:true};
+
+function richEscape(value:unknown){
+  return String(value??"")
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;");
+}
+
+function panelTitle(title:string,body:string):PanelMessage{
   const content=String(body??"").trim();
-  return "━━━━━━━━━━━━━━━━━━━━━━━━\\n◈ "+fa+"\\n━━━━━━━━━━━━━━━━━━━━━━━━\\n\\n"+content;
+  const lines=content.split(/\\n+/).map(x=>x.trim()).filter(Boolean);
+  const rows:string[]=[];
+  const paragraphs:string[]=[];
+  for(const line of lines){
+    const m=line.match(/^⛂\\s*-?\\s*(.+?)\\s*:\\s*(.*)$/u);
+    if(m){
+      rows.push("<tr><td><b>"+richEscape(m[1])+"</b></td><td>"+richEscape(m[2])+"</td></tr>");
+    }else{
+      paragraphs.push(richEscape(line));
+    }
+  }
+
+  const htmlParts:string[]=[
+    "<h2>◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · "+richEscape(title)+"</h2>"
+  ];
+  if(paragraphs.length){
+    htmlParts.push("<p>"+paragraphs.join("<br>")+"</p>");
+  }
+  if(rows.length){
+    htmlParts.push(
+      "<hr/>"+
+      "<table bordered striped compact><tr><th>مورد</th><th>وضعیت / مقدار</th></tr>"+
+      rows.join("")+
+      "</table>"
+    );
+  }
+  htmlParts.push(
+    "<details><summary>راهنمای کنترل</summary>"+
+    "<p>تنظیمات و عملیات این بخش از کنترل‌های همین صفحه انجام می‌شود و نتیجه مستقیماً از وضعیت واقعی سیستم خوانده می‌شود.</p>"+
+    "</details>"
+  );
+
+  return {
+    html:htmlParts.join(""),
+    text:"━━━━━━━━━━━━━━━━━━━━━━━━\\n◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · "+String(title)+"\\n━━━━━━━━━━━━━━━━━━━━━━━━\\n\\n"+content,
+    is_rtl:true
+  };
 }
 function text(v:any){return String(v??"");}
 function faDate(v:any){return new Date(v).toLocaleString("fa-IR",{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"});}
@@ -100,8 +121,17 @@ function normalizePanelText(message:any){
   }
   return value;
 }
-async function send(chatId:number,message:string,markup:any=null){
-  const result=await telegramApi("sendMessage",{chat_id:chatId,text:normalizePanelText(message),reply_markup:markup});
+async function send(chatId:number,message:string|PanelMessage,markup:any=null){
+  let result:any;
+  if(typeof message==="string"){
+    result=await telegramApi("sendMessage",{chat_id:chatId,text:normalizePanelText(message),reply_markup:markup});
+  }else{
+    result=await telegramApi("sendRichMessage",{chat_id:chatId,rich_message:{html:message.html,is_rtl:true},reply_markup:markup});
+    if(!result.ok){
+      console.warn("[panel] sendRichMessage failed; falling back to standard text:",result.description);
+      result=await telegramApi("sendMessage",{chat_id:chatId,text:message.text,reply_markup:markup});
+    }
+  }
   const scope=currentPanelScope();
   if(result.ok&&scope&&markup?.inline_keyboard){
     const messageId=Number((result.result as any)?.message_id);
@@ -111,11 +141,18 @@ async function send(chatId:number,message:string,markup:any=null){
   }
   return result;
 }
-async function edit(chatId:number,messageId:number,message:string,markup:any=null){
-  // Telegram does not expose a custom page-transition API.
-  // Keep the existing soft transition while preserving message ownership.
+async function edit(chatId:number,messageId:number,message:string|PanelMessage,markup:any=null){
   await sleep(75);
-  const result=await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,text:normalizePanelText(message),reply_markup:markup});
+  let result:any;
+  if(typeof message==="string"){
+    result=await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,text:normalizePanelText(message),reply_markup:markup});
+  }else{
+    result=await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,rich_message:{html:message.html,is_rtl:true},reply_markup:markup});
+    if(!result.ok){
+      console.warn("[panel] edit rich message failed; falling back to standard text:",result.description);
+      result=await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,text:message.text,reply_markup:markup});
+    }
+  }
   const scope=currentPanelScope();
   if(result.ok&&scope){
     if(markup?.inline_keyboard) await touchPanelMessage(scope.pool,chatId,messageId,scope.userId);
