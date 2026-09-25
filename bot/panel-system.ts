@@ -267,11 +267,11 @@ async function send(chatId:number,message:string|PanelMessage,markup:any=null){
   let result=await telegramApi("sendRichMessage",{
     chat_id:chatId,
     rich_message:buildPanelRichMessage(panel.title,panel.body,lang),
-    reply_markup:keyboard
+    reply_markup:keyboard?JSON.stringify(keyboard):undefined
   });
   if(!result.ok){
     console.warn("[panel] sendRichMessage failed; falling back to standard text:",result.description);
-    result=await telegramApi("sendMessage",{chat_id:chatId,text:buildPanelText(panel.title,panel.body,lang),reply_markup:keyboard});
+    result=await telegramApi("sendMessage",{chat_id:chatId,text:buildPanelText(panel.title,panel.body,lang),reply_markup:keyboard?JSON.stringify(keyboard):undefined});
   }
   const scope=currentPanelScope();
   if(result.ok&&scope&&keyboard?.inline_keyboard){
