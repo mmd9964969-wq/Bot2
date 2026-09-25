@@ -67,6 +67,7 @@ const defaultRules=[
   ["messages","message_min_length",false,{min_chars:2,action:"delete"}],["messages","message_max_length",false,{max_chars:4000,action:"delete"}],["messages","message_rate_limit",false,{count:10,window_seconds:60,action:"delete"}],
   ["interactions","reply_lock",false,{action:"delete"}],["interactions","edit_lock",false,{action:"delete_notify"}],["interactions","hashtag_limit",false,{max_hashtags:5,action:"delete"}],["interactions","mention_limit",false,{max_mentions:5,action:"delete"}],["interactions","username_lock",false,{action:"delete_notify"}],["interactions","phone_lock",false,{action:"delete_notify"}],["interactions","email_lock",false,{action:"delete_notify"}],["interactions","web_preview_lock",false,{action:"delete"}],["interactions","story_share_lock",false,{action:"delete_notify"}],
   ["advanced","contact_lock",false,{action:"delete_notify"}],["advanced","location_lock",false,{action:"delete_notify"}],["advanced","poll_lock",false,{action:"delete"}],["advanced","dice_lock",false,{action:"delete"}],["advanced","game_lock",false,{action:"delete"}],["advanced","web_app_lock",false,{action:"delete"}],["advanced","bot_join_lock",false,{action:"delete_ban"}],
+  ["language","language_persian",false,{action:"delete"}],["language","language_english",false,{action:"delete"}],["language","language_arabic",false,{action:"delete"}],["language","language_russian",false,{action:"delete"}],["language","language_turkish",false,{action:"delete"}],["language","language_chinese",false,{action:"delete"}],["language","language_japanese",false,{action:"delete"}],["language","language_korean",false,{action:"delete"}],
   ["anti_attack","attack_flood",true,{count:8,window_seconds:5,action:"delete"}],["anti_attack","attack_duplicate",true,{count:3,window_seconds:30,action:"delete"}],["anti_attack","attack_caps",false,{percent:90,min_letters:20,action:"delete"}],["anti_attack","attack_link_burst",false,{count:3,window_seconds:15,action:"delete"}],["anti_attack","attack_media_burst",false,{count:5,window_seconds:15,action:"delete"}],["anti_attack","attack_join_flood",false,{count:5,window_seconds:30,action:"delete"}]
 ] as const;
 
@@ -256,7 +257,8 @@ const LOCK_LABELS:Record<string,string>={
   reply_lock:"ریپلای",edit_lock:"ویرایش",hashtag_limit:"هشتگ",mention_limit:"منشن",username_lock:"یوزرنیم",phone_lock:"شماره تلفن",email_lock:"ایمیل",web_preview_lock:"پیش‌نمایش لینک",story_share_lock:"اشتراک‌گذاری استوری",
   contact_lock:"Contact",location_lock:"Location",poll_lock:"Poll",dice_lock:"Dice",game_lock:"Game",web_app_lock:"Web App",bot_join_lock:"ورود ربات",
   message_min_length:"حداقل طول پیام",message_max_length:"حداکثر طول پیام",message_rate_limit:"محدودیت پیام",
-  attack_flood:"ضد فلود",attack_duplicate:"ضد پیام تکراری",attack_caps:"کنترل CAPS",attack_link_burst:"ضد حمله لینک",attack_media_burst:"ضد حمله رسانه",attack_join_flood:"ضد هجوم عضو"
+  attack_flood:"ضد فلود",attack_duplicate:"ضد پیام تکراری",attack_caps:"کنترل CAPS",attack_link_burst:"ضد حمله لینک",attack_media_burst:"ضد حمله رسانه",attack_join_flood:"ضد هجوم عضو",
+  language_persian:"زبان فارسی",language_english:"زبان انگلیسی",language_arabic:"زبان عربی",language_russian:"زبان روسی",language_turkish:"زبان ترکی",language_chinese:"زبان چینی",language_japanese:"زبان ژاپنی",language_korean:"زبان کره‌ای"
 };
 const LOCK_ALIASES:Record<string,string>={
   "رسانه":"normal_media","رسانه‌ای":"normal_media","media":"normal_media",
@@ -280,13 +282,29 @@ const LOCK_ALIASES:Record<string,string>={
   "متن تبلیغاتی":"advertising_text","لینک تبلیغاتی":"advertising_links","دعوت تبلیغاتی":"advertising_invites","شماره تبلیغاتی":"advertising_phone","یوزرنیم تبلیغاتی":"advertising_username",
   "همه فورواردها":"forward_all","فوروارد گروه":"forward_groups","فوروارد کانال":"forward_channels","فوروارد خصوصی":"forward_private",
   "هشتگ":"hashtag_limit","hashtag":"hashtag_limit","یوزرنیم":"username_lock","username":"username_lock","شماره تلفن":"phone_lock","phone":"phone_lock","ایمیل":"email_lock","email":"email_lock","پیش‌نمایش":"web_preview_lock","preview":"web_preview_lock","استوری":"story_share_lock","story":"story_share_lock",
-  "ضد فلود":"attack_flood","flood":"attack_flood","ضد پیام تکراری":"attack_duplicate","duplicate":"attack_duplicate","caps":"attack_caps","کنترل caps":"attack_caps","ضد حمله لینک":"attack_link_burst","link burst":"attack_link_burst","ضد حمله رسانه":"attack_media_burst","media burst":"attack_media_burst","ضد هجوم عضو":"attack_join_flood","join flood":"attack_join_flood","ورود ربات":"bot_join_lock"
+  "ضد فلود":"attack_flood","flood":"attack_flood","ضد پیام تکراری":"attack_duplicate","duplicate":"attack_duplicate","caps":"attack_caps","کنترل caps":"attack_caps","ضد حمله لینک":"attack_link_burst","link burst":"attack_link_burst","ضد حمله رسانه":"attack_media_burst","media burst":"attack_media_burst","ضد هجوم عضو":"attack_join_flood","join flood":"attack_join_flood","ورود ربات":"bot_join_lock",
+  "فارسی":"language_persian","زبان فارسی":"language_persian","persian":"language_persian","english":"language_english","انگلیسی":"language_english","زبان انگلیسی":"language_english","arabic":"language_arabic","عربی":"language_arabic","زبان عربی":"language_arabic","russian":"language_russian","روسی":"language_russian","زبان روسی":"language_russian","turkish":"language_turkish","ترکی":"language_turkish","زبان ترکی":"language_turkish","chinese":"language_chinese","چینی":"language_chinese","زبان چینی":"language_chinese","japanese":"language_japanese","ژاپنی":"language_japanese","زبان ژاپنی":"language_japanese","korean":"language_korean","کره‌ای":"language_korean","کره ای":"language_korean","زبان کره‌ای":"language_korean"
 };
 function lockNorm(v:unknown){return String(v??"").trim().toLowerCase().replace(/[يى]/g,"ی").replace(/ك/g,"ک").replace(/[‌]/g,"").replace(/\s+/g," ").trim();}
 function lockKey(args:string[]){const joined=lockNorm(args.join(" "));if(!joined)return null;return LOCK_ALIASES[joined]??LOCK_ALIASES[lockNorm(joined.replace(/ـ/g,""))]??null;}
 function lockFmt(v:number){return String(v).replace(/\d/g,d=>"۰۱۲۳۴۵۶۷۸۹"[Number(d)]);}
 async function lockRows(pool:Pool,groupId:number){await seed(pool,groupId);return (await pool.query("SELECT rule_key,section,enabled,config FROM content_lock_rules WHERE group_id=$1 ORDER BY id",[groupId])).rows;}
 function lockStateLine(enabledValue:boolean){return enabledValue?"● فعال":"○ خاموش";}
+export async function ensureContentLocks(pool:Pool,groupId:number){await seed(pool,groupId);}
+export function contentLockCenterKeyboard(){return {inline_keyboard:[
+  [{text:"❯› قفل‌های حالت عادی",callback_data:"cl:normal"},{text:"❯› رسانه",callback_data:"cl:media"}],
+  [{text:"❯› لینک‌ها",callback_data:"cl:links"},{text:"❯› تبلیغات",callback_data:"cl:advertising"}],
+  [{text:"❯› فوروارد و اشتراک‌گذاری",callback_data:"cl:forwarding"},{text:"❯› فایل و سند",callback_data:"cl:files"}],
+  [{text:"❯› پیام و نرخ ارسال",callback_data:"cl:messages"},{text:"❯› تعامل و هویت",callback_data:"cl:interactions"}],
+  [{text:"❯› محتوای پیشرفته",callback_data:"cl:advanced"},{text:"❯› امنیت و ضد اتک",callback_data:"cl:anti_attack"}],
+  [{text:"❯› استثناها و دامنه مجاز",callback_data:"cl:exceptions"}],
+  [{text:"❯› قفل زبان",callback_data:"cl:language"}],
+  [{text:"‹ بازگشت",callback_data:"c:home"}]
+]};}
+export async function sendContentLockCenter(pool:Pool,chatId:number){
+  const message=await lockCenterText(pool,chatId);
+  return telegramApi("sendMessage",{chat_id:chatId,text:message,reply_markup:contentLockCenterKeyboard()});
+}
 async function lockSectionText(pool:Pool,groupId:number,section:string,title:string,limit=100){
   const rows=(await lockRows(pool,groupId)).filter((x:any)=>x.section===section);
   const active=rows.filter((x:any)=>x.enabled).length;
@@ -300,8 +318,8 @@ async function lockSectionText(pool:Pool,groupId:number,section:string,title:str
 }
 async function lockCenterText(pool:Pool,groupId:number){
   const rows=await lockRows(pool,groupId);
-  const sections=["normal","media","links","advertising","forwarding","files","messages","interactions","advanced","anti_attack"];
-  const names:any={normal:"قفل‌های حالت عادی",media:"رسانه",links:"لینک‌ها",advertising:"تبلیغات",forwarding:"فوروارد و اشتراک‌گذاری",files:"فایل و سند",messages:"پیام‌ها",interactions:"تعامل و ویرایش",advanced:"پیشرفته",anti_attack:"امنیت و ضداتک"};
+  const sections=["normal","media","links","advertising","forwarding","files","messages","interactions","advanced","anti_attack","language"];
+  const names:any={normal:"قفل‌های حالت عادی",media:"رسانه",links:"لینک‌ها",advertising:"تبلیغات",forwarding:"فوروارد و اشتراک‌گذاری",files:"فایل و سند",messages:"پیام و نرخ ارسال",interactions:"تعامل و هویت",advanced:"محتوای پیشرفته",anti_attack:"امنیت و ضد اتک",language:"قفل زبان"};
   const body=["━━━━━━━━━━━━━━━━━━━━━━━━","◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ - Lᴏᴄᴋ Cᴇɴᴛᴇʀ","━━━━━━━━━━━━━━━━━━━━━━━━","",
     "⛂ - سیستم قفل : ● فعال","⛂ - مجموع قوانین : "+lockFmt(rows.length),"⛂ - قوانین فعال : "+lockFmt(rows.filter((r:any)=>r.enabled).length),"","","─────━━───── ◈ ─────━━─────"];
   for(const sec of sections){const rs=rows.filter((r:any)=>r.section===sec);body.push("⛂ - "+names[sec]+" : "+lockFmt(rs.filter((r:any)=>r.enabled).length)+" / "+lockFmt(rs.length));}
@@ -314,6 +332,7 @@ export async function runContentLockCommand(pool:Pool,ctx:LockCommandContext,com
   if(commandId==="unlockall"||((commandId==="unlock")&&normalizedArgs==="همه")){await pool.query("UPDATE content_lock_rules SET enabled=FALSE,updated_at=NOW() WHERE group_id=$1",[ctx.chatId]);cache.delete(ctx.chatId);return "━━━━━━━━━━━━━━━━━━━━━━━━\n◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ - Uɴʟᴏᴄᴋ Aʟʟ\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n✓ همه قفل‌های سیستم خاموش شدند."; }
   if(commandId==="lock"&&(!normalizedArgs||normalizedArgs==="وضعیت"||normalizedArgs==="status"||normalizedArgs==="ها"||normalizedArgs==="همه قفل‌ها"||normalizedArgs==="قفل‌ها"))return lockCenterText(pool,ctx.chatId);
   if(commandId==="lock"&&(normalizedArgs==="حالت عادی"||normalizedArgs==="قفل‌های حالت عادی"||normalizedArgs==="normal"||normalizedArgs==="normal locks"))return lockSectionText(pool,ctx.chatId,"normal","Nᴏʀᴍᴀʟ Lᴏᴄᴋs");
+  if(commandId==="lock"&&(normalizedArgs==="زبان"||normalizedArgs==="قفل زبان"||normalizedArgs==="language"||normalizedArgs==="language locks"))return lockSectionText(pool,ctx.chatId,"language","Lᴀɴɢᴜᴀɢᴇ Lᴏᴄᴋs");
   if(commandId==="lock"&&normalizedArgs){
     const key=lockKey(args);if(!key)return "✗ نوع قفل شناخته نشد. «قفل» را ارسال کنید تا فهرست دسته‌ها نمایش داده شود.";
     const row=(await pool.query("SELECT rule_key,enabled FROM content_lock_rules WHERE group_id=$1 AND rule_key=$2",[ctx.chatId,key])).rows[0];
@@ -429,6 +448,27 @@ export async function enforceContentLocks(input:Input):Promise<boolean>{
     }
   }
 
+  if(text){
+    const detected=new Set<string>();
+    const persianSpecific=(text.match(/[پچژگک]/g)||[]).length;
+    const arabicChars=(text.match(/[\u0600-\u06ff]/g)||[]).length;
+    if(persianSpecific>0)detected.add("language_persian");
+    else if(arabicChars>=2)detected.add("language_arabic");
+    if((text.match(/[\u0400-\u04ff]/g)||[]).length>=2)detected.add("language_russian");
+    if((text.match(/[\u4e00-\u9fff]/g)||[]).length>=2)detected.add("language_chinese");
+    if((text.match(/[\u3040-\u30ff]/g)||[]).length>=2)detected.add("language_japanese");
+    if((text.match(/[\uac00-\ud7af]/g)||[]).length>=2)detected.add("language_korean");
+    const lower=text.toLowerCase();
+    const latin=(text.match(/[a-zA-Z]/g)||[]).length;
+    if(latin>=3){
+      const turkishHint=/[çğıöşüİı]/.test(text)||/\b(merhaba|nasılsın|için|değil|olan|olarak|daha|çok|gibi|ben|sen|siz|ve|bir)\b/i.test(lower);
+      if(turkishHint)detected.add("language_turkish");
+      if(/\b(the|and|you|your|is|are|this|that|with|from|for|to|of|in|on|hello|thanks|please|yes|no|what|how|can|will|have|has|not)\b/i.test(lower))detected.add("language_english");
+    }
+    for(const key of detected){
+      if(enabled(data,key)&&await block(input,data,key,"language",LOCK_LABELS[key]||key))return true;
+    }
+  }
   const hasText=Boolean(text);
   if(hasText&&enabled(data,"message_min_length")&&text.length<Number(config(data,"message_min_length").min_chars||2)&&await block(input,data,"message_min_length","text","طول کمتر از حداقل"))return true;
   if(hasText&&enabled(data,"message_max_length")&&text.length>Number(config(data,"message_max_length").max_chars||4000)&&await block(input,data,"message_max_length","text","طول بیشتر از حداکثر"))return true;
