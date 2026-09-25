@@ -2,7 +2,7 @@ import type { Pool } from "pg";
 import { telegramApi } from "../telegram/api.ts";
 import { ensureContentLocks } from "./content-locks.ts";
 import type { Rank } from "./registry.ts";
-import { executeRuntimeAction, isRuntimeMaintenance } from "../../bot/runtime-control.ts";
+import { executeRuntimeAction, isRuntimeMaintenance } from "../../../bot/runtime-control.ts";
 import { bindPanelMessage, currentPanelScope, touchPanelMessage, unbindPanelMessage } from "./panel-session.ts";
 import { glassKeyboard } from "./panel-design.ts";
 
