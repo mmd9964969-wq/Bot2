@@ -26,8 +26,10 @@ async function installationsApi(req,res,url){
     const b=await body(req);const member=String(b.member_message_policy||""),command=String(b.command_policy||""),security=String(b.security_mode||"");
     if(!MEMBER_POLICIES.includes(member)||!COMMAND_POLICIES.includes(command)||!SECURITY_MODES.includes(security))return send(res,400,JSON.stringify({error:"Invalid installation policy"}));
     const old=await query("SELECT * FROM bot_group_installations WHERE group_id=$1 LIMIT 1",[m[1]]);
-    if(!old.rowCount)return send(res,404,JSON.stringify({error:"Installation state not found"}));
     const actor=Number.isSafeInteger(Number(b.actor_id))?Number(b.actor_id):null,automation=b.automation_enabled===true,audit=b.audit_enabled!==false;
+    if(!old.rowCount){
+      await query("INSERT INTO bot_group_installations(group_id,installed,installation_version,member_message_policy,response_policy,command_policy,command_mode,automation_enabled,security_mode,audit_enabled,updated_at) VALUES($1,FALSE,'v1.0.0',$2,$3,$4,'plain',$5,$6,$7,NOW())",[m[1],member,member==="silent"?"standard":"custom",command,automation,security,audit]);
+    }
     const saved=await query("UPDATE bot_group_installations SET member_message_policy=$1,response_policy=$2,command_policy=$3,command_mode='plain',automation_enabled=$4,security_mode=$5,audit_enabled=$6,updated_at=NOW() WHERE group_id=$7 RETURNING *",[member,member==="silent"?"standard":"custom",command,automation,security,audit,m[1]]);
     await query("INSERT INTO bot_installation_events(group_id,actor_id,event_type,metadata) VALUES($1,$2,'policy_changed',$3::jsonb)",[m[1],actor,JSON.stringify({before:{member_message_policy:old.rows[0].member_message_policy,command_policy:old.rows[0].command_policy,automation_enabled:old.rows[0].automation_enabled,security_mode:old.rows[0].security_mode,audit_enabled:old.rows[0].audit_enabled},after:{member_message_policy:member,command_policy:command,automation_enabled:automation,security_mode:security,audit_enabled:audit}})]);
     await query("INSERT INTO audit_logs(actor_id,action,target,before_data,after_data,source) VALUES($1,'installation_policy_changed',$2,$3::jsonb,$4::jsonb,'panel')",[actor,String(m[1]),JSON.stringify(old.rows[0]),JSON.stringify(saved.rows[0])]);
