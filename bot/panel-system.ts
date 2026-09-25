@@ -946,6 +946,17 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     await pool.query("INSERT INTO moderation_actions(group_id,actor_id,target_id,action_type,duration_seconds,reason,status) VALUES($1,$2,$3,'unmute',NULL,$4,$5)",[groupId,uid,targetId,"مرکز سکوت","success"]).catch(()=>{});
     return send(msg.chat.id,"✓ رفع سکوت اجرا شد.\n⛂ - کاربر : "+targetId);
   }
+  if(data.startsWith("br:")){
+    const targetId=Number(data.slice(3));
+    return edit(msg.chat.id,msg.message_id,panelTitle("Ban Center","⛂ - کاربر : "+targetId+"\n⛂ - نوع اقدام : بن با دلیل\n⛂ - دلیل : در انتظار دریافت"),menu([
+      [["ارسال دلیل","brx:"+targetId],["‹ بازگشت","c:ban"]]
+    ]));
+  }
+  if(data.startsWith("brx:")){
+    const targetId=Number(data.slice(4));
+    session(uid,"moderation_reason",{chatId:groupId,action:"ban",targetId});
+    return edit(msg.chat.id,msg.message_id,panelTitle("Ban Center","⛂ - کاربر : "+targetId+"\n⛂ - دلیل بن را ارسال کنید."),menu([[["‹ بازگشت","c:ban"]]]));
+  }
   if(data.startsWith("bp:")){
     const targetId=Number(data.slice(3)); const rr=await telegramApi("banChatMember",{chat_id:groupId,user_id:targetId,revoke_messages:true});
     await pool.query("INSERT INTO moderation_actions(group_id,actor_id,target_id,action_type,duration_seconds,reason,status) VALUES($1,$2,$3,'ban',NULL,$4,$5)",[groupId,uid,targetId,"بن دائمی از مرکز بن",rr.ok?"success":"failed"]).catch(()=>{});
@@ -1201,7 +1212,30 @@ async function handleInput(pool:Pool,msg:TgMessage){
     clearSession(uid);
     return send(msg.chat.id,result);
   }
-  if(s.flow==="warn_issue"){const userId=Number(value);if(!Number.isSafeInteger(userId))return send(msg.chat.id,"آیدی معتبر نیست.");const d={group_id:groupId,user_id:userId,violation_type:"manual",custom_violation:"صدور دستی توسط مدیریت",admin_id:String(uid),admin_name:msg.from.username||msg.from.first_name||String(uid)};const settings=(await pool.query("SELECT enabled FROM warning_system_settings WHERE group_id=$1",[groupId])).rows[0];if(!settings?.enabled)return send(msg.chat.id,"سیستم اخطار این گروه غیرفعال است.");const wf=await fetch("http://127.0.0.1:"+String(process.env.PORT||0)+"/api/warnings/issue",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(d)}).catch(()=>null);clearSession(uid);return send(msg.chat.id,wf?.ok?"✓ اخطار ثبت شد.":"⚠ ثبت اخطار از این کانال انجام نشد؛ از پنل وب استفاده کنید.");}
+  if(s.flow==="warn_issue"){
+    const userId=Number(value);
+    if(!Number.isSafeInteger(userId)||userId<=0){clearSession(uid);return send(msg.chat.id,"آیدی معتبر نیست.");}
+    const target=await telegramApi<any>("getChatMember",{chat_id:groupId,user_id:userId});
+    if(!target.ok){clearSession(uid);return send(msg.chat.id,"✗ کاربر پیدا نشد: "+(target.description||"Telegram error"));}
+    const status=String(target.result?.status||"");
+    if(["administrator","creator"].includes(status)){
+      clearSession(uid);
+      const roleLabel=status==="creator"?"مالک":"مدیر";
+      return send(msg.chat.id,"✗ این کاربر "+roleLabel+" گروه است و قابل اخطار نیست.");
+    }
+    const name=target.result?.user?.username?"@"+target.result.user.username:(target.result?.user?.first_name||String(userId));
+    const wc=(await pool.query("SELECT COALESCE(warning_count,0) AS warning_count,last_warning_at FROM warning_cases WHERE group_id=$1 AND user_id=$2 LIMIT 1",[groupId,userId])).rows[0];
+    clearSession(uid);
+    return edit(msg.chat.id,msg.message_id,panelTitle("Warning Center",
+      "⛂ - کاربر : "+name+"\n⛂ - شناسه : "+userId+"\n⛂ - وضعیت : "+(status==="member"?"عضو گروه":"فعال")+
+      "\n⛂ - اخطار فعلی : "+Number(wc?.warning_count||0)+" از ۵\n⛂ - آخرین اخطار : "+(wc?.last_warning_at?faDate(wc.last_warning_at):"ثبت نشده")+
+      "\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - اخطار جدید : +۱\n⛂ - دلیل : قابل تنظیم\n⛂ - اقدام بعدی : طبق سطح اخطار\n⛂ - اخطار نهایی : بن\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - وضعیت : آماده ثبت"),menu([
+        [["اخطار +۱","twx:"+userId],["اخطار سفارشی","twc:"+userId]],
+        [["کاهش اخطار","wd:"+userId],["حذف اخطار","wc:"+userId]],
+        [["سابقه اخطار","w:list"],["تنظیم مراحل","w:levels"]],
+        [["‹ بازگشت","c:members"]]
+      ]));
+  }
   if(s.flow==="warn_clear"){const userId=Number(value);await pool.query("UPDATE warning_events SET status='cleared',result='cleared' WHERE group_id=$1 AND user_id=$2 AND action_type='warning' AND status='active'",[groupId,userId]);clearSession(uid);return send(msg.chat.id,"✓ اخطارهای فعال کاربر پاک شد.");}
   if(s.flow==="moderation_action"){
     const userId=Number(value);
