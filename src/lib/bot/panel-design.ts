@@ -17,6 +17,9 @@ export function glassLabel(value:string){
 function semanticStyle(label:string,callbackData:string):TelegramButtonStyle|undefined{
   const raw=(label+" "+callbackData).toLowerCase();
 
+  // Enabled state is green without turning every neutral navigation button into a colored block.
+  if(/(^|\\s)●/.test(label)) return "success";
+
   // Destructive actions are red.
   if(
     /(^|:)(delete|remove|block|ban|kick|exit|off|disable|danger|reset|clear)/i.test(callbackData) ||
