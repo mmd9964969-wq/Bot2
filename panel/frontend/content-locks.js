@@ -146,8 +146,8 @@ async function contentLocksPage(){
   }
   document.getElementById("clNormalOn").onclick=()=>clSetSection("normal",true);
   document.getElementById("clNormalOff").onclick=()=>clSetSection("normal",false);
-  document.getElementById("clAllOn").onclick=async()=>{if(confirm("همه قوانین فعال شوند؟")){try{await clApi("/api/content-locks/sections/all",{method:"PUT",body:JSON.stringify({group_id:contentLockState.groupId,enabled:true,actor_id:clActor()})});}catch{} }};
-  document.getElementById("clAllOff").onclick=async()=>{if(confirm("همه قوانین خاموش شوند؟")){try{await clApi("/api/content-locks/sections/all",{method:"PUT",body:JSON.stringify({group_id:contentLockState.groupId,enabled:false,actor_id:clActor()})});await clLoad();}catch(err){clToast(err.message,true);}}};
+  document.getElementById("clAllOn").onclick=async()=>{if(confirm("همه قوانین فعال شوند؟")){try{await clApi("/api/content-locks/sections/all",{method:"PUT",body:JSON.stringify({group_id:contentLockState.groupId,enabled:true,actor_id:clActor()})});clToast("همه قفل‌ها فعال شدند.");await clLoad();}catch(err){clToast(err.message,true);}}};
+  document.getElementById("clAllOff").onclick=async()=>{if(confirm("همه قوانین خاموش شوند؟")){try{await clApi("/api/content-locks/sections/all",{method:"PUT",body:JSON.stringify({group_id:contentLockState.groupId,enabled:false,actor_id:clActor()})});clToast("همه قفل‌ها خاموش شدند.");await clLoad();}catch(err){clToast(err.message,true);}}};
   document.getElementById("contentLockMaster").onchange=async e=>{try{await clApi("/api/content-locks/settings",{method:"PUT",body:JSON.stringify({group_id:contentLockState.groupId,enabled:e.target.checked,actor_id:clActor()})});clToast(e.target.checked?"سیستم قفل محتوا فعال شد.":"سیستم قفل محتوا غیرفعال شد.");await clLoad();}catch(err){e.target.checked=!e.target.checked;clToast(err.message,true);}};
   document.getElementById("contentLockSearch").oninput=e=>{contentLockState.filter=e.target.value;clRenderRules();};
   document.getElementById("clAddException").onclick=clExceptionModal;
