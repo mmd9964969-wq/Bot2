@@ -5,6 +5,8 @@ import { telegramApi } from "../src/lib/telegram/api.ts";
 import type { Rank } from "../src/lib/bot/registry.ts";
 import { ensureContentLocks, editRichLockCenter } from "../src/lib/bot/content-locks.ts";
 import { glassKeyboard } from "../src/lib/bot/panel-design.ts";
+import { AUTOMATION_ACTIONS } from "../src/lib/bot/automation-engine.ts";
+import { executeRuntimeAction, isRuntimeMaintenance } from "./runtime-control.ts";
 import {
   ensurePanelSessionSchema,
   runWithPanelScope,
@@ -62,8 +64,15 @@ function clearSession(uid:number){sessions.delete(uid);}
 function allowed(uid:number){const now=Date.now(),last=throttles.get(uid)||0;if(now-last<800)return false;throttles.set(uid,now);return true;}
 function sleep(ms:number){return new Promise(resolve=>setTimeout(resolve,ms));}
 async function answer(id:string){await telegramApi("answerCallbackQuery",{callback_query_id:id});}
+function normalizePanelText(message:any){
+  let value=String(message??"").replace(/⛂\s+(?!-)/g,"⛂ - ").trim();
+  if(value&&!value.includes("━━━━━━━━━━━━━━━━━━━━━━━━")){
+    value="━━━━━━━━━━━━━━━━━━━━━━━━\n"+value+"\n━━━━━━━━━━━━━━━━━━━━━━━━";
+  }
+  return value;
+}
 async function send(chatId:number,message:string,markup:any=null){
-  const result=await telegramApi("sendMessage",{chat_id:chatId,text:message,reply_markup:markup});
+  const result=await telegramApi("sendMessage",{chat_id:chatId,text:normalizePanelText(message),reply_markup:markup});
   const scope=currentPanelScope();
   if(result.ok&&scope&&markup?.inline_keyboard){
     const messageId=Number((result.result as any)?.message_id);
@@ -77,7 +86,7 @@ async function edit(chatId:number,messageId:number,message:string,markup:any=nul
   // Telegram does not expose a custom page-transition API.
   // Keep the existing soft transition while preserving message ownership.
   await sleep(75);
-  const result=await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,text:message,reply_markup:markup});
+  const result=await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,text:normalizePanelText(message),reply_markup:markup});
   const scope=currentPanelScope();
   if(result.ok&&scope){
     if(markup?.inline_keyboard) await touchPanelMessage(scope.pool,chatId,messageId,scope.userId);
@@ -112,8 +121,8 @@ async function customerAllowedForChat(pool:Pool,uid:number,chatId:number){
 async function isGroupAdmin(chatId:number,uid:number){
   const r=await telegramApi<any>("getChatMember",{chat_id:chatId,user_id:uid});return !!(r.ok&&["administrator","creator"].includes(String(r.result?.status||"")));
 }
-function mainOwnerMessage(){return "◈ پنل مالک بات\n\nدسترسی سطح مالک فعال است. از منوی زیر بخش موردنظر را انتخاب کنید.";};
-function mainCustomerMessage(){return "◈ پنل مدیریت مشتری\n\nگروه و سرویس خود را از منوی زیر کنترل کنید.";};
+function mainOwnerMessage(){return "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Oᴡɴᴇʀ Cᴏɴᴛʀᴏʟ\n\n⛂ - سطح دسترسی : OWNER\n⛂ - وضعیت هسته : فعال\n⛂ - وضعیت پنل : آماده\n\nمرکز کنترل مالک برای مدیریت مشتریان، لایسنس‌ها، گروه‌ها، Runtime و Audit.";};
+function mainCustomerMessage(){return "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Gʀᴏᴜᴘ Cᴏɴᴛʀᴏʟ\n\n⛂ - دسترسی : مدیر گروه\n⛂ - هسته قفل : آماده\n⛂ - موتور کنترل : فعال\n\nمرکز کنترل عملیاتی گروه از همین پنل در دسترس است.";};
 
 async function ownerStats(pool:Pool){
   const [customers,active,expired,groups,cmd24,cmd7,warn,kick]=await Promise.all([
@@ -209,7 +218,7 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
 
 async function sendCustomer(pool:Pool,ownerId:number,chatId:number,row:any){
   const lic=await validLicense(pool,Number(row.user_id));const groups=(await pool.query("SELECT COUNT(*)::int n FROM bot_customer_groups WHERE customer_id=$1 AND is_active=TRUE",[row.user_id])).rows[0].n||0;
-  const text=["◈ اطلاعات مشتری","","⛂ آیدی : "+row.user_id,"⛂ یوزرنیم : "+(row.username?"@"+row.username:"ندارد"),"⛂ نام : "+(row.first_name||"—"),"⛂ اولین نصب : "+faDate(row.first_installed_at),"⛂ گروه‌های فعال : "+groups,"⛂ لایسنس : "+(lic?.license_type||"ندارد"),"⛂ شروع : "+(lic?faDate(lic.starts_at):"—"),"⛂ انقضا : "+(lic?.expires_at?faDate(lic.expires_at):"مادام‌العمر"),"⛂ وضعیت مشتری : "+row.status,"⛂ آخرین فعالیت : "+faDate(row.last_active_at)].join("\n");
+  const text=["◈ اطلاعات مشتری","","⛂ - آیدی : "+row.user_id,"⛂ یوزرنیم : "+(row.username?"@"+row.username:"ندارد"),"⛂ نام : "+(row.first_name||"—"),"⛂ اولین نصب : "+faDate(row.first_installed_at),"⛂ گروه‌های فعال : "+groups,"⛂ لایسنس : "+(lic?.license_type||"ندارد"),"⛂ شروع : "+(lic?faDate(lic.starts_at):"—"),"⛂ انقضا : "+(lic?.expires_at?faDate(lic.expires_at):"مادام‌العمر"),"⛂ وضعیت مشتری : "+row.status,"⛂ آخرین فعالیت : "+faDate(row.last_active_at)].join("\n");
   const buttons=[[["فعال‌سازی لایسنس","u:lic_on:"+row.user_id],["غیرفعال‌سازی","u:lic_off:"+row.user_id]],[["افزایش مدت","u:lic_plus:"+row.user_id],["کاهش مدت","u:lic_minus:"+row.user_id]],[["مسدودکردن","u:block:"+row.user_id],["رفع مسدودیت","u:unblock:"+row.user_id]],[["لاگ مشتری","u:logs:"+row.user_id],["پیام خصوصی","u:msg:"+row.user_id]],[["← بازگشت","o:customers"]]];
   return send(chatId,text,menu(buttons));
 }
@@ -310,7 +319,7 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   if(data==="o:exit"){await edit(msg.chat.id,msg.message_id,"از پنل مالک خارج شدید.",null);clearSession(uid);return;}
   if(data.startsWith("u:")){
     const parts=data.split(":");const act=parts[1],id=Number(parts[2]);if(!Number.isSafeInteger(id))return;
-    if(["lic_off","lic_plus","lic_minus","block","unblock"].includes(act)){session(uid,"confirm_owner_action",{act,id});return send(msg.chat.id,"مرحله ۱ از ۲: این عملیات حساس است. برای ادامه «تأیید نهایی» را ارسال کنید.");}
+    if(["lic_off","block","unblock"].includes(act)){session(uid,"confirm_owner_action",{act,id});return send(msg.chat.id,"مرحله ۱ از ۲: این عملیات حساس است. برای ادامه «تأیید نهایی» را ارسال کنید.");}
     if(act==="lic_on"){await pool.query("UPDATE bot_licenses SET status='active',starts_at=NOW() WHERE customer_id=$1 AND id=(SELECT id FROM bot_licenses WHERE customer_id=$1 ORDER BY id DESC LIMIT 1)",[id]);return send(msg.chat.id,"✓ آخرین لایسنس فعال شد.");}
     if(act==="lic_off"){await pool.query("UPDATE bot_licenses SET status='disabled' WHERE customer_id=$1 AND status='active'",[id]);return send(msg.chat.id,"✓ لایسنس‌های فعال مشتری غیرفعال شدند.");}
     if(act==="lic_plus"){session(uid,"owner_extend",{customerId:id});return send(msg.chat.id,"تعداد روز افزایش را ارسال کنید.");}
@@ -446,8 +455,8 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     return editRichLockCenter(pool,msg.chat.id,msg.message_id,uid);
   }
   if(data.startsWith("clt:")){
-    const key=data.slice(4);const r=await pool.query("SELECT enabled,title,section FROM content_lock_rules WHERE group_id=$1 AND rule_key=$2",[groupId,key]);if(!r.rowCount)return;
-    const next=!r.rows[0].enabled;
+    const parts=data.split(":");const key=parts[1];const requested=parts[2];const r=await pool.query("SELECT enabled,title,section FROM content_lock_rules WHERE group_id=$1 AND rule_key=$2",[groupId,key]);if(!r.rowCount)return;
+    const next=requested==="on"?true:requested==="off"?false:!r.rows[0].enabled;
     await pool.query("UPDATE content_lock_rules SET enabled=$1,updated_at=NOW() WHERE group_id=$2 AND rule_key=$3",[next,groupId,key]);
     await audit(pool,String(uid),"content_lock_rule_changed",key,{groupId,enabled:next});
     const section=String(r.rows[0].section),names:any={normal:"قفل‌های حالت عادی",media:"رسانه",links:"لینک‌ها",advertising:"تبلیغات",forwarding:"فوروارد و اشتراک‌گذاری",files:"فایل و سند",messages:"پیام و نرخ ارسال",interactions:"تعامل و هویت",advanced:"محتوای پیشرفته",anti_attack:"امنیت و ضد اتک",language:"قفل زبان"};
@@ -456,8 +465,8 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     const buttons:any=[];
     for(let i=0;i<rows.rows.length;i+=2){
       const a=rows.rows[i],b=rows.rows[i+1];
-      const row:any=[[(a.enabled?"● ":"○ ")+(labels[a.rule_key]||a.title||a.rule_key),"clt:"+a.rule_key]];
-      if(b)row.push([(b.enabled?"● ":"○ ")+(labels[b.rule_key]||b.title||b.rule_key),"clt:"+b.rule_key]);
+      const row:any=[[(labels[a.rule_key]||a.title||a.rule_key),"clt:"+a.rule_key+":"+(a.enabled?"off":"on")]];
+      if(b)row.push([(labels[b.rule_key]||b.title||b.rule_key),"clt:"+b.rule_key+":"+(b.enabled?"off":"on")]);
       buttons.push(row);
     }
     buttons.unshift([["✓ فعال‌سازی بخش","cls:"+section+":on"],["× خاموش‌سازی بخش","cls:"+section+":off"]]);
