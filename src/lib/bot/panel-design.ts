@@ -16,7 +16,6 @@ export function glassLabel(value:string){
 
 export function glassButton(label:string,callbackData:string):DesignedButton{
   const text=glassLabel(label);
-  const lower=(label+" "+callbackData).toLowerCase();
   let style:TelegramButtonStyle|undefined;
 
   if(
@@ -32,7 +31,6 @@ export function glassButton(label:string,callbackData:string):DesignedButton{
     /(مدیریت|مرکز|وضعیت|آمار|تنظیمات|قفل|اخطار|اعضا|امنیت|دستورات|زمان)/i.test(label)
   ) style="primary";
 
-  void lower;
   return style ? {text,callback_data:callbackData,style} : {text,callback_data:callbackData};
 }
 
