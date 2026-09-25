@@ -157,12 +157,13 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
       const owner=admins.find(x=>x.status==="creator")?.user;
       const gs=groupStats(ctx.chatId);
       const st=state(ctx.chatId);
-      const chatName=String(chatInfo?.title||ctx.chatTitle||"ثبت نشده");
+      const chatName=String(chatInfo?.title||ctx.chatTitle||"ثبت نشده").trim()||"ثبت نشده";
       const chatUsername=chatInfo?.username?("@"+String(chatInfo.username)):"—";
       const chatType=String(chatInfo?.type||ctx.chatType||"نامشخص");
-      const invite=chatInfo?.invite_link?String(chatInfo.invite_link):null;
-      const ownerName=owner?(owner.username?("@"+String(owner.username)):[owner.first_name,owner.last_name].filter(Boolean).join(" ")||String(owner.id)):"—";
-      const creationDate="قابل دریافت نیست";
+      const invite=chatInfo?.invite_link?String(chatInfo.invite_link):(chatInfo?.username?("https://t.me/"+String(chatInfo.username)):null);
+      const ownerName=owner?(owner.username?("@"+String(owner.username)):[owner.first_name,owner.last_name].filter(Boolean).join(" ")||String(owner.id)):"قابل شناسایی نیست";
+      const creationDate="از Telegram Bot API قابل دریافت نیست";
+      const inviteStatus=invite?(chatInfo?.invite_link?"فعال":"لینک عمومی گروه"):"لینک قابل دریافت نیست";
       const faText=[
         "◈ اطلاعات گروه",
         "",
@@ -186,7 +187,7 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "",
         "★ - تاریخ ساخت گروه : "+creationDate,
         "★ - لینک دعوت : "+(invite||"در دسترس نیست"),
-        "★ - وضعیت لینک دعوت : "+(invite?"فعال":"در دسترس نیست")
+        "★ - وضعیت لینک دعوت : "+inviteStatus
       ].join("\n");
       const enText=[
         "◈ Group information",
