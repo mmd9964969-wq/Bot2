@@ -1068,7 +1068,9 @@ async function handleInput(pool:Pool,msg:TgMessage){
     if(!target.ok){clearSession(uid);return send(msg.chat.id,"✗ کاربر پیدا نشد: "+(target.description||"Telegram error"));}
     const status=String(target.result?.status||"");
     if(["administrator","creator"].includes(status)&&["mute","perm_mute","ban","kick"].includes(a)){
-      clearSession(uid);return send(msg.chat.id,"✗ مدیر یا مالک گروه قابل مجازات نیست.");
+      clearSession(uid);
+      const roleLabel=status==="creator"?"مالک":"مدیر";
+      return send(msg.chat.id,"✗ این کاربر "+roleLabel+" گروه است و قابل مجازات نیست.");
     }
     const base={chat_id:groupId,user_id:userId};
     let method="";
