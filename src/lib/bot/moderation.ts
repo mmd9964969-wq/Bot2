@@ -98,7 +98,8 @@ async function targetState(ctx: BotContext, targetId: number) {
   }
   const status = String(member.result?.status ?? "");
   const protectedTarget = ["creator", "administrator"].includes(status);
-  return { ok: true, status, protectedTarget };
+  const roleLabel = status === "creator" ? "مالک" : status === "administrator" ? "مدیر" : "عضو";
+  return { ok: true, status, protectedTarget, roleLabel };
 }
 
 async function logAction(
@@ -125,7 +126,7 @@ async function issueWarning(pool: Pool, ctx: BotContext, args: string[]) {
 
   const state = await targetState(ctx, targetId);
   if (!state.ok) return "✗ " + state.error;
-  if (state.protectedTarget) return "✗ این کاربر مدیر/مالک گروه است و قابل اخطار نیست.";
+  if (state.protectedTarget) return "✗ این کاربر " + state.roleLabel + " گروه است و قابل اخطار نیست.";
 
   const targetIndex = ctx.replyToUserId ? 0 : 1;
   const reason = args.slice(targetIndex).join(" ").trim() || "تخلف از قوانین گروه";
@@ -165,7 +166,7 @@ async function muteUser(pool: Pool, ctx: BotContext, args: string[], permanent: 
 
   const state = await targetState(ctx, targetId);
   if (!state.ok) return "✗ " + state.error;
-  if (state.protectedTarget) return "✗ این کاربر مدیر/مالک گروه است و قابل سکوت نیست.";
+  if (state.protectedTarget) return "✗ این کاربر " + state.roleLabel + " گروه است و قابل سکوت نیست.";
 
   const durationArg = ctx.replyToUserId ? args[0] : args[1];
   const duration = permanent || !durationArg ? null : parseDurationToken(durationArg);
@@ -218,7 +219,7 @@ async function banUser(pool: Pool, ctx: BotContext, args: string[]) {
 
   const state = await targetState(ctx, targetId);
   if (!state.ok) return "✗ " + state.error;
-  if (state.protectedTarget) return "✗ این کاربر مدیر/مالک گروه است و قابل بن نیست.";
+  if (state.protectedTarget) return "✗ این کاربر " + state.roleLabel + " گروه است و قابل بن نیست.";
 
   const durationArg = ctx.replyToUserId ? args[0] : args[1];
   const duration = durationArg ? parseDurationToken(durationArg) : null;
