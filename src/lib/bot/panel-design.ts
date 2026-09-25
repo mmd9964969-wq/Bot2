@@ -24,8 +24,9 @@ function semanticStyle(label:string,callbackData:string):TelegramButtonStyle|und
 
 export function glassButton(label:string,callbackData:string):DesignedButton{
   const text=normalizeButtonLabel(label);
-  const style=semanticStyle(label,callbackData);
-  return style ? {text,callback_data:callbackData,style} : {text,callback_data:callbackData};
+  // Telegram InlineKeyboardButton does not accept an arbitrary "style" field.
+  // Keep semanticStyle() for local classification, but serialize only Telegram-supported fields.
+  return {text,callback_data:callbackData};
 }
 
 export function glassKeyboard(rows:string[][][]){
