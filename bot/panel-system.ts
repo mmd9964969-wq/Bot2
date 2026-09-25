@@ -799,7 +799,7 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     const r=await pool.query("SELECT enabled,title,section FROM content_lock_rules WHERE group_id=$1 AND rule_key=$2",[groupId,key]);
     if(!r.rowCount)return;
     const next=requested==="on"?true:requested==="off"?false:!r.rows[0].enabled;
-    await pool.query("UPDATE content_lock_rules SET enabled=$1,updated_at=NOW() WHERE group_id=$1 AND rule_key=$3",[next,groupId,key]);
+    await pool.query("UPDATE content_lock_rules SET enabled=$1,updated_at=NOW() WHERE group_id=$2 AND rule_key=$3",[next,groupId,key]);
     await audit(pool,String(uid),"content_lock_rule_changed",key,{groupId,enabled:next});
     return edit(msg.chat.id,msg.message_id,panelTitle(
       "مرکز قفل و فیلتر",
