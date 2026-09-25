@@ -12,6 +12,7 @@ import { ensureAutomationSchema, runAutomations, tickSchedules } from "../src/li
 import { dispatchPanelMessage, dispatchPanelCallback } from "./panel-system.ts";
 import { ensureGroupLanguageSchema, getGroupLanguage, normalizeBotLang, setGroupLanguage, languageChangedText, languagePickerText, SUPPORTED_LANGUAGES } from "../src/lib/bot/i18n.ts";
 import { ensureInstallationSchema, installationGate, handleInstallationCallback } from "./installation.ts";
+import { ensureModerationSchema, runModerationCommand } from "../src/lib/bot/moderation.ts";
 
 const TOKEN = process.env.BOT_TOKEN ?? "";
 if (!TOKEN) { console.error("BOT_TOKEN is missing"); process.exit(1); }
@@ -482,6 +483,11 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
 
     try{
       const commandArgs=raw.split(/\\s+/).slice(1);
+      if(["warn","mute","perm_mute","unmute","ban","unban"].includes(studioCommand.id)){
+        const liveCard=await runModerationCommand(studioPool!,ctx,studioCommand.id,commandArgs);
+        await logCommandAccess(ctx,studioCommand.id,"command_executed","allowed",auth.role);
+        return liveCard;
+      }
       if(studioCommand.id==="lock" && ["","ها","قفل‌ها","قفل ها","وضعیت","status"].includes(normalizeCommand(commandArgs.join(" ")))){
         const opened=await sendContentLockCenter(studioPool!,ctx.chatId,ctx.userId);
         await logCommandAccess(ctx,studioCommand.id,"command_executed","allowed",auth.role);
@@ -809,6 +815,7 @@ async function poll() {
     await ensureInstallationSchema(studioPool);
     await ensureAutomationSchema(studioPool);
     await ensureGroupLanguageSchema(studioPool);
+    await ensureModerationSchema(studioPool);
   }
   setInterval(() => void refreshStudio(), 5000);
   setInterval(() => { if (studioPool) void tickSchedules(studioPool).catch(error => console.error("[scheduler]", error)); }, 5000);
