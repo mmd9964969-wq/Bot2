@@ -1411,6 +1411,54 @@ async function handleInput(pool:Pool,msg:TgMessage){
   return false;
 }
 
+export async function openModerationCenterFromCommand(pool:Pool, chatId:number, actorId:number, commandId:string, targetId:number, targetName?:string){
+  const target=await telegramApi<any>("getChatMember",{chat_id:chatId,user_id:targetId});
+  if(!target.ok)return target;
+  const status=String(target.result?.status||"");
+  const roleLabel=status==="creator"?"مالک":status==="administrator"?"مدیر":"عضو";
+  const name=target.result?.user?.username?"@"+target.result.user.username:(targetName||target.result?.user?.first_name||String(targetId));
+  if(["administrator","creator"].includes(status) && ["warn","mute","perm_mute","ban"].includes(commandId)){
+    return await telegramApi("sendMessage",{chat_id:chatId,text:"✗ این کاربر "+roleLabel+" گروه است و قابل مجازات نیست."});
+  }
+
+  let title="Warning Center", body="";
+  let markup:any;
+  if(commandId==="warn"){
+    const wc=(await pool.query("SELECT COALESCE(warning_count,0) AS warning_count,last_warning_at FROM warning_cases WHERE group_id=$1 AND user_id=$2 LIMIT 1",[chatId,targetId]).catch(()=>({rows:[]}))).rows[0];
+    body="⛂ - کاربر : "+name+"\n⛂ - شناسه : "+targetId+"\n⛂ - وضعیت : "+roleLabel+"\n⛂ - اخطار فعلی : "+Number(wc?.warning_count||0)+" از ۵\n⛂ - آخرین اخطار : "+(wc?.last_warning_at?faDate(wc.last_warning_at):"ثبت نشده")+"\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - اخطار جدید : +۱\n⛂ - دلیل : قابل تنظیم\n⛂ - اقدام بعدی : طبق سطح اخطار\n⛂ - اخطار نهایی : بن\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - وضعیت : آماده ثبت";
+    markup={inline_keyboard:[
+      [{text:"اخطار +۱",callback_data:"twx:"+targetId},{text:"اخطار سفارشی",callback_data:"twc:"+targetId}],
+      [{text:"کاهش اخطار",callback_data:"wd:"+targetId},{text:"حذف اخطار",callback_data:"wc:"+targetId}],
+      [{text:"سابقه اخطار",callback_data:"w:list"},{text:"تنظیم مراحل",callback_data:"w:levels"}]
+    ]};
+  } else if(commandId==="mute"||commandId==="perm_mute"){
+    title="Mute Center";
+    body="⛂ - کاربر : "+name+"\n⛂ - شناسه : "+targetId+"\n⛂ - وضعیت : "+roleLabel+"\n⛂ - مدت : "+(commandId==="perm_mute"?"دائمی":"انتخاب نشده")+"\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - سطح محدودیت : ارسال پیام\n⛂ - حذف پیام‌های جدید : فعال\n⛂ - دلیل : —\n⛂ - اجرا توسط : —";
+    markup={inline_keyboard:[
+      [{text:"۱۰ دقیقه",callback_data:"tm:10:"+targetId},{text:"۳۰ دقیقه",callback_data:"tm:30:"+targetId}],
+      [{text:"۱ ساعت",callback_data:"tm:60:"+targetId},{text:"۶ ساعت",callback_data:"tm:360:"+targetId}],
+      [{text:"۱۲ ساعت",callback_data:"tm:720:"+targetId},{text:"۲۴ ساعت",callback_data:"tm:1440:"+targetId}],
+      [{text:"سکوت دائمی",callback_data:"tp:"+targetId},{text:"رفع سکوت",callback_data:"tu:"+targetId}]
+    ]};
+  } else if(commandId==="ban"){
+    title="Ban Center";
+    body="⛂ - کاربر : "+name+"\n⛂ - شناسه : "+targetId+"\n⛂ - وضعیت : "+roleLabel+"\n⛂ - سابقه اخطار : —\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - نوع اقدام : انتخاب نشده\n⛂ - حذف پیام‌ها : فعال\n⛂ - دلیل : —\n⛂ - اجرا توسط : —\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - وضعیت عملیات : آماده اجرا";
+    markup={inline_keyboard:[
+      [{text:"بن کاربر",callback_data:"bp:"+targetId},{text:"بن با دلیل",callback_data:"br:"+targetId}],
+      [{text:"بن دائمی",callback_data:"bp:"+targetId},{text:"بن موقت",callback_data:"bt:"+targetId}],
+      [{text:"حذف بن",callback_data:"bu:"+targetId},{text:"مشاهده سابقه",callback_data:"w:history"}]
+    ]};
+  } else return null;
+
+  const lang=await panelLanguageForChat(chatId);
+  const result=await telegramApi("sendMessage",{chat_id:chatId,text:buildPanelText(title,body,lang),reply_markup:localizeMarkup(markup,lang)});
+  if(result.ok){
+    const messageId=Number((result.result as any)?.message_id);
+    if(Number.isSafeInteger(messageId)&&messageId>0)await bindPanelMessage(pool,chatId,messageId,actorId);
+  }
+  return result;
+}
+
 export async function dispatchPanelMessage(pool:Pool,msg:TgMessage,ownerIds:string[]){
   if(!msg.from)return false;
   await ensurePanelSessionSchema(pool);
