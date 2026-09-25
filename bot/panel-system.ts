@@ -1521,7 +1521,13 @@ export async function dispatchPanelMessage(pool:Pool,msg:TgMessage,ownerIds:stri
   });
 }
 export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
-  if(!cb.message)return;
+  if(!cb.message){
+    await answer(cb.id).catch(()=>{});
+    return;
+  }
+  // A callback query must be acknowledged immediately so Telegram does not leave
+  // the button in a permanent loading state while database/Telegram work runs.
+  await answer(cb.id).catch(()=>{});
   await ensurePanelSessionSchema(pool);
   // Do not reject legacy/previously-rendered panel messages solely because their
   // session row expired or was created before the session table was introduced.
@@ -1534,8 +1540,8 @@ export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:str
     }
     if(!allowed(cb.from.id))return;
     const data=String(cb.data||"");
-  // Customer/lock panel callbacks must keep their customer context even for the bot owner.
-  // Otherwise ownerCallback receives c:/cl:/clt:/cls: actions and silently ignores them.
+    // Customer/lock panel callbacks must keep their customer context even for the bot owner.
+    // Otherwise ownerCallback receives c:/cl:/clt:/cls: actions and silently ignores them.
     if(
       /^(c|cl|clt|cls|auto|ex|w|m|wel|cmd|sc|sec|st|tw|tm|tp|tu|bp|br|bt|btd|bu|ban):/.test(data)
     ){
