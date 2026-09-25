@@ -4,6 +4,7 @@ import { telegramApi } from "../telegram/api.ts";
 import { glassKeyboard } from "./panel-design.ts";
 import { bindPanelMessage, touchPanelMessage } from "./panel-session.ts";
 import type { Rank } from "./registry.ts";
+import { getGroupLanguage, languageNative, type BotLang } from "./i18n.ts";
 
 type Entity={type?:string;offset?:number;length?:number;url?:string};
 type FileLike={file_name?:string;file_size?:number;mime_type?:string};
@@ -293,16 +294,27 @@ function lockFmt(v:number){return String(v).replace(/\d/g,d=>"۰۱۲۳۴۵۶۷۸
 async function lockRows(pool:Pool,groupId:number){await seed(pool,groupId);return (await pool.query("SELECT rule_key,section,enabled,config FROM content_lock_rules WHERE group_id=$1 ORDER BY id",[groupId])).rows;}
 function lockStateLine(enabledValue:boolean){return enabledValue?"● فعال":"○ خاموش";}
 export async function ensureContentLocks(pool:Pool,groupId:number){await seed(pool,groupId);}
-export function contentLockCenterKeyboard(){return glassKeyboard([
-  [["قفل‌های حالت عادی","cl:normal"],["رسانه","cl:media"]],
-  [["لینک‌ها","cl:links"],["تبلیغات","cl:advertising"]],
-  [["فوروارد و اشتراک‌گذاری","cl:forwarding"],["فایل و سند","cl:files"]],
-  [["پیام و نرخ ارسال","cl:messages"],["تعامل و هویت","cl:interactions"]],
-  [["محتوای پیشرفته","cl:advanced"],["امنیت و ضد اتک","cl:anti_attack"]],
-  [["استثناها و دامنه مجاز","cl:exceptions"]],
-  [["قفل زبان","cl:language"]],
-  [["‹ بازگشت","c:home"]]
-]);}
+export function contentLockCenterKeyboard(lang:BotLang="fa"){
+  const labels:Record<BotLang,Record<string,string>>={
+    fa:{normal:"قفل‌های حالت عادی",media:"رسانه",links:"لینک‌ها",advertising:"تبلیغات",forwarding:"فوروارد و اشتراک‌گذاری",files:"فایل و سند",messages:"پیام و نرخ ارسال",interactions:"تعامل و هویت",advanced:"محتوای پیشرفته",anti_attack:"امنیت و ضد اتک",exceptions:"استثناها و دامنه مجاز",language:"قفل زبان",back:"‹ بازگشت"},
+    en:{normal:"Normal locks",media:"Media",links:"Links",advertising:"Advertising",forwarding:"Forwarding & sharing",files:"Files & documents",messages:"Messages & rate",interactions:"Interactions & identity",advanced:"Advanced content",anti_attack:"Anti-attack",exceptions:"Exceptions & allowlist",language:"Language lock",back:"‹ Back"},
+    ar:{normal:"القفل العادي",media:"الوسائط",links:"الروابط",advertising:"الإعلانات",forwarding:"إعادة التوجيه والمشاركة",files:"الملفات والمستندات",messages:"الرسائل والمعدل",interactions:"التفاعل والهوية",advanced:"المحتوى المتقدم",anti_attack:"مكافحة الهجمات",exceptions:"الاستثناءات والقائمة المسموحة",language:"قفل اللغة",back:"‹ رجوع"},
+    ru:{normal:"Обычные блокировки",media:"Медиа",links:"Ссылки",advertising:"Реклама",forwarding:"Пересылка и обмен",files:"Файлы и документы",messages:"Сообщения и лимит",interactions:"Взаимодействия и личность",advanced:"Расширенный контент",anti_attack:"Антиатака",exceptions:"Исключения и список разрешений",language:"Языковой замок",back:"‹ Назад"},
+    tr:{normal:"Normal kilitler",media:"Medya",links:"Bağlantılar",advertising:"Reklam",forwarding:"Yönlendirme ve paylaşım",files:"Dosyalar ve belgeler",messages:"Mesajlar ve hız",interactions:"Etkileşim ve kimlik",advanced:"Gelişmiş içerik",anti_attack:"Saldırı koruması",exceptions:"İstisnalar ve izin listesi",language:"Dil kilidi",back:"‹ Geri"},
+    zh:{normal:"常规锁定",media:"媒体",links:"链接",advertising:"广告",forwarding:"转发与分享",files:"文件与文档",messages:"消息与频率",interactions:"互动与身份",advanced:"高级内容",anti_attack:"反攻击",exceptions:"例外与允许列表",language:"语言锁",back:"‹ 返回"}
+  };
+  const l=labels[lang]??labels.fa;
+  return glassKeyboard([
+    [[l.normal,"cl:normal"],[l.media,"cl:media"]],
+    [[l.links,"cl:links"],[l.advertising,"cl:advertising"]],
+    [[l.forwarding,"cl:forwarding"],[l.files,"cl:files"]],
+    [[l.messages,"cl:messages"],[l.interactions,"cl:interactions"]],
+    [[l.advanced,"cl:advanced"],[l.anti_attack,"cl:anti_attack"]],
+    [[l.exceptions,"cl:exceptions"]],
+    [[l.language,"cl:language"]],
+    [[l.back,"c:home"]]
+  ]);
+}
 
 function richEscape(value:unknown){
   return String(value??"")
@@ -315,8 +327,13 @@ function richEscape(value:unknown){
 const LOCK_PANEL_SEPARATOR="─────━━───── ◈ ─────━━─────";
 
 function lockRichPlain(text:string){return {type:"plain",text};}
+function lockCenterTitle(lang:BotLang){
+  const suffix:Record<BotLang,string>={fa:"Lᴏᴄᴋ Cᴇɴᴛᴇʀ",en:"Lᴏᴄᴋ Cᴇɴᴛᴇʀ",ar:"مركز القفل",ru:"Центр блокировок",tr:"Kilit Merkezi",zh:"锁定中心"};
+  return "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · "+suffix[lang];
+}
 
-function lockCenterRichBlocks(rows:any[]){
+
+function lockCenterRichBlocks(rows:any[],lang:BotLang="fa"){
   const sections=["normal","media","links","advertising","forwarding","files","messages","interactions","advanced","anti_attack","language"];
   const names:any={normal:"قفل‌های حالت عادی",media:"رسانه",links:"لینک‌ها",advertising:"تبلیغات",forwarding:"فوروارد و اشتراک‌گذاری",files:"فایل و سند",messages:"پیام و نرخ ارسال",interactions:"تعامل و هویت",advanced:"محتوای پیشرفته",anti_attack:"امنیت و ضد اتک",language:"قفل زبان"};
   const total=rows.length;
@@ -330,7 +347,7 @@ function lockCenterRichBlocks(rows:any[]){
     return names[section]+"\\n"+lockFmt(rs.filter((r:any)=>r.enabled).length)+" / "+lockFmt(rs.length);
   }).join("\n\n");
   const blocks:any[]=[
-    {type:"heading",text:lockRichPlain("◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Lᴏᴄᴋ Cᴇɴᴛᴇʀ"),size:2},
+    {type:"heading",text:lockRichPlain(lockCenterTitle(lang)),size:2},
     {type:"paragraph",text:lockRichPlain(stats)},
     {type:"paragraph",text:lockRichPlain(LOCK_PANEL_SEPARATOR)},
     {type:"paragraph",text:lockRichPlain(sectionLines)},
@@ -342,8 +359,9 @@ function lockCenterRichBlocks(rows:any[]){
 
 async function sendRichLockCenter(pool:Pool,chatId:number,ownerId?:number){
   const rows=await lockRows(pool,chatId);
-  const rich_message=lockCenterRichBlocks(rows);
-  const keyboard=contentLockCenterKeyboard();
+  const rich_message=lockCenterRichBlocks(rows,lang);
+  const lang=await getGroupLanguage(pool,chatId,"fa");
+  const keyboard=contentLockCenterKeyboard(lang);
   const rich=await telegramApi("sendRichMessage",{chat_id:chatId,rich_message,reply_markup:keyboard});
   if(rich.ok){
     if(ownerId){
