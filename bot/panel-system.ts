@@ -455,6 +455,7 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     const gid=Number(data.slice(7));if(!Number.isSafeInteger(gid))return;
     const current=await getGroupLanguage(pool,gid,"fa");
     const buttons:any[][]=SUPPORTED_LANGUAGES.map(x=>[[languageButtonLabel(x.code,current),"og:setlang:"+gid+":"+x.code]]);
+    if(!buttons.length)buttons.push([["فارسی","og:setlang:"+gid+":fa"]]);
     buttons.push([["‹ بازگشت","o:languages"]]);
     return edit(msg.chat.id,msg.message_id,panelTitle("زبان گروه","⛂ - گروه : "+gid+"\n⛂ - زبان فعلی : "+languageNative(current)),menu(buttons));
   }
@@ -699,6 +700,7 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   if(data==="c:language"){
     const current=await getGroupLanguage(pool,groupId,"fa");
     const buttons:any[][]=SUPPORTED_LANGUAGES.map(x=>[[languageButtonLabel(x.code,current),"c:setlang:"+x.code]]);
+    if(!buttons.length)buttons.push([["فارسی","c:setlang:fa"]]);
     buttons.push([["‹ بازگشت","c:home"]]);
     return edit(msg.chat.id,msg.message_id,panelTitle("زبان ربات","⛂ - زبان فعلی : "+languageNative(current)+"\n⛂ - دامنه تنظیم : فقط همین گروه"),menu(buttons));
   }
