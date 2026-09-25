@@ -292,13 +292,13 @@ async function lockRows(pool:Pool,groupId:number){await seed(pool,groupId);retur
 function lockStateLine(enabledValue:boolean){return enabledValue?"● فعال":"○ خاموش";}
 export async function ensureContentLocks(pool:Pool,groupId:number){await seed(pool,groupId);}
 export function contentLockCenterKeyboard(){return {inline_keyboard:[
-  [{text:"❯› قفل‌های حالت عادی",callback_data:"cl:normal"},{text:"❯› رسانه",callback_data:"cl:media"}],
-  [{text:"❯› لینک‌ها",callback_data:"cl:links"},{text:"❯› تبلیغات",callback_data:"cl:advertising"}],
-  [{text:"❯› فوروارد و اشتراک‌گذاری",callback_data:"cl:forwarding"},{text:"❯› فایل و سند",callback_data:"cl:files"}],
-  [{text:"❯› پیام و نرخ ارسال",callback_data:"cl:messages"},{text:"❯› تعامل و هویت",callback_data:"cl:interactions"}],
-  [{text:"❯› محتوای پیشرفته",callback_data:"cl:advanced"},{text:"❯› امنیت و ضد اتک",callback_data:"cl:anti_attack"}],
-  [{text:"❯› استثناها و دامنه مجاز",callback_data:"cl:exceptions"}],
-  [{text:"❯› قفل زبان",callback_data:"cl:language"}],
+  [{text:"› قفل‌های حالت عادی",callback_data:"cl:normal"},{text:"› رسانه",callback_data:"cl:media"}],
+  [{text:"› لینک‌ها",callback_data:"cl:links"},{text:"› تبلیغات",callback_data:"cl:advertising"}],
+  [{text:"› فوروارد و اشتراک‌گذاری",callback_data:"cl:forwarding"},{text:"› فایل و سند",callback_data:"cl:files"}],
+  [{text:"› پیام و نرخ ارسال",callback_data:"cl:messages"},{text:"› تعامل و هویت",callback_data:"cl:interactions"}],
+  [{text:"› محتوای پیشرفته",callback_data:"cl:advanced"},{text:"› امنیت و ضد اتک",callback_data:"cl:anti_attack"}],
+  [{text:"› استثناها و دامنه مجاز",callback_data:"cl:exceptions"}],
+  [{text:"› قفل زبان",callback_data:"cl:language"}],
   [{text:"‹ بازگشت",callback_data:"c:home"}]
 ]};}
 export async function sendContentLockCenter(pool:Pool,chatId:number){
