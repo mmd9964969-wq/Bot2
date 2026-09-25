@@ -2,7 +2,7 @@ import { Client, Pool } from "pg";
 import { DEFAULT_CONFIG, type BotConfig } from "../src/lib/bot/defaults.ts";
 import type { BotContext } from "../src/lib/bot/engine.ts";
 import { cloneStudioDefaults, type StudioDocument } from "../src/lib/bot/studio.ts";
-import { rankAtLeast, type Lang, type Rank } from "../src/lib/bot/registry.ts";
+import { type Lang, type Rank } from "../src/lib/bot/registry.ts";
 import { telegramApi } from "../src/lib/telegram/api.ts";
 import { rankAtLeast } from "../src/lib/bot/registry.ts";
 import { runLiveCommand, recordMessage, getGroupStats } from "../src/lib/bot/runtime.ts";
