@@ -252,6 +252,86 @@ async function installationPage(){
   async function load(){try{const r=await fetch("/api/installations?limit=200",{cache:"no-store"}),d=await r.json();if(!r.ok)throw Error(d.error||"API error");groups=d.installations||[];renderGroups();if(selected&&groups.some(function(g){return String(g.group_id)===String(selected)}))await selectGroup(selected);else if(groups[0])await selectGroup(groups[0].group_id);}catch(e){groupsBox.innerHTML="<div class=\"loading-state error\">Installation API در دسترس نیست.</div>";detail.innerHTML="<div class=\"loading-state error\">اتصال به API نصب برقرار نشد.</div>";}}
   document.getElementById("installationRefresh").onclick=load;await load();
 }
+async function settingsPage(){
+  shell("تنظیمات","SYSTEM · SETTINGS",`
+    <div class="panel-card"><div class="card-head"><div><span class="eyebrow">SYSTEM SETTINGS</span><h3>تنظیمات پایدار پنل</h3></div><span class="badge">PERSISTENT</span></div>
+      <form id="settingsForm" class="form-grid">
+        <label>زبان پیش‌فرض<select name="default_language"><option value="fa">فارسی</option><option value="en">English</option></select></label>
+        <label>منطقه زمانی<input name="timezone" value="Asia/Tehran" placeholder="Asia/Tehran"></label>
+        <label>فاصله بروزرسانی<input type="number" name="refresh_interval" min="5" max="300" value="15"><em>ثانیه</em></label>
+        <label>قالب اعداد<select name="number_locale"><option value="fa">فارسی</option><option value="en">English</option></select></label>
+        <label class="switch-line"><input type="checkbox" name="confirm_sensitive" checked> عملیات حساس نیاز به تأیید داشته باشند</label>
+        <label class="switch-line"><input type="checkbox" name="panel_density" value="compact"> تراکم فشرده پنل</label>
+        <div class="form-actions"><button class="ghost" type="button" id="settingsReset">بازخوانی</button><button class="primary" type="submit">ذخیره تنظیمات</button></div>
+      </form>
+    </div>
+    <div class="panel-card"><div class="card-head"><div><span class="eyebrow">SESSION</span><h3>نشست پنل</h3></div></div>
+      <div class="env-row"><span>Actor</span><b id="settingsActor">PANEL_OWNER</b></div>
+      <div class="env-row"><span>Local UI language</span><b id="settingsUiLang">FA</b></div>
+    </div>`);
+  const form=document.getElementById("settingsForm");
+  async function load(){
+    try{
+      const r=await fetch("/api/settings",{cache:"no-store"}),d=await r.json(); if(!r.ok) throw Error(d.error||"API error");
+      const s=d.settings||{};
+      form.elements.default_language.value=s.default_language||"fa";
+      form.elements.timezone.value=s.timezone||"Asia/Tehran";
+      form.elements.refresh_interval.value=Number(s.refresh_interval||15);
+      form.elements.number_locale.value=s.number_locale||"fa";
+      form.elements.confirm_sensitive.checked=s.confirm_sensitive!==false;
+      form.elements.panel_density.checked=s.panel_density==="compact";
+      document.getElementById("settingsActor").textContent=localStorage.getItem("pbs_actor_id")||"PANEL_OWNER";
+      document.getElementById("settingsUiLang").textContent=document.documentElement.dir==="rtl"?"FA":"EN";
+    }catch(e){alert(e.message||"دریافت تنظیمات ناموفق بود.");}
+  }
+  async function saveOne(key,value){
+    const r=await fetch("/api/settings/"+encodeURIComponent(key),{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({value,actor_id:localStorage.getItem("pbs_actor_id")||"PANEL_OWNER"})});
+    const d=await r.json().catch(()=>({})); if(!r.ok)throw Error(d.error||"ذخیره ناموفق بود"); return d;
+  }
+  form.onsubmit=async e=>{
+    e.preventDefault();
+    const values={default_language:form.elements.default_language.value,timezone:form.elements.timezone.value.trim()||"Asia/Tehran",refresh_interval:Number(form.elements.refresh_interval.value),number_locale:form.elements.number_locale.value,confirm_sensitive:form.elements.confirm_sensitive.checked,panel_density:form.elements.panel_density.checked?"compact":"comfortable"};
+    try{for(const [k,v] of Object.entries(values))await saveOne(k,v);localStorage.setItem("pbs_panel_density",values.panel_density);alert("✓ تنظیمات با موفقیت ذخیره شد.");}catch(err){alert(err.message);}
+  };
+  document.getElementById("settingsReset").onclick=load;
+  await load();
+}
+
+async function databasePage(){
+  shell("پایگاه داده","DATA · POSTGRESQL",`
+    <div class="stats">
+      <div class="stat-card featured"><div class="stat-top"><span class="stat-icon green">▦</span><span class="stat-kicker">DATABASE</span></div><strong id="dbPageStatus">Checking</strong><span id="dbPageDetail">PostgreSQL connection</span></div>
+      <div class="stat-card"><div class="stat-top"><span class="stat-icon gold">□</span><span class="stat-kicker">TABLES</span></div><strong id="dbTableCount">0</strong><span>جداول عمومی</span></div>
+      <div class="stat-card"><div class="stat-top"><span class="stat-icon blue">◌</span><span class="stat-kicker">RECORDS</span></div><strong id="dbRecordCount">0</strong><span>رکوردهای رجیستری اصلی</span></div>
+    </div>
+    <div class="panel-card command-table-card"><div class="table-head"><div><b>PostgreSQL Registry</b><small>نمایش فقط خواندنی؛ هیچ داده‌ای از این صفحه حذف نمی‌شود.</small></div><button class="ghost" id="dbRefresh">↻ بروزرسانی</button></div><div id="dbTable" class="command-table"><div class="loading-state">در حال دریافت...</div></div></div>`);
+  const box=document.getElementById("dbTable");
+  async function load(){
+    try{
+      const r=await fetch("/api/database/summary",{cache:"no-store"}),d=await r.json();if(!r.ok)throw Error(d.error||"API error");
+      document.getElementById("dbPageStatus").textContent=d.database?.connected?"Connected":"Offline";
+      document.getElementById("dbPageDetail").textContent=d.database?.connected?"PostgreSQL persistence layer":"Connection failed";
+      document.getElementById("dbTableCount").textContent=d.tables?.length||0;
+      const counts=d.counts||{},total=Object.values(counts).filter(v=>Number.isFinite(Number(v))).reduce((a,v)=>a+Number(v),0);
+      document.getElementById("dbRecordCount").textContent=total;
+      box.innerHTML=(d.tables||[]).map(t=>'<div class="command-row"><div><b>'+esc(t)+'</b><small>public schema</small></div><span class="alias">'+(counts[t]??"—")+'</span><span class="status on">AVAILABLE</span></div>').join("")||'<div class="empty-table">جدولی پیدا نشد.</div>';
+    }catch(e){box.innerHTML='<div class="loading-state error">'+esc(e.message||"Database API unavailable")+'</div>';}
+  }
+  document.getElementById("dbRefresh").onclick=load;await load();
+}
+
+async function auditPage(){
+  shell("گزارش فعالیت‌ها","AUDIT · ACTIVITY LOG",`
+    <div class="panel-card command-table-card"><div class="table-head"><div><b>Audit Trail</b><small>آخرین اقدامات ثبت‌شده توسط پنل و سرویس‌ها.</small></div><div class="toolbar-actions"><input id="auditFilter" placeholder="فیلتر action..."><button class="ghost" id="auditRefresh">↻ بروزرسانی</button></div></div><div id="auditTable" class="command-table"><div class="loading-state">در حال دریافت...</div></div></div>`);
+  const box=document.getElementById("auditTable"),filter=document.getElementById("auditFilter");let rows=[];
+  function render(){
+    const q=(filter.value||"").trim().toLowerCase(),items=rows.filter(x=>!q||String(x.action||"").toLowerCase().includes(q));
+    box.innerHTML=items.length?'<div class="command-row command-header"><span>ACTION</span><span>ACTOR</span><span>TARGET</span><span>SOURCE</span><span>TIME</span></div>'+items.map(x=>'<div class="command-row"><div><b>'+esc(x.action||"—")+'</b><small>#'+esc(x.id)+'</small></div><span class="alias">'+esc(x.actor_id||"system")+'</span><span class="alias">'+esc(x.target||"—")+'</span><span class="permission-pill">'+esc(String(x.source||"panel").toUpperCase())+'</span><span class="alias">'+new Date(x.created_at).toLocaleString("fa-IR",{hour:"2-digit",minute:"2-digit",day:"2-digit",month:"2-digit"})+'</span></div>').join(""):'<div class="empty-table">رویدادی برای نمایش وجود ندارد.</div>';
+  }
+  async function load(){try{const r=await fetch("/api/audit?limit=200",{cache:"no-store"}),d=await r.json();if(!r.ok)throw Error(d.error||"API error");rows=d.logs||[];render();}catch(e){box.innerHTML='<div class="loading-state error">'+esc(e.message||"Audit API unavailable")+'</div>';}}
+  filter.oninput=render;document.getElementById("auditRefresh").onclick=load;await load();
+}
+
 function placeholder(name){
   shell(titles[name]||"Panel","PERSIAN BOT STUDIO · "+String(name).toUpperCase(),'<div class="panel-card coming-card"><span class="eyebrow">CONTROL MODULE</span><h2>این بخش در حال اتصال به هسته مرکزی است</h2><p>ساختار پنل آماده است و در مراحل بعدی به API و PostgreSQL متصل می‌شود.</p></div>');
 }
@@ -271,6 +351,9 @@ function page(name){
   if(name==="installation")return installationPage();
   if(name==="warnings")return warningsPage();
   if(name==="content-locks")return contentLocksPage();
+  if(name==="settings")return settingsPage();
+  if(name==="database")return databasePage();
+  if(name==="audit")return auditPage();
   if(name==="security")return;
   placeholder(name);
 }
