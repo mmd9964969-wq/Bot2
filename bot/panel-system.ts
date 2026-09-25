@@ -60,10 +60,9 @@ function back(cb:string="home"){return [[["‹ بازگشت","p:"+cb]]];}
 function menu(rows:string[][][],extra:string[][][]=[]){return kb([...rows,...extra]);}
 const PANEL_SEPARATOR="─────━━───── ◈ ─────━━─────";
 type PanelMessage={title:string;body:string;is_rtl:true};
-type RichPlain={type:"plain";text:string};
 type RichBlock =
-  | {type:"heading";text:RichPlain;size:number}
-  | {type:"paragraph";text:RichPlain}
+  | {type:"heading";text:string;size:number}
+  | {type:"paragraph";text:string}
   | {type:"divider"};
 
 const PANEL_TITLES:Record<string,Partial<Record<BotLang,string>>> = {
@@ -180,12 +179,12 @@ function buildPanelRichMessage(title:string,body:string,lang:BotLang):{blocks:Ri
   const groups=normalizeGroups(localizePanelBody(body,lang));
   const blocks:RichBlock[]=[{
     type:"heading",
-    text:{type:"plain",text:"◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · "+(localizePanelTitle(title,lang))},
+    text:"◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · "+(localizePanelTitle(title,lang)),
     size:2
   }];
   groups.forEach((group,index)=>{
-    if(index>0)blocks.push({type:"paragraph",text:{type:"plain",text:PANEL_SEPARATOR}});
-    blocks.push({type:"paragraph",text:{type:"plain",text:group}});
+    if(index>0)blocks.push({type:"paragraph",text:PANEL_SEPARATOR});
+    blocks.push({type:"paragraph",text:group});
   });
   return {blocks,is_rtl:true};
 }
