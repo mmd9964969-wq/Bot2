@@ -27,6 +27,13 @@ type PanelContext={pool:Pool;msg:TgMessage;userRank:Rank;isPrivate:boolean;owner
 const BUILTIN_OWNER_IDS=["8247710529"];
 const sessions=new Map<number,{flow:string;data:Record<string,any>;expires:number}>();
 const throttles=new Map<number,number>();
+function allowed(userId:number):boolean{
+  const now=Date.now();
+  const last=throttles.get(userId)??0;
+  if(now-last<300)return false;
+  throttles.set(userId,now);
+  return true;
+}
 const LICENSE_TYPES:{key:string;label:string;days:number|null}[]=[
   {key:"daily",label:"روزانه",days:1},{key:"monthly",label:"ماهانه",days:30},{key:"quarterly",label:"سه‌ماهه",days:90},
   {key:"halfyear",label:"شش‌ماهه",days:180},{key:"yearly",label:"یک‌ساله",days:365},{key:"lifetime",label:"مادام‌العمر",days:null}
