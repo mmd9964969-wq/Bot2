@@ -312,26 +312,37 @@ function richEscape(value:unknown){
     .replace(/"/g,"&quot;");
 }
 
-function lockSectionRichHtml(rows:any[]){
+const LOCK_PANEL_SEPARATOR="─────━━───── ◈ ─────━━─────";
+
+function lockRichPlain(text:string){return {type:"plain",text};}
+
+function lockCenterRichBlocks(rows:any[]){
+  const sections=["normal","media","links","advertising","forwarding","files","messages","interactions","advanced","anti_attack","language"];
   const names:any={normal:"قفل‌های حالت عادی",media:"رسانه",links:"لینک‌ها",advertising:"تبلیغات",forwarding:"فوروارد و اشتراک‌گذاری",files:"فایل و سند",messages:"پیام و نرخ ارسال",interactions:"تعامل و هویت",advanced:"محتوای پیشرفته",anti_attack:"امنیت و ضد اتک",language:"قفل زبان"};
-  const keys=["normal","media","links","advertising","forwarding","files","messages","interactions","advanced","anti_attack","language"];
   const total=rows.length;
   const active=rows.filter((x:any)=>x.enabled).length;
-  const tableRows=keys.map(key=>{
-    const section=rows.filter((x:any)=>x.section===key);
-    const on=section.filter((x:any)=>x.enabled).length;
-    return "<tr><td><b>"+richEscape(names[key])+"</b></td><td align=\"center\">"+lockFmt(on)+" / "+lockFmt(section.length)+"</td></tr>";
-  }).join("");
-  return "<h2>◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Lᴏᴄᴋ Cᴇɴᴛᴇʀ</h2>"+
-    "<p><b>● سیستم قفل:</b> فعال<br><b>⛂ قوانین فعال:</b> "+lockFmt(active)+" از "+lockFmt(total)+"</p>"+
-    "<hr/>"+
-    "<table bordered striped compact><tr><th>بخش</th><th>فعال</th></tr>"+tableRows+"</table>"+
-    "<details><summary>راهنمای کنترل</summary><p>هر بخش، فهرست قفل‌های همان حوزه را باز می‌کند. وضعیت هر قانون مستقیماً از همین مرکز قابل تغییر است.</p></details>";
+  const stats=[
+    "⛂ - سیستم قفل : ● فعال",
+    "⛂ - قوانین فعال : "+lockFmt(active)+" از "+lockFmt(total)
+  ].join("\n");
+  const sectionLines=sections.map(section=>{
+    const rs=rows.filter((x:any)=>x.section===section);
+    return names[section]+"\\n"+lockFmt(rs.filter((r:any)=>r.enabled).length)+" / "+lockFmt(rs.length);
+  }).join("\n\n");
+  const blocks:any[]=[
+    {type:"heading",text:lockRichPlain("◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Lᴏᴄᴋ Cᴇɴᴛᴇʀ"),size:2},
+    {type:"paragraph",text:lockRichPlain(stats)},
+    {type:"paragraph",text:lockRichPlain(LOCK_PANEL_SEPARATOR)},
+    {type:"paragraph",text:lockRichPlain(sectionLines)},
+    {type:"paragraph",text:lockRichPlain(LOCK_PANEL_SEPARATOR)},
+    {type:"paragraph",text:lockRichPlain("راهنمای کنترل\nهر بخش، فهرست قفل‌های همان حوزه را باز می‌کند. وضعیت هر قانون مستقیماً از همین مرکز قابل تغییر است.")}
+  ];
+  return {blocks,is_rtl:true};
 }
 
 async function sendRichLockCenter(pool:Pool,chatId:number,ownerId?:number){
   const rows=await lockRows(pool,chatId);
-  const rich_message={html:lockSectionRichHtml(rows),is_rtl:true};
+  const rich_message=lockCenterRichBlocks(rows);
   const keyboard=contentLockCenterKeyboard();
   const rich=await telegramApi("sendRichMessage",{chat_id:chatId,rich_message,reply_markup:keyboard});
   if(rich.ok){
@@ -353,7 +364,7 @@ async function sendRichLockCenter(pool:Pool,chatId:number,ownerId?:number){
 export async function editRichLockCenter(pool:Pool,chatId:number,messageId:number,ownerId?:number){
   await new Promise(resolve=>setTimeout(resolve,75));
   const rows=await lockRows(pool,chatId);
-  const rich_message={html:lockSectionRichHtml(rows),is_rtl:true};
+  const rich_message=lockCenterRichBlocks(rows);
   const keyboard=contentLockCenterKeyboard();
   const rich=await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,rich_message,reply_markup:keyboard});
   if(rich.ok){
@@ -373,9 +384,11 @@ async function lockSectionText(pool:Pool,groupId:number,section:string,title:str
   const rows=(await lockRows(pool,groupId)).filter((x:any)=>x.section===section);
   const active=rows.filter((x:any)=>x.enabled).length;
   const body=[
-    "━━━━━━━━━━━━━━━━━━━━━━━━","◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ - "+title,"━━━━━━━━━━━━━━━━━━━━━━━━","",
-    "⛂ - وضعیت بخش : "+(active?"● فعال":"○ خاموش")+"","⛂ - قوانین : "+lockFmt(rows.length),"⛂ - فعال : "+lockFmt(active),"⛂ - خاموش : "+lockFmt(Math.max(0,rows.length-active)),"",
-    "─────━━───── ◈ ─────━━─────"
+    "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · "+title,"",
+    "⛂ - وضعیت بخش : "+(active?"● فعال":"○ خاموش"),
+    "⛂ - قوانین : "+lockFmt(rows.length),
+    "⛂ - فعال : "+lockFmt(active),
+    "⛂ - خاموش : "+lockFmt(Math.max(0,rows.length-active))
   ];
   for(const row of rows.slice(0,limit)) body.push("⛂ - "+(LOCK_LABELS[row.rule_key]||row.rule_key)+" : "+lockStateLine(!!row.enabled));
   return body.join("\n");
@@ -384,10 +397,18 @@ async function lockCenterText(pool:Pool,groupId:number){
   const rows=await lockRows(pool,groupId);
   const sections=["normal","media","links","advertising","forwarding","files","messages","interactions","advanced","anti_attack","language"];
   const names:any={normal:"قفل‌های حالت عادی",media:"رسانه",links:"لینک‌ها",advertising:"تبلیغات",forwarding:"فوروارد و اشتراک‌گذاری",files:"فایل و سند",messages:"پیام و نرخ ارسال",interactions:"تعامل و هویت",advanced:"محتوای پیشرفته",anti_attack:"امنیت و ضد اتک",language:"قفل زبان"};
-  const body=["━━━━━━━━━━━━━━━━━━━━━━━━","◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ - Lᴏᴄᴋ Cᴇɴᴛᴇʀ","━━━━━━━━━━━━━━━━━━━━━━━━","",
-    "⛂ - سیستم قفل : ● فعال","⛂ - مجموع قوانین : "+lockFmt(rows.length),"⛂ - قوانین فعال : "+lockFmt(rows.filter((r:any)=>r.enabled).length),"","","─────━━───── ◈ ─────━━─────"];
-  for(const sec of sections){const rs=rows.filter((r:any)=>r.section===sec);body.push("⛂ - "+names[sec]+" : "+lockFmt(rs.filter((r:any)=>r.enabled).length)+" / "+lockFmt(rs.length));}
-  body.push("","برای کنترل یک مورد، بنویسید: «قفل + نوع» یا «بازکردن + نوع».","مثال: قفل رسانه · قفل عکس · قفل تبلیغات");
+  const body=["◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Lᴏᴄᴋ Cᴇɴᴛᴇʀ","",
+    "⛂ - سیستم قفل : ● فعال",
+    "⛂ - قوانین فعال : "+lockFmt(rows.filter((r:any)=>r.enabled).length)+" از "+lockFmt(rows.length),
+    ""
+  ];
+  for(let i=0;i<sections.length;i++){
+    const sec=sections[i];
+    const rs=rows.filter((r:any)=>r.section===sec);
+    body.push(names[sec]+"\n"+lockFmt(rs.filter((r:any)=>r.enabled).length)+" / "+lockFmt(rs.length));
+    if(i<sections.length-1)body.push("",LOCK_PANEL_SEPARATOR,"");
+  }
+  body.push("",LOCK_PANEL_SEPARATOR,"","راهنمای کنترل","هر بخش، فهرست قفل‌های همان حوزه را باز می‌کند. وضعیت هر قانون مستقیماً از همین مرکز قابل تغییر است.");
   return body.join("\n");
 }
 export async function runContentLockCommand(pool:Pool,ctx:LockCommandContext,commandId:string,args:string[]):Promise<string>{
