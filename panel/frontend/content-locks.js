@@ -9,7 +9,8 @@ const CONTENT_LOCK_SECTION_META={
   messages:{title:"پیام و نرخ ارسال",icon:"≡",desc:"حداقل/حداکثر طول پیام و محدودیت نرخ ارسال."},
   interactions:{title:"تعامل و هویت",icon:"✎",desc:"ریپلای، ویرایش، هشتگ، منشن، یوزرنیم، شماره، ایمیل و پیش‌نمایش."},
   advanced:{title:"محتوای پیشرفته",icon:"◇",desc:"Contact، Location، Poll، Dice، Game، Web App و ورود ربات."},
-  anti_attack:{title:"امنیت و ضد اتک",icon:"⚡",desc:"ضد Flood، پیام تکراری، CAPS، Link Burst، Media Burst و هجوم عضو."}
+  anti_attack:{title:"امنیت و ضد اتک",icon:"⚡",desc:"ضد Flood، پیام تکراری، CAPS، Link Burst، Media Burst و هجوم عضو."},
+  language:{title:"قفل زبان",icon:"文",desc:"کنترل و مسدودسازی پیام‌ها بر اساس زبان تشخیص‌داده‌شده."}
 };
 const CONTENT_LABELS={
   normal_media:"قفل رسانه",normal_links:"قفل لینک",normal_ads:"قفل تبلیغات",normal_files:"قفل فایل",normal_forward:"قفل فوروارد",normal_contact:"قفل تماس",normal_location:"قفل موقعیت",normal_poll:"قفل نظرسنجی",normal_dice:"قفل تاس",normal_game:"قفل بازی",normal_web_app:"قفل وب‌اپ",normal_reply:"قفل ریپلای",normal_edit:"قفل ویرایش",normal_mention:"قفل منشن",normal_bot:"قفل ورود ربات",
@@ -21,7 +22,7 @@ const CONTENT_LABELS={
   message_min_length:"حداقل طول پیام",message_max_length:"حداکثر طول پیام",message_rate_limit:"محدودیت پیام در دقیقه",
   reply_lock:"قفل ریپلای",edit_lock:"قفل ویرایش متن",hashtag_limit:"محدودیت هشتگ",mention_limit:"محدودیت منشن",username_lock:"قفل یوزرنیم",phone_lock:"قفل شماره تلفن",email_lock:"قفل ایمیل",web_preview_lock:"قفل پیش‌نمایش لینک",story_share_lock:"قفل اشتراک‌گذاری Story",
   contact_lock:"قفل Contact",location_lock:"قفل Location",poll_lock:"قفل Poll",dice_lock:"قفل Dice",game_lock:"قفل Game",web_app_lock:"قفل Web App Data",bot_join_lock:"قفل ورود ربات",
-  attack_flood:"ضد فلود سریع",attack_duplicate:"ضد پیام تکراری",attack_caps:"کنترل CAPS",attack_link_burst:"ضد Link Burst",attack_media_burst:"ضد Media Burst",attack_join_flood:"ضد هجوم عضو"
+  attack_flood:"ضد فلود سریع",attack_duplicate:"ضد پیام تکراری",attack_caps:"کنترل CAPS",attack_link_burst:"ضد Link Burst",attack_media_burst:"ضد Media Burst",attack_join_flood:"ضد هجوم عضو",language_persian:"زبان فارسی",language_english:"زبان انگلیسی",language_arabic:"زبان عربی",language_russian:"زبان روسی",language_turkish:"زبان ترکی",language_chinese:"زبان چینی",language_japanese:"زبان ژاپنی",language_korean:"زبان کره‌ای"
 };
 const contentLockState={groupId:null,rules:[],exceptions:[],domains:[],settings:null,tab:"normal",filter:""};
 const clEsc=esc;
