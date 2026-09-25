@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import { telegramApi } from "../telegram/api.ts";
+import { ensureContentLocks } from "./content-locks.ts";
 import type { Rank } from "./registry.ts";
 import { bindPanelMessage, currentPanelScope, touchPanelMessage, unbindPanelMessage } from "./panel-session.ts";
 import { glassKeyboard } from "./panel-design.ts";
@@ -76,6 +77,7 @@ function moduleFor(data:string){
 }
 
 async function overview(pool:Pool,groupId:number){
+  await ensureContentLocks(pool,groupId);
   const [g,r,w,s,a]=await Promise.all([
     telegramApi<any>("getChat",{chat_id:groupId}),
     pool.query("SELECT COUNT(*)::int total,SUM(CASE WHEN enabled THEN 1 ELSE 0 END)::int active FROM content_lock_rules WHERE group_id=$1",[groupId]),
@@ -92,6 +94,7 @@ async function overview(pool:Pool,groupId:number){
   ]);
 }
 async function contentView(pool:Pool,groupId:number){
+  await ensureContentLocks(pool,groupId);
   const r=await pool.query("SELECT section,COUNT(*)::int total,SUM(CASE WHEN enabled THEN 1 ELSE 0 END)::int active FROM content_lock_rules WHERE group_id=$1 GROUP BY section ORDER BY section",[groupId]);
   return frame("Cᴏɴᴛᴇɴᴛ Sᴛᴜᴅɪᴏ",[
     info("کل قوانین",r.rows.reduce((n:number,x:any)=>n+Number(x.total||0),0)),
