@@ -488,13 +488,18 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
         messages_total:"—"
       };
       const configuredTemplate=ctx.lang==="fa"?panelCommand?.response_fa:panelCommand?.response_en;
-      const coreCardPlaceholders=["{{robot_line}}","{{admin_result}}","{{rank_card}}","{{me_card}}","{{ping_card}}","{{bot_card}}","{{status_card}}"];
-      const selected=(configuredTemplate && configuredTemplate.trim() && !configuredTemplate.includes("{{live_card}}"))
+      const coreLiveIds=new Set(["robot","id","admin","info","rank","me","ping","bot","status"]);
+      if(coreLiveIds.has(studioCommand.id)){
+        if(configuredTemplate && configuredTemplate.includes("{{live_card}}")){
+          return configuredTemplate.replace(/{{\s*live_card\s*}}/gi,liveCard).replace(/{{\s*([a-z0-9_]+)\s*}}/gi,(_,key)=>values[key]??"—");
+        }
+        // Core information/status commands must never use a stale static panel template.
+        return liveCard;
+      }
+      const selected=(configuredTemplate && configuredTemplate.trim())
         ? configuredTemplate
         : (ctx.lang==="fa"?studioCommand.responseFa:studioCommand.responseEn);
       if(!selected.trim()) return liveCard;
-      const normalizedSelected=selected.trim();
-      if(coreCardPlaceholders.includes(normalizedSelected)) return liveCard;
       return selected.replace(/{{\s*([a-z0-9_]+)\s*}}/gi,(_,key)=>values[key]??"—");
     }catch(error){
       console.error("[studio-command]",error);
