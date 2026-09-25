@@ -15,30 +15,24 @@ export function glassLabel(value:string){
 }
 
 function semanticStyle(label:string,callbackData:string):TelegramButtonStyle|undefined{
-  const raw=(label+" "+callbackData).toLowerCase();
+  const text=String(label??"").trim();
+  const data=String(callbackData??"");
 
-  // Enabled state is green without turning every neutral navigation button into a colored block.
-  if(/(^|\\s)●/.test(label)) return "success";
+  // Back/navigation remains the only always-blue action.
+  if(text.startsWith("‹")||text.startsWith("←")) return "primary";
 
-  // Destructive actions are red.
+  // Only explicit state-changing ON/OFF controls receive colors.
   if(
-    /(^|:)(delete|remove|block|ban|kick|exit|off|disable|danger|reset|clear)/i.test(callbackData) ||
-    /(حذف|پاک|مسدود|بن|اخراج|خروج|خاموش|غیرفعال|خطر|بازنشانی)/i.test(label)
-  ) return "danger";
-
-  // Positive / enabling actions are green.
-  if(
-    /(^|:)(confirm|enable|on|approve|accept|success)/i.test(callbackData) ||
-    /(تایید|تأیید|فعال|روشن|ادامه|بله|ثبت)/i.test(label)
-  ) return "success";
-
-  // Primary blue is intentionally reserved for top-level navigation only.
-  if(
-    /^c:(locks|warnings|members|welcome|commands|stats|schedule|security|status)$/.test(callbackData) ||
-    /^(مدیریت گروه|مرکز قفل|قفل و کنترل محتوا|اخطار و جریمه|مدیریت اعضا|آمار|امنیت|تنظیمات)$/i.test(raw.trim())
+    /(^|:)(on|enable|confirm|approve|accept)(:|$)/i.test(data) ||
+    /^(فعال|روشن|تأیید|تایید|ادامه|ثبت)(\s|$)/i.test(text)
   ) return "primary";
 
-  // Neutral buttons remain transparent, creating the premium/glass hierarchy.
+  if(
+    /(^|:)(off|disable|delete|remove|block|ban|kick|danger|reset|clear)(:|$)/i.test(data) ||
+    /^(خاموش|غیرفعال|حذف|پاک|مسدود|بن|اخراج|بازنشانی)(\s|$)/i.test(text)
+  ) return "danger";
+
+  // All ordinary buttons stay neutral/glass.
   return undefined;
 }
 
