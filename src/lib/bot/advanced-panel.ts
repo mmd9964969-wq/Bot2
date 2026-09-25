@@ -67,7 +67,7 @@ function moduleFor(data:string){
   if(data.startsWith("adv:auto")||data==="c:automation")return "automation";
   if(data.startsWith("adv:perm")||data==="c:permissions")return "permissions";
   if(data.startsWith("adv:exc")||data==="c:exceptions")return "exceptions";
-  if(data.startsWith("adv:sec")||data==="adv:security")return "security";
+  if(data.startsWith("adv:sec")||data==="adv:security"||data==="c:security")return "security";
   if(data==="c:analytics")return "analytics";
   if(data==="c:audit")return "audit";
   if(data==="c:health")return "health";
@@ -143,6 +143,24 @@ export async function handleAdvancedCustomerCallback(pool:Pool,cb:TgCallback,own
   const role=await roleFor(pool,groupId,cb.from.id,owner);
   const module=moduleFor(data);
   if(module&&!(await moduleAllowed(pool,groupId,role,module)))return edit(msg.chat.id,msg.message_id,frame("Aᴄᴄᴇss Dᴇɴɪᴇᴅ",[info("نقش",role),info("ماژول",module),"این ماژول برای نقش شما غیرفعال شده است."]),kb([[["‹ بازگشت","c:overview"]]]));
+  if(data==="c:security"||data==="adv:security"){
+    const r=await pool.query("SELECT full_lock,emergency_mode,invite_protection,fake_account_restriction,new_account_days FROM bot_group_settings WHERE group_id=$1",[groupId]);
+    const x=r.rows[0]||{};
+    return edit(msg.chat.id,msg.message_id,frame("Sᴇᴄᴜʀɪᴛʏ Cᴇɴᴛᴇʀ",[
+      info("قفل کامل",state(Boolean(x.full_lock))),
+      info("حالت اضطراری",state(Boolean(x.emergency_mode))),
+      info("محافظت لینک دعوت",state(Boolean(x.invite_protection))),
+      info("ضد اکانت فیک",state(Boolean(x.fake_account_restriction))),
+      info("حداقل سن حساب",String(x.new_account_days||0)+" روز"),
+      "",
+      "─────━━───── ◈ ─────━━─────",
+      "هر تغییر مستقیماً روی تنظیمات گروه و در صورت نیاز روی Telegram اعمال می‌شود."
+    ]),kb([
+      [[x.full_lock?"قفل کامل: فعال":"قفل کامل: خاموش","adv:sec:full:"+(x.full_lock?"off":"on")],[x.emergency_mode?"اضطراری: فعال":"اضطراری: خاموش","adv:sec:emergency:"+(x.emergency_mode?"off":"on")]],
+      [[x.invite_protection?"دعوت: فعال":"دعوت: خاموش","adv:sec:invite:"+(x.invite_protection?"off":"on")],[x.fake_account_restriction?"اکانت فیک: فعال":"اکانت فیک: خاموش","adv:sec:fake:"+(x.fake_account_restriction?"off":"on")]],
+      [["سن اکانت جدید","adv:sec:new"],["‹ بازگشت","c:overview"]]
+    ]));
+  }
   if(data==="c:overview")return edit(msg.chat.id,msg.message_id,await overview(pool,groupId),kb([[["قفل و فیلتر","c:locks"],["امنیت","c:security"]],[["اخطار و جریمه","c:warnings"],["اعضای گروه","c:members"]],[["اتوماسیون","c:automation"],["دستورات","c:commands"]],[["استودیو محتوا","c:content"],["زمان‌بندی","c:schedule"]],[["تحلیل و آمار","c:analytics"],["استثناها","c:exceptions"]],[["دسترسی‌ها","c:permissions"],["سلامت ربات","c:health"]],[["ممیزی و لاگ","c:audit"],["‹ بازگشت","c:home"]]]));
   if(data==="c:content")return edit(msg.chat.id,msg.message_id,await contentView(pool,groupId),kb([[["بازکردن Lock Center","c:locks"],["استثناها","c:exceptions"]],[["‹ بازگشت","c:overview"]]]));
   if(data==="c:analytics")return edit(msg.chat.id,msg.message_id,await analyticsView(pool,groupId),kb([[["بروزرسانی","c:analytics"],["ممیزی","c:audit"]],[["‹ بازگشت","c:overview"]]]));
@@ -172,7 +190,9 @@ export async function handleAdvancedCustomerCallback(pool:Pool,cb:TgCallback,own
   }
   if(data==="adv:auto:add"){setSession(cb.from.id,"automation_name",{groupId});return edit(msg.chat.id,msg.message_id,frame("Aᴜᴛᴏᴍᴀᴛɪᴏɴ Bᴜɪʟᴅᴇʀ",["نام اتوماسیون را ارسال کنید."]),kb([[["‹ انصراف","c:automation"]]]));}
   if(data==="adv:auto:toggle"||data==="adv:auto:delete"){setSession(cb.from.id,"automation_manage",{groupId,action:data.endsWith("toggle")?"toggle":"delete"});return edit(msg.chat.id,msg.message_id,frame("Aᴜᴛᴏᴍᴀᴛɪᴏɴ Mᴀɴᴀɢᴇʀ",["شناسه اتوماسیون را ارسال کنید."]),kb([[["‹ انصراف","c:automation"]]]));}
-  if(data==="c:exceptions"||data==="adv:exc:list")return edit(msg.chat.id,msg.message_id,await exceptionsView(pool,groupId),kb([[["استثنای کاربر","adv:exc:add:user"],["استثنای نقش","adv:exc:add:role"]],[["استثنای منبع فوروارد","adv:exc:add:forward_source"],["فهرست استثناها","adv:exc:list"]],[["حذف استثنا","adv:exc:delete"],["‹ بازگشت","c:content"]]]));
+  if(data==="c:exceptions"||data==="adv:exc:list")return edit(msg.chat.id,msg.message_id,await exceptionsView(pool,groupId),kb([[["استثنای کاربر","adv:exc:add:user"],["استثنای نقش","adv:exc:add:role"]],[["استثنای منبع فوروارد","adv:exc:add:forward_source"],["دامنه مجاز","adv:exc:add:domain"]],[["فهرست استثناها","adv:exc:list"],["فهرست دامنه‌ها","adv:exc:domains"]],[["حذف استثنا","adv:exc:delete"],["‹ بازگشت","c:content"]]]));
+  if(data==="adv:exc:domains"){const r=await pool.query("SELECT id,domain,enabled FROM content_lock_domains WHERE group_id=$1 ORDER BY id DESC LIMIT 50",[groupId]);return edit(msg.chat.id,msg.message_id,frame("Dᴏᴍᴀɪɴ Aʟʟᴏᴡʟɪsᴛ",r.rows.length?r.rows.map((x:any)=>"⛂ - #"+x.id+" · "+x.domain+" · "+state(Boolean(x.enabled))):["دامنه مجازی ثبت نشده است."]),kb([[["افزودن دامنه","adv:exc:add:domain"],["حذف دامنه","adv:exc:domain:delete"]],[["‹ بازگشت","c:exceptions"]]]));}
+  if(data==="adv:exc:domain:delete"){setSession(cb.from.id,"domain_delete",{groupId});return edit(msg.chat.id,msg.message_id,frame("Dᴏᴍᴀɪɴ Mᴀɴᴀɢᴇʀ",["شناسه دامنه را ارسال کنید."]),kb([[["‹ بازگشت","adv:exc:domains"]]]));}
   if(data.startsWith("adv:exc:add:")){const type=data.split(":")[3];setSession(cb.from.id,"exception_add",{groupId,type});return edit(msg.chat.id,msg.message_id,frame("E.xᴄᴇᴘᴛɪᴏɴ Bᴜɪʟᴅᴇʀ",[type==="user"?"آیدی عددی کاربر را ارسال کنید.":type==="role"?"نقش را ارسال کنید؛ مثال: admin یا member.":"آیدی منبع فوروارد را ارسال کنید."]),kb([[["‹ انصراف","c:exceptions"]]]));}
   if(data==="adv:exc:delete"){setSession(cb.from.id,"exception_delete",{groupId});return edit(msg.chat.id,msg.message_id,frame("E.xᴄᴇᴘᴛɪᴏɴ Mᴀɴᴀɢᴇʀ",["شناسه استثنا را ارسال کنید."]),kb([[["‹ انصراف","c:exceptions"]]]));}
   if(data.startsWith("adv:sec:")){
@@ -207,6 +227,7 @@ export async function handleAdvancedCustomerInput(pool:Pool,msg:TgMessage){
     clearSession(msg.from.id);return send(msg.chat.id,frame("E.xᴄᴇᴘᴛɪᴏɴ Cʀᴇᴀᴛᴇᴅ",["استثنا ثبت و فعال شد.",info("نوع",type),info("هدف",value)]),kb([[["استثناها","c:exceptions"]]]));
   }
   if(s.flow==="exception_delete"){const id=Number(value);if(!Number.isSafeInteger(id))return send(msg.chat.id,"شناسه معتبر نیست.");await pool.query("DELETE FROM content_lock_exceptions WHERE id=$1 AND group_id=$2",[id,groupId]);clearSession(msg.from.id);return send(msg.chat.id,frame("E.xᴄᴇᴘᴛɪᴏɴ Mᴀɴᴀɢᴇʀ",["استثنا #"+id+" حذف شد."]),kb([[["استثناها","c:exceptions"]]]));}
+  if(s.flow==="domain_delete"){const id=Number(value);if(!Number.isSafeInteger(id))return send(msg.chat.id,"شناسه معتبر نیست.");await pool.query("DELETE FROM content_lock_domains WHERE id=$1 AND group_id=$2",[id,groupId]);clearSession(msg.from.id);return send(msg.chat.id,frame("Dᴏᴍᴀɪɴ Mᴀɴᴀɢᴇʀ",["دامنه #"+id+" حذف شد."]),kb([[["فهرست دامنه‌ها","adv:exc:domains"]]]));}
   if(s.flow==="security_new"){const n=Number(value);if(!Number.isInteger(n)||n<0||n>3650)return send(msg.chat.id,"عدد باید بین ۰ تا ۳۶۵۰ باشد.");await pool.query("INSERT INTO bot_group_settings(group_id,new_account_days) VALUES($1,$2) ON CONFLICT(group_id) DO UPDATE SET new_account_days=EXCLUDED.new_account_days,updated_at=NOW()",[groupId,n]);clearSession(msg.from.id);return send(msg.chat.id,frame("Sᴇᴄᴜʀɪᴛʏ Cᴇɴᴛᴇʀ",[info("حداقل سن حساب",n+" روز")]),kb([[["‹ بازگشت","c:security"]]]));}
   return false;
 }
