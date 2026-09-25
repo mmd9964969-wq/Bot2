@@ -5,7 +5,7 @@ import { telegramApi } from "../src/lib/telegram/api.ts";
 import type { Rank } from "../src/lib/bot/registry.ts";
 import { ensureContentLocks, editRichLockCenter } from "../src/lib/bot/content-locks.ts";
 import { glassKeyboard } from "../src/lib/bot/panel-design.ts";
-import { getGroupLanguage, setGroupLanguage, normalizeBotLang, languageLabel, languageNative, languageButtonLabel, SUPPORTED_LANGUAGES, type BotLang } from "../src/lib/bot/i18n.ts";
+import { getGroupLanguage, setGroupLanguage, normalizeBotLang, languageNative, languageButtonLabel, SUPPORTED_LANGUAGES, type BotLang } from "../src/lib/bot/i18n.ts";
 import { AUTOMATION_ACTIONS } from "../src/lib/bot/automation-engine.ts";
 import { executeRuntimeAction, isRuntimeMaintenance } from "./runtime-control.ts";
 import {
@@ -66,6 +66,7 @@ type RichBlock =
   | {type:"divider"};
 
 const PANEL_TITLES:Record<string,Partial<Record<BotLang,string>>> = {
+  "پیام":{en:"Mᴇssᴀɢᴇ",ar:"رسالة",ru:"Сообщение",tr:"Mesaj",zh:"消息"},
   "Owner Control":{en:"Oᴡɴᴇʀ Cᴏɴᴛʀᴏʟ",ar:"تَحَكُّم المالك",ru:"Управление владельца",tr:"Sahip Kontrolü",zh:"所有者控制"},
   "Group Control":{en:"Gʀᴏᴜᴘ Cᴏɴᴛʀᴏʟ",ar:"إدارة المجموعة",ru:"Управление группой",tr:"Grup Kontrolü",zh:"群组控制"},
   "آمار کلی سیستم":{en:"Sʏsᴛᴇᴍ Oᴠᴇʀᴠɪᴇᴡ",ar:"نظرة عامة على النظام",ru:"Обзор системы",tr:"Sistem Özeti",zh:"系统概览"},
@@ -186,7 +187,7 @@ function buildPanelRichMessage(title:string,body:string,lang:BotLang):{blocks:Ri
     if(index>0)blocks.push({type:"paragraph",text:PANEL_SEPARATOR});
     blocks.push({type:"paragraph",text:group});
   });
-  return {blocks,is_rtl:true};
+  return {blocks,is_rtl:lang==="fa"||lang==="ar"};
 }
 
 function buildPanelText(title:string,body:string,lang:BotLang):string {
@@ -209,7 +210,7 @@ function panelFromString(message:string):PanelMessage {
   if(first.startsWith("◈ ")){
     return panelTitle(first.slice(2).trim(),lines.slice(1).join("\n").trim());
   }
-  return panelTitle("Rᴇsᴜʟᴛ",raw);
+  return panelTitle("پیام",raw);
 }
 
 function localizeMarkup(markup:any,lang:BotLang):any {
