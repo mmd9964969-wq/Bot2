@@ -325,8 +325,12 @@ function lockSectionRichHtml(rows:any[]){
   const buttonRows:string[]=[];
   for(let i=0;i<keys.length;i+=2){
     const a=keys[i],b=keys[i+1];
-    let html="<tg-button-row align=\"right\"><tg-button type=\"callback_data\" style=\"primary\" data=\""+callbacks[a]+"\">› "+richEscape(names[a])+"</tg-button>";
-    if(b) html+="<tg-button type=\"callback_data\" style=\"primary\" data=\""+callbacks[b]+"\">› "+richEscape(names[b])+"</tg-button>";
+    const aOn=rows.some((r:any)=>r.section===a&&r.enabled);
+    const bOn=b?rows.some((r:any)=>r.section===b&&r.enabled):false;
+    const aStyle=aOn?" style=\"success\"":"";
+    const bStyle=bOn?" style=\"success\"":"";
+    let html="<tg-button-row align=\"right\"><tg-button type=\"callback_data\""+aStyle+" data=\""+callbacks[a]+"\">› "+richEscape(names[a])+"</tg-button>";
+    if(b) html+="<tg-button type=\"callback_data\""+bStyle+" data=\""+callbacks[b]+"\">› "+richEscape(names[b])+"</tg-button>";
     html+="</tg-button-row>";
     buttonRows.push(html);
   }
@@ -349,12 +353,13 @@ async function sendRichLockCenter(pool:Pool,chatId:number){
 }
 
 export async function editRichLockCenter(pool:Pool,chatId:number,messageId:number){
+  await new Promise(resolve=>setTimeout(resolve,75));
   const rows=await lockRows(pool,chatId);
   const rich_message={html:lockSectionRichHtml(rows),is_rtl:true};
   const rich=await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,rich_message});
   if(rich.ok)return rich;
   console.warn("[content-locks] edit RichMessage failed; falling back to standard text:",rich.description);
-  return telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,text:await lockCenterText(pool,chatId),reply_markup:markup});
+  return telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,text:await lockCenterText(pool,chatId),reply_markup:contentLockCenterKeyboard()});
 }
 
 export async function sendContentLockCenter(pool:Pool,chatId:number){
