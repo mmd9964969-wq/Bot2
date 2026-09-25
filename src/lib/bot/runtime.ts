@@ -150,23 +150,29 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
       return fa(ctx.lang,faText,enText);
     }
     case "info": {
+      const chatInfo=await api<any>("getChat",{chat_id:ctx.chatId});
       const m=await api<number>("getChatMemberCount",{chat_id:ctx.chatId});
-      const a=await adminCount(ctx.chatId);
-      const gs=groupStats(ctx.chatId);
       const admins=await api<any[]>("getChatAdministrators",{chat_id:ctx.chatId});
+      const a=admins.length;
       const owner=admins.find(x=>x.status==="creator")?.user;
-      const invite=ctx.chat?.invite_link ?? null;
+      const gs=groupStats(ctx.chatId);
       const st=state(ctx.chatId);
+      const chatName=String(chatInfo?.title||ctx.chatTitle||"ثبت نشده");
+      const chatUsername=chatInfo?.username?("@"+String(chatInfo.username)):"—";
+      const chatType=String(chatInfo?.type||ctx.chatType||"نامشخص");
+      const invite=chatInfo?.invite_link?String(chatInfo.invite_link):null;
+      const ownerName=owner?(owner.username?("@"+String(owner.username)):[owner.first_name,owner.last_name].filter(Boolean).join(" ")||String(owner.id)):"—";
+      const creationDate="قابل دریافت نیست";
       const faText=[
         "◈ اطلاعات گروه",
         "",
-        "⛂ - نام گروه : "+(ctx.chatTitle||"ثبت نشده"),
+        "⛂ - نام گروه : "+chatName,
         "⛂ - شناسه گروه : "+ctx.chatId,
-        "⛂ - نام کاربری گروه : "+(ctx.chat?.username?"@"+ctx.chat.username:"ندارد"),
-        "⛂ - نوع گروه : "+(ctx.chat?.type||"نامشخص"),
+        "⛂ - نام کاربری گروه : "+chatUsername,
+        "⛂ - نوع گروه : "+chatType,
         "⛂ - تعداد اعضا : "+m,
         "⛂ - تعداد مدیران : "+a,
-        "⛂ - مالک گروه : "+(owner?.username?("@"+owner.username):(owner?.first_name||"ثبت نشده")),
+        "⛂ - مالک گروه : "+ownerName,
         "",
         "─────━━───── ◈ ─────━━─────",
         "",
@@ -178,20 +184,20 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "⛂ - افراد در لیست ویژه : "+st.special.size,
         "⛂ - اخطارهای فعال : "+stats(ctx.chatId).warnings,
         "",
-        "★ - تاریخ ساخت گروه : ثبت نشده",
+        "★ - تاریخ ساخت گروه : "+creationDate,
         "★ - لینک دعوت : "+(invite||"در دسترس نیست"),
         "★ - وضعیت لینک دعوت : "+(invite?"فعال":"در دسترس نیست")
       ].join("\n");
       const enText=[
         "◈ Group information",
         "",
-        "⛂ - Name : "+(ctx.chatTitle||"Not recorded"),
+        "⛂ - Name : "+chatName,
         "⛂ - ID : "+ctx.chatId,
-        "⛂ - Username : "+(ctx.chat?.username?"@"+ctx.chat.username:"None"),
-        "⛂ - Type : "+(ctx.chat?.type||"Unknown"),
+        "⛂ - Username : "+chatUsername,
+        "⛂ - Type : "+chatType,
         "⛂ - Members : "+m,
         "⛂ - Admins : "+a,
-        "⛂ - Owner : "+(owner?.username?("@"+owner.username):(owner?.first_name||"Not recorded")),
+        "⛂ - Owner : "+ownerName,
         "",
         "─────━━───── ◈ ─────━━─────",
         "",
@@ -203,7 +209,7 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "⛂ - Special users : "+st.special.size,
         "⛂ - Active warnings : "+stats(ctx.chatId).warnings,
         "",
-        "★ - Group creation date : Not recorded",
+        "★ - Group creation date : "+creationDate,
         "★ - Invite link : "+(invite||"Unavailable"),
         "★ - Invite status : "+(invite?"Active":"Unavailable")
       ].join("\n");
