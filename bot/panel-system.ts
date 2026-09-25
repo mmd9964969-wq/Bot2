@@ -3,7 +3,7 @@ import { promises as fs } from "node:fs";
 import type { Pool } from "pg";
 import { telegramApi } from "../src/lib/telegram/api.ts";
 import type { Rank } from "../src/lib/bot/registry.ts";
-import { ensureContentLocks } from "../src/lib/bot/content-locks.ts";
+import { ensureContentLocks, editRichLockCenter } from "../src/lib/bot/content-locks.ts";
 import { glassKeyboard } from "../src/lib/bot/panel-design.ts";
 
 type TgUser={id:number;first_name?:string;username?:string};
@@ -253,19 +253,7 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   if(data==="c:status"){return edit(msg.chat.id,msg.message_id,await customerStatus(pool,uid,groupId),menu([[["↻ بروزرسانی","c:status"],["← بازگشت","c:home"]]]));}
   if(data==="c:locks"){
     await ensureContentLocks(pool,groupId);
-    return edit(msg.chat.id,msg.message_id,
-      "━━━━━━━━━━━━━━━━━━━━━━━━\\n◈ قفل و کنترل محتوا\\n━━━━━━━━━━━━━━━━━━━━━━━━\\n\\n⛂ - دسترسی مستقیم به تک‌تک قفل‌ها\\n⛂ - هر دکمه وضعیت همان قانون را تغییر می‌دهد.",
-      menu([
-        [["❯› قفل‌های حالت عادی","cl:normal"],["❯› رسانه","cl:media"]],
-        [["❯› لینک‌ها","cl:links"],["❯› تبلیغات","cl:advertising"]],
-        [["❯› فوروارد و اشتراک‌گذاری","cl:forwarding"],["❯› فایل و سند","cl:files"]],
-        [["❯› پیام و نرخ ارسال","cl:messages"],["❯› تعامل و هویت","cl:interactions"]],
-        [["❯› محتوای پیشرفته","cl:advanced"],["❯› امنیت و ضد اتک","cl:anti_attack"]],
-        [["❯› استثناها و دامنه مجاز","cl:exceptions"]],
-        [["❯› قفل زبان","cl:language"]],
-        [["‹ بازگشت","c:home"]]
-      ])
-    );
+    return editRichLockCenter(pool,msg.chat.id,msg.message_id);
   }
   if(data.startsWith("clt:")){
     const key=data.slice(4);const r=await pool.query("SELECT enabled,title,section FROM content_lock_rules WHERE group_id=$1 AND rule_key=$2",[groupId,key]);if(!r.rowCount)return;
