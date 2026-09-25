@@ -39,11 +39,11 @@ function back(cb:string="home"){return [[["‹ بازگشت","p:"+cb]]];}
 function menu(rows:string[][][],extra:string[][][]=[]){return kb([...rows,...extra]);}
 function text(v:any){return String(v??"");}
 function normalizePanelText(message:any){
-  let value=String(message??"").replace(/⛂\s+(?!-) /g,"⛂ - ");
-  value=value.replace(/⛂\s+(?!-)(?=[^\n])/g,"⛂ - ");
-  const trimmed=value.trim();
-  if(trimmed.startsWith("◈")&&!trimmed.includes("━━━━━━━━━━━━━━━━━━━━━━━━")){
-    value="━━━━━━━━━━━━━━━━━━━━━━━━\n"+trimmed+"\n━━━━━━━━━━━━━━━━━━━━━━━━";
+  let value=String(message??"").replace(/⛂\s+(?!-)/g,"⛂ - ").trim();
+  if(value&&!value.includes("━━━━━━━━━━━━━━━━━━━━━━━━")&&value.includes("\n")){
+    value="━━━━━━━━━━━━━━━━━━━━━━━━\n"+value+"\n━━━━━━━━━━━━━━━━━━━━━━━━";
+  }else if(value.startsWith("◈")&&!value.includes("━━━━━━━━━━━━━━━━━━━━━━━━")){
+    value="━━━━━━━━━━━━━━━━━━━━━━━━\n"+value+"\n━━━━━━━━━━━━━━━━━━━━━━━━";
   }
   return value;
 }
@@ -226,7 +226,7 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   if(data==="o:exit"){await edit(msg.chat.id,msg.message_id,"از پنل مالک خارج شدید.",null);clearSession(uid);return;}
   if(data.startsWith("u:")){
     const parts=data.split(":");const act=parts[1],id=Number(parts[2]);if(!Number.isSafeInteger(id))return;
-    if(["lic_off","lic_plus","lic_minus","block","unblock"].includes(act)){session(uid,"confirm_owner_action",{act,id});return send(msg.chat.id,"مرحله ۱ از ۲: این عملیات حساس است. برای ادامه «تأیید نهایی» را ارسال کنید.");}
+    if(["lic_off","block","unblock"].includes(act)){session(uid,"confirm_owner_action",{act,id});return send(msg.chat.id,"مرحله ۱ از ۲: این عملیات حساس است. برای ادامه «تأیید نهایی» را ارسال کنید.");}
     if(act==="lic_on"){await pool.query("UPDATE bot_licenses SET status='active',starts_at=NOW() WHERE customer_id=$1 AND id=(SELECT id FROM bot_licenses WHERE customer_id=$1 ORDER BY id DESC LIMIT 1)",[id]);return send(msg.chat.id,"✓ آخرین لایسنس فعال شد.");}
     if(act==="lic_off"){await pool.query("UPDATE bot_licenses SET status='disabled' WHERE customer_id=$1 AND status='active'",[id]);return send(msg.chat.id,"✓ لایسنس‌های فعال مشتری غیرفعال شدند.");}
     if(act==="lic_plus"){session(uid,"owner_extend",{customerId:id});return send(msg.chat.id,"تعداد روز افزایش را ارسال کنید.");}
