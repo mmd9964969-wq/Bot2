@@ -339,11 +339,6 @@ function lockSectionRichHtml(rows:any[]){
     "<tg-button-row align=\"right\"><tg-button type=\"callback_data\" data=\"c:home\">‹ بازگشت</tg-button></tg-button-row>";
 }
 
-async function richLockCenter(pool:Pool){
-  const rows=await lockRows(pool,arguments.length>1?Number(arguments[1]):0);
-  return lockSectionRichHtml(rows);
-}
-
 async function sendRichLockCenter(pool:Pool,chatId:number){
   const rows=await lockRows(pool,chatId);
   const rich_message={html:lockSectionRichHtml(rows),is_rtl:true};
@@ -356,8 +351,7 @@ async function sendRichLockCenter(pool:Pool,chatId:number){
 export async function editRichLockCenter(pool:Pool,chatId:number,messageId:number){
   const rows=await lockRows(pool,chatId);
   const rich_message={html:lockSectionRichHtml(rows),is_rtl:true};
-  const markup=contentLockCenterKeyboard();
-  const rich=await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,rich_message,reply_markup:markup});
+  const rich=await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,rich_message});
   if(rich.ok)return rich;
   console.warn("[content-locks] edit RichMessage failed; falling back to standard text:",rich.description);
   return telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,text:await lockCenterText(pool,chatId),reply_markup:markup});
