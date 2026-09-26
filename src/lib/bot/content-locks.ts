@@ -290,7 +290,7 @@ const LOCK_ALIASES:Record<string,string>={
 };
 function lockNorm(v:unknown){return String(v??"").trim().toLowerCase().replace(/[يى]/g,"ی").replace(/ك/g,"ک").replace(/[‌]/g,"").replace(/\s+/g," ").trim();}
 function lockKey(args:string[]){const joined=lockNorm(args.join(" "));if(!joined)return null;return LOCK_ALIASES[joined]??LOCK_ALIASES[lockNorm(joined.replace(/ـ/g,""))]??null;}
-function lockFmt(v:number){return String(v).replace(/\d/g,d=>"۰۱۲۳۴۵۶۷۸۹"[Number(d)]);}
+function lockFmt(v:number){return String(v);}
 async function lockRows(pool:Pool,groupId:number){await seed(pool,groupId);return (await pool.query("SELECT rule_key,section,enabled,config FROM content_lock_rules WHERE group_id=$1 ORDER BY id",[groupId])).rows;}
 function lockStateLine(enabledValue:boolean){return enabledValue?"● فعال":"○ خاموش";}
 export async function ensureContentLocks(pool:Pool,groupId:number){await seed(pool,groupId);}
@@ -339,7 +339,7 @@ function lockCenterRichBlocks(rows:any[],lang:BotLang="fa"){
   const total=rows.length;
   const active=rows.filter((x:any)=>x.enabled).length;
   const stats=[
-    "⛂ - سیستم قفل : ● فعال",
+    "⛂ - سیستم قفل : فعال",
     "⛂ - قوانین فعال : "+lockFmt(active)+" از "+lockFmt(total)
   ].join("\n");
   const sectionLines=sections.map(section=>{
@@ -352,7 +352,7 @@ function lockCenterRichBlocks(rows:any[],lang:BotLang="fa"){
     {type:"paragraph",text:lockRichPlain(LOCK_PANEL_SEPARATOR)},
     {type:"paragraph",text:lockRichPlain(sectionLines)},
     {type:"paragraph",text:lockRichPlain(LOCK_PANEL_SEPARATOR)},
-    {type:"paragraph",text:lockRichPlain("راهنمای کنترل\nهر بخش، فهرست قفل‌های همان حوزه را باز می‌کند. وضعیت هر قانون مستقیماً از همین مرکز قابل تغییر است.")}
+    {type:"paragraph",text:lockRichPlain("⛂ - راهنما : رنگ دکمه وضعیت قفل را نشان می‌دهد.")}
   ];
   return {blocks,is_rtl:lang==="fa"||lang==="ar"};
 }
@@ -417,7 +417,7 @@ async function lockCenterText(pool:Pool,groupId:number){
   const sections=["normal","media","links","advertising","forwarding","files","messages","interactions","advanced","anti_attack","language"];
   const names:any={normal:"قفل‌های حالت عادی",media:"رسانه",links:"لینک‌ها",advertising:"تبلیغات",forwarding:"فوروارد و اشتراک‌گذاری",files:"فایل و سند",messages:"پیام و نرخ ارسال",interactions:"تعامل و هویت",advanced:"محتوای پیشرفته",anti_attack:"امنیت و ضد اتک",language:"قفل زبان"};
   const body=["◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Lᴏᴄᴋ Cᴇɴᴛᴇʀ","",
-    "⛂ - سیستم قفل : ● فعال",
+    "⛂ - سیستم قفل : فعال",
     "⛂ - قوانین فعال : "+lockFmt(rows.filter((r:any)=>r.enabled).length)+" از "+lockFmt(rows.length),
     ""
   ];
@@ -428,7 +428,7 @@ async function lockCenterText(pool:Pool,groupId:number){
     body.push(names[sec]," "+lockFmt(rs.filter((r:any)=>r.enabled).length)+" / "+lockFmt(rs.length));
     if(i<sections.length-1)body.push("");
   }
-  body.push(LOCK_PANEL_SEPARATOR,"","راهنمای کنترل","هر بخش، فهرست قفل‌های همان حوزه را باز می‌کند. وضعیت هر قانون مستقیماً از همین مرکز قابل تغییر است.");
+    {type:"paragraph",text:lockRichPlain("⛂ - راهنما : رنگ دکمه وضعیت قفل را نشان می‌دهد.")}
   return body.join("\n");
 }
 export async function runContentLockCommand(pool:Pool,ctx:LockCommandContext,commandId:string,args:string[]):Promise<string>{
