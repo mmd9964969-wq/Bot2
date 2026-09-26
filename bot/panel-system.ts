@@ -7,6 +7,7 @@ import { ensureContentLocks, editRichLockCenter } from "../src/lib/bot/content-l
 import { glassKeyboard, styledGlassButton } from "../src/lib/bot/panel-design.ts";
 import { getGroupLanguage, setGroupLanguage, ensureGroupLanguageSchema, normalizeBotLang, languageNative, languageButtonLabel, SUPPORTED_LANGUAGES, type BotLang } from "../src/lib/bot/i18n.ts";
 import { AUTOMATION_ACTIONS } from "../src/lib/bot/automation-engine.ts";
+import { ensureGroupConfigSchema, handleGroupConfigMessage, handleGroupConfigInput, handleGroupConfigCallback } from "../src/lib/bot/group-config.ts";
 import { executeRuntimeAction, isRuntimeMaintenance } from "./runtime-control.ts";
 import {
   ensurePanelSessionSchema,
@@ -1541,6 +1542,9 @@ export async function dispatchPanelMessage(pool:Pool,msg:TgMessage,ownerIds:stri
     // Panel throttling must never consume group messages; content-lock
     // enforcement needs to see every message, including rapid photo bursts.
     if(msg.chat.type==="private" && !allowed(msg.from.id))return false;
+    await ensureGroupConfigSchema(pool);
+    if(await handleGroupConfigInput(pool,msg))return true;
+    if(await handleGroupConfigMessage(pool,msg,ownerIds))return true;
     if(await handleInput(pool,msg))return true;
     if(await handleOwner(pool,msg,ownerIds))return true;
     return await handleCustomer(pool,msg,ownerIds);
@@ -1566,6 +1570,7 @@ export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:str
     }
     if(!allowed(cb.from.id))return;
     const data=String(cb.data||"");
+    if(data.startsWith("cfg:")) return handleGroupConfigCallback(pool,cb as any);
     // Customer/lock panel callbacks must keep their customer context even for the bot owner.
     // Otherwise ownerCallback receives c:/cl:/clt:/cls: actions and silently ignores them.
     if(
