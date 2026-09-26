@@ -24,6 +24,7 @@ const chatLang=new Map<number,Lang>();
 const messageTimes=new Map<number,number[]>();
 const userMessageCounts=new Map<string, number>();
 const userMessageDailyCounts=new Map<string, { day:string; count:number }>();
+const userLastMessageAt=new Map<string,number>();
 const groupMessageTotals=new Map<number,number>();
 const groupMessageDailyCounts=new Map<number,{day:string;count:number}>();
 const memberJoins=new Map<string,number[]>();
@@ -39,11 +40,18 @@ export function getGroupStats(chatId:number){
   const daily=groupMessageDailyCounts.get(chatId);
   const joins=memberJoins.get(String(chatId))??[];
   const today=dayKey();
+  const prefix=chatId+":";
+  const now=Date.now();
+  let activeUsers=0;
+  for(const [key,lastSeen] of userLastMessageAt){
+    if(key.startsWith(prefix)&&now-lastSeen<=30*60*1000)activeUsers++;
+  }
   return {
     messagesTotal:groupMessageTotals.get(chatId)??0,
     messagesToday:daily?.day===today?daily.count:0,
     joinsTotal:joins.length,
-    joinsToday:joins.filter(t=>new Date(t).toISOString().slice(0,10)===today).length
+    joinsToday:joins.filter(t=>new Date(t).toISOString().slice(0,10)===today).length,
+    activeUsers
   };
 }
 function formatDate(ts:number|undefined,l:Lang){
@@ -323,6 +331,7 @@ export async function recordMessage(chatId:number,userId:number,messageId:number
   if(!s.firstSeen.has(userId)) s.firstSeen.set(userId,Date.now());
 
   userMessageCounts.set(key,(userMessageCounts.get(key)??0)+1);
+  userLastMessageAt.set(key,Date.now());
 
   const day=dayKey();
   const daily=userMessageDailyCounts.get(key);
