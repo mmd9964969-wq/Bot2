@@ -421,13 +421,14 @@ async function lockCenterText(pool:Pool,groupId:number){
     "⛂ - قوانین فعال : "+lockFmt(rows.filter((r:any)=>r.enabled).length)+" از "+lockFmt(rows.length),
     ""
   ];
+  body.push(LOCK_PANEL_SEPARATOR);
   for(let i=0;i<sections.length;i++){
     const sec=sections[i];
     const rs=rows.filter((r:any)=>r.section===sec);
-    body.push(names[sec]+"\n"+lockFmt(rs.filter((r:any)=>r.enabled).length)+" / "+lockFmt(rs.length));
-    if(i<sections.length-1)body.push("",LOCK_PANEL_SEPARATOR,"");
+    body.push(names[sec]," "+lockFmt(rs.filter((r:any)=>r.enabled).length)+" / "+lockFmt(rs.length));
+    if(i<sections.length-1)body.push("");
   }
-  body.push("",LOCK_PANEL_SEPARATOR,"","راهنمای کنترل","هر بخش، فهرست قفل‌های همان حوزه را باز می‌کند. وضعیت هر قانون مستقیماً از همین مرکز قابل تغییر است.");
+  body.push(LOCK_PANEL_SEPARATOR,"","راهنمای کنترل","هر بخش، فهرست قفل‌های همان حوزه را باز می‌کند. وضعیت هر قانون مستقیماً از همین مرکز قابل تغییر است.");
   return body.join("\n");
 }
 export async function runContentLockCommand(pool:Pool,ctx:LockCommandContext,commandId:string,args:string[]):Promise<string>{
