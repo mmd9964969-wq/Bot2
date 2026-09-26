@@ -7,6 +7,7 @@ import { ensureContentLocks, editRichLockCenter } from "../src/lib/bot/content-l
 import { glassKeyboard, styledGlassButton } from "../src/lib/bot/panel-design.ts";
 import { getGroupLanguage, setGroupLanguage, ensureGroupLanguageSchema, normalizeBotLang, languageNative, languageButtonLabel, SUPPORTED_LANGUAGES, type BotLang } from "../src/lib/bot/i18n.ts";
 import { AUTOMATION_ACTIONS } from "../src/lib/bot/automation-engine.ts";
+import { getGroupStats } from "../src/lib/bot/runtime.ts";
 import { ensureGroupConfigSchema, handleGroupConfigMessage, handleGroupConfigInput, handleGroupConfigCallback } from "../src/lib/bot/group-config.ts";
 import { executeRuntimeAction, isRuntimeMaintenance } from "./runtime-control.ts";
 import {
@@ -364,25 +365,212 @@ async function ownerStats(pool:Pool){
   ].join("\n");
 }
 
-async function customerStatus(pool:Pool,uid:number,chatId:number){
-  const chat=await telegramApi<any>("getChat",{chat_id:chatId});const count=await telegramApi<any>("getChatMemberCount",{chat_id:chatId});
-  const admins=await telegramApi<any>("getChatAdministrators",{chat_id:chatId});
-  const group=await pool.query("SELECT * FROM bot_groups WHERE id=$1 LIMIT 1",[chatId]);
-  const settings=await pool.query("SELECT * FROM bot_group_settings WHERE group_id=$1 LIMIT 1",[chatId]);
-  const license=await validLicense(pool,uid);
-  const member=(await pool.query("SELECT COUNT(*)::int n FROM warning_cases WHERE group_id=$1 AND warning_count>0",[chatId])).rows[0].n||0;
-  return [
-    "◈ وضعیت گروه فعلی","",
-    "⛂ - نام : "+(chat.result?.title||group.rows[0]?.title||"—"),
-    "⛂ شناسه : "+chatId,
-    "⛂ اعضا : "+(count.result??"—"),
-    "⛂ ادمین‌ها : "+(admins.result?.length??"—"),
-    "⛂ افراد دارای اخطار : "+member,
-    "⛂ قفل محتوا : "+(settings.rows[0]?.full_lock?"فعال":"عادی"),
-    "⛂ حالت اضطراری : "+(settings.rows[0]?.emergency_mode?"فعال":"غیرفعال"),
-    "⛂ - لایسنس : "+(license?.license_type||"عضویت گروه"),
-    "⛂ افزودن ربات : "+(group.rows[0]?.updated_at?faDate(group.rows[0].updated_at):"ثبت نشده")
+type CustomerStatusPeriod = "today" | "7d" | "30d";
+
+function customerStatusPeriodStart(period:CustomerStatusPeriod){
+  if(period==="7d")return "NOW() - INTERVAL '7 days'";
+  if(period==="30d")return "NOW() - INTERVAL '30 days'";
+  return "CURRENT_DATE";
+}
+
+function dashboardStatus(value:boolean,active="فعال",inactive="غیرفعال"){
+  return value?active:inactive;
+}
+
+function dashboardDate(value:unknown){
+  return value?faDate(value):"ثبت نشده";
+}
+
+async function customerStatus(pool:Pool,uid:number,chatId:number,period:CustomerStatusPeriod="today"){
+  await Promise.all([
+    ensureContentLocks(pool,chatId).catch(()=>{}),
+    ensureGroupConfigSchema(pool,chatId).catch(()=>{})
+  ]);
+
+  const periodStart=customerStatusPeriodStart(period);
+  const periodWhere=" AND created_at>="+periodStart;
+
+  const [chat,memberCount,admins,me,dbCheck,group,customerGroup,settings,config,lockSettings,lockSummary,warningSummary,limitedSummary,bannedSummary,periodWarnings,periodBans,periodKicks,periodMutes,periodSecurity,lastWarning,lastBan,lastMute,lastSettings,lastLock,lastMembership,lastSecurity,license]=await Promise.all([
+    telegramApi<any>("getChat",{chat_id:chatId}).catch(()=>({ok:false,result:null})),
+    telegramApi<any>("getChatMemberCount",{chat_id:chatId}).catch(()=>({ok:false,result:null})),
+    telegramApi<any[]>("getChatAdministrators",{chat_id:chatId}).catch(()=>({ok:false,result:[]})),
+    telegramApi<any>("getMe",{}).catch(()=>({ok:false,result:null})),
+    Promise.resolve().then(()=>pool.query("SELECT NOW() AS now")).catch(()=>null),
+    pool.query("SELECT * FROM bot_groups WHERE id=$1 LIMIT 1",[chatId]).catch(()=>({rows:[]})),
+    pool.query("SELECT last_seen_at,is_active,title FROM bot_customer_groups WHERE group_id=$1 AND customer_id=$2 LIMIT 1",[chatId,uid]).catch(()=>({rows:[]})),
+    pool.query("SELECT * FROM bot_group_settings WHERE group_id=$1 LIMIT 1",[chatId]).catch(()=>({rows:[]})),
+    pool.query("SELECT * FROM bot_group_configuration WHERE group_id=$1 LIMIT 1",[chatId]).catch(()=>({rows:[]})),
+    pool.query("SELECT enabled,updated_at FROM content_lock_settings WHERE group_id=$1 LIMIT 1",[chatId]).catch(()=>({rows:[]})),
+    pool.query("SELECT COUNT(*)::int total,COUNT(*) FILTER(WHERE enabled)::int active,MAX(updated_at) AS last_change FROM content_lock_rules WHERE group_id=$1",[chatId]).catch(()=>({rows:[{total:0,active:0,last_change:null}]})),
+    pool.query("SELECT COUNT(DISTINCT user_id)::int n FROM warning_cases WHERE group_id=$1 AND warning_count>0",[chatId]).catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(DISTINCT user_id)::int n FROM warning_penalties WHERE group_id=$1 AND status='active' AND penalty_type IN ('mute','restrict') AND (expires_at IS NULL OR expires_at>NOW())",[chatId]).catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(DISTINCT user_id)::int n FROM warning_penalties WHERE group_id=$1 AND status='active' AND penalty_type IN ('temp_ban','permanent_ban') AND (expires_at IS NULL OR expires_at>NOW())",[chatId]).catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(*)::int n FROM warning_events WHERE group_id=$1 AND action_type='warning'"+periodWhere,[chatId]).catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(*)::int n FROM moderation_actions WHERE group_id=$1 AND action_type IN ('ban','unban') AND status='success'"+periodWhere,[chatId]).catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(*)::int n FROM moderation_actions WHERE group_id=$1 AND action_type='kick' AND status='success'"+periodWhere,[chatId]).catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(*)::int n FROM moderation_actions WHERE group_id=$1 AND action_type IN ('mute','perm_mute','unmute') AND status='success'"+periodWhere,[chatId]).catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(*)::int n FROM supervision_events WHERE group_id=$1 AND severity IN ('warning','error','critical')"+periodWhere,[chatId]).catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT created_at,COALESCE(custom_violation,violation_type,'warning') AS type FROM warning_events WHERE group_id=$1 AND action_type='warning' ORDER BY created_at DESC LIMIT 1",[chatId]).catch(()=>({rows:[]})),
+    pool.query("SELECT created_at,COALESCE(reason,penalty_type,'ban') AS type FROM warning_penalties WHERE group_id=$1 AND penalty_type IN ('temp_ban','permanent_ban') ORDER BY created_at DESC LIMIT 1",[chatId]).catch(()=>({rows:[]})),
+    pool.query("SELECT created_at,COALESCE(reason,penalty_type,'mute') AS type FROM warning_penalties WHERE group_id=$1 AND penalty_type IN ('mute','restrict') ORDER BY created_at DESC LIMIT 1",[chatId]).catch(()=>({rows:[]})),
+    pool.query("SELECT GREATEST(COALESCE((SELECT MAX(updated_at) FROM bot_group_settings WHERE group_id=$1),'epoch'::timestamptz),COALESCE((SELECT MAX(updated_at) FROM bot_group_configuration WHERE group_id=$1),'epoch'::timestamptz),COALESCE((SELECT MAX(updated_at) FROM content_lock_settings WHERE group_id=$1),'epoch'::timestamptz)) AS last_change",[chatId]).catch(()=>({rows:[{last_change:null}]})),
+    pool.query("SELECT GREATEST(COALESCE((SELECT MAX(updated_at) FROM content_lock_settings WHERE group_id=$1),'epoch'::timestamptz),COALESCE((SELECT MAX(updated_at) FROM content_lock_rules WHERE group_id=$1),'epoch'::timestamptz)) AS last_change",[chatId]).catch(()=>({rows:[{last_change:null}]})),
+    pool.query("SELECT created_at,event_type,target_id FROM supervision_events WHERE group_id=$1 AND event_type IN ('member_joined','member_left','member_banned','member_kicked') ORDER BY created_at DESC LIMIT 1",[chatId]).catch(()=>({rows:[]})),
+    pool.query("SELECT created_at,event_type,severity FROM supervision_events WHERE group_id=$1 AND severity IN ('warning','error','critical') ORDER BY created_at DESC LIMIT 1",[chatId]).catch(()=>({rows:[]})),
+    pool.query("SELECT * FROM bot_licenses WHERE customer_id=$1 ORDER BY expires_at NULLS LAST,id DESC LIMIT 1",[uid]).catch(()=>({rows:[]}))
+  ]);
+
+  let botInGroup:any=null;
+  if(me.ok&&me.result?.id){
+    botInGroup=await telegramApi<any>("getChatMember",{chat_id:chatId,user_id:me.result.id}).catch(()=>({ok:false,result:null}));
+  }
+
+  let panelHealth="تأیید نشده";
+  const panelHealthUrl=String(process.env.BOT_PANEL_HEALTH_URL||"").trim();
+  if(panelHealthUrl){
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),1800);
+    try{
+      const response=await fetch(panelHealthUrl,{method:"GET",signal:controller.signal,headers:{"cache-control":"no-cache"}});
+      panelHealth=response.ok?"فعال":"خطا";
+    }catch{
+      panelHealth="خطا";
+    }finally{
+      clearTimeout(timer);
+    }
+  }
+
+  const [antiSpam,antiAds,antiLinks,antiBot]=await Promise.all([
+    pool.query("SELECT 1 FROM content_lock_rules WHERE group_id=$1 AND enabled=TRUE AND rule_key IN ('attack_flood','attack_duplicate','message_rate_limit') LIMIT 1",[chatId]).catch(()=>({rows:[]})),
+    pool.query("SELECT 1 FROM content_lock_rules WHERE group_id=$1 AND enabled=TRUE AND rule_key IN ('normal_ads','advertising_text','advertising_links','advertising_invites','advertising_phone','advertising_username') LIMIT 1",[chatId]).catch(()=>({rows:[]})),
+    pool.query("SELECT 1 FROM content_lock_rules WHERE group_id=$1 AND enabled=TRUE AND rule_key IN ('normal_links','links_all','links_telegram','links_external','links_invites') LIMIT 1",[chatId]).catch(()=>({rows:[]})),
+    pool.query("SELECT 1 FROM content_lock_rules WHERE group_id=$1 AND enabled=TRUE AND rule_key IN ('normal_bot','bot_join_lock') LIMIT 1",[chatId]).catch(()=>({rows:[]}))
+  ]);
+
+  const runtimeStats=getGroupStats(chatId);
+  const groupRow=group.rows[0]??{};
+  const customerGroupRow=customerGroup.rows[0]??{};
+  const settingsRow=settings.rows[0]??{};
+  const configRow=config.rows[0]??{};
+  const lockSettingsRow=lockSettings.rows[0]??{};
+  const lockSummaryRow=lockSummary.rows[0]??{total:0,active:0,last_change:null};
+  const activeLockCount=Number(lockSummaryRow.active||0);
+  const totalLockCount=Number(lockSummaryRow.total||0);
+  const activeWarningUsers=Number(warningSummary.rows[0]?.n||0);
+  const limitedUsers=Number(limitedSummary.rows[0]?.n||0);
+  const bannedUsers=Number(bannedSummary.rows[0]?.n||0);
+  const securitySystem=configRow.system_enabled!==false;
+
+  const licenseRow=license.rows[0]??null;
+  const expiry=licenseRow?.expires_at?new Date(licenseRow.expires_at):null;
+  const validLicenseNow=Boolean(licenseRow&&String(licenseRow.status||"active")==="active"&&(!expiry||expiry.getTime()>Date.now()));
+  const daysLeft=expiry?Math.max(0,Math.ceil((expiry.getTime()-Date.now())/86400000)):null;
+  const licenseStatus=!licenseRow?"ثبت نشده":validLicenseNow?"فعال":(expiry&&expiry.getTime()<=Date.now()?"منقضی":"غیرفعال");
+  const renewal=daysLeft===null?"مادام‌العمر":daysLeft<=7?"نیازمند تمدید":"در وضعیت عادی";
+  const dbStatus=dbCheck?"فعال":"خطا";
+  const botState=Boolean(me.ok&&botInGroup?.ok);
+  const groupStatus=groupRow.is_active!==false&&configRow.system_enabled!==false?"فعال":"غیرفعال";
+  const lastBotActivity=groupRow.updated_at||customerGroupRow.last_seen_at;
+  const typeLabel=String(chat.result?.type||groupRow.type||"—");
+  const activeUsers=Number(runtimeStats.activeUsers??0);
+  const periodLabel=period==="today"?"امروز":period==="7d"?"7 روز اخیر":"30 روز اخیر";
+  const periodMessages=period==="today"?String(runtimeStats.messagesToday):"داده تاریخی ثبت نشده";
+
+  const text=[
+    "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · نمای کلی گروه","",
+    "● وضعیت لحظه‌ای گروه",
+    "⛂ - وضعیت : "+groupStatus,
+    "⛂ - نام : "+String(chat.result?.title||groupRow.title||customerGroupRow.title||"—"),
+    "⛂ - شناسه : "+chatId,
+    "⛂ - نوع : "+typeLabel,
+    "⛂ - اعضا : "+String(memberCount.ok?memberCount.result??"—":"—"),
+    "⛂ - ادمین‌ها : "+String(admins.ok?admins.result?.length??"—":"—"),
+    "⛂ - کاربران فعال (30m) : "+activeUsers,
+    "⛂ - کاربران دارای اخطار : "+activeWarningUsers,
+    "⛂ - کاربران محدودشده : "+limitedUsers,
+    "⛂ - کاربران بن‌شده : "+bannedUsers,
+    "⛂ - وضعیت ربات : "+(botState?"فعال":"خطا"),
+    "⛂ - آخرین فعالیت ربات : "+dashboardDate(lastBotActivity),
+    "⛂ - وضعیت دیتابیس : "+dbStatus,
+    "⛂ - وضعیت سیستم مدیریت : "+(securitySystem?"فعال":"غیرفعال"),
+    "",
+    "─────━━───── ◈ ─────━━─────","",
+    "● وضعیت امنیت و محافظت",
+    "⛂ - سیستم امنیتی : "+dashboardStatus(securitySystem),
+    "⛂ - ضداسپم : "+dashboardStatus(antiSpam.rows.length>0),
+    "⛂ - ضدتبلیغات : "+dashboardStatus(antiAds.rows.length>0),
+    "⛂ - ضدلینک : "+dashboardStatus(antiLinks.rows.length>0),
+    "⛂ - ضدربات : "+dashboardStatus(antiBot.rows.length>0),
+    "⛂ - محافظت از اعضا : "+dashboardStatus(configRow.membership_verification===true),
+    "⛂ - محافظت از ادمین‌ها : "+dashboardStatus(settingsRow.exempt_admins!==false),
+    "⛂ - حالت اضطراری : "+dashboardStatus(settingsRow.emergency_mode===true),
+    "",
+    "─────━━───── ◈ ─────━━─────","",
+    "● وضعیت قفل‌ها",
+    "⛂ - سیستم قفل : "+dashboardStatus(lockSettingsRow.enabled!==false),
+    "⛂ - قوانین فعال : "+activeLockCount+" از "+totalLockCount,
+    "⛂ - قوانین غیرفعال : "+Math.max(0,totalLockCount-activeLockCount),
+    "⛂ - آخرین تغییر : "+dashboardDate(lockSummaryRow.last_change||null),
+    "",
+    "─────━━───── ◈ ─────━━─────","",
+    "● آمار سریع · "+periodLabel,
+    "⛂ - اعضا : "+String(memberCount.ok?memberCount.result??"—":"—"),
+    "⛂ - پیام‌ها : "+periodMessages,
+    "⛂ - اخطارها : "+Number(periodWarnings.rows[0]?.n||0),
+    "⛂ - بن‌ها : "+Number(periodBans.rows[0]?.n||0),
+    "⛂ - کیک‌ها : "+Number(periodKicks.rows[0]?.n||0),
+    "⛂ - میوت‌ها : "+Number(periodMutes.rows[0]?.n||0),
+    "⛂ - قفل‌های فعال : "+activeLockCount,
+    "⛂ - رویدادهای امنیتی : "+Number(periodSecurity.rows[0]?.n||0),
+    period==="today"?"⛂ - آرشیو پیام 7/30 روزه : ثبت نشده":"⛂ - پیام‌ها : آمار تاریخی در PostgreSQL ثبت نشده است",
+    "",
+    "─────━━───── ◈ ─────━━─────","",
+    "● آخرین فعالیت‌ها",
+    "⛂ - آخرین اخطار : "+(lastWarning.rows[0]?dashboardDate(lastWarning.rows[0].created_at)+" · "+String(lastWarning.rows[0].type):"ثبت نشده"),
+    "⛂ - آخرین بن : "+(lastBan.rows[0]?dashboardDate(lastBan.rows[0].created_at)+" · "+String(lastBan.rows[0].type):"ثبت نشده"),
+    "⛂ - آخرین میوت : "+(lastMute.rows[0]?dashboardDate(lastMute.rows[0].created_at)+" · "+String(lastMute.rows[0].type):"ثبت نشده"),
+    "⛂ - آخرین تغییر تنظیمات : "+dashboardDate(lastSettings.rows[0]?.last_change),
+    "⛂ - آخرین تغییر قفل : "+dashboardDate(lastLock.rows[0]?.last_change),
+    "⛂ - آخرین ورود/خروج مهم : "+(lastMembership.rows[0]?dashboardDate(lastMembership.rows[0].created_at)+" · "+String(lastMembership.rows[0].event_type):"ثبت نشده"),
+    "⛂ - آخرین رویداد امنیتی : "+(lastSecurity.rows[0]?dashboardDate(lastSecurity.rows[0].created_at)+" · "+String(lastSecurity.rows[0].event_type):"ثبت نشده"),
+    "",
+    "─────━━───── ◈ ─────━━─────","",
+    "● وضعیت سرویس‌ها",
+    "⛂ - Telegram API : "+(me.ok?"فعال":"خطا"),
+    "⛂ - Bot Core : فعال",
+    "⛂ - PostgreSQL : "+dbStatus,
+    "⛂ - Panel : "+panelHealth,
+    "⛂ - Runtime : "+(isRuntimeMaintenance()?"نگهداری":"فعال"),
+    "",
+    "─────━━───── ◈ ─────━━─────","",
+    "● وضعیت لایسنس",
+    "⛂ - نوع لایسنس : "+String(licenseRow?.license_type||"ثبت نشده"),
+    "⛂ - وضعیت لایسنس : "+licenseStatus,
+    "⛂ - تاریخ فعال‌سازی : "+dashboardDate(licenseRow?.starts_at),
+    "⛂ - تاریخ انقضا : "+(expiry?faDate(expiry):"مادام‌العمر"),
+    "⛂ - روزهای باقی‌مانده : "+(daysLeft===null?"∞":daysLeft),
+    "⛂ - وضعیت تمدید : "+renewal,
+    "",
+    "─────━━───── ◈ ─────━━─────","",
+    "● دسترسی سریع مدیریتی",
+    "⛂ - مرکزهای عملیاتی از دکمه‌های زیر در دسترس هستند."
   ].join("\n");
+
+  const markup=menu([
+    [["مرکز امنیت","c:security"],["مرکز قفل و فیلتر","c:locks"]],
+    [["ضداسپم","c:security"],["ضدتبلیغات","c:security"]],
+    [["ضدلینک","c:security"],["ضدربات","c:security"]],
+    [["محافظت اعضا","c:security"],["محافظت ادمین‌ها","c:permissions"]],
+    [["حالت اضطراری","c:security"],["مدیریت مرکز قفل","c:locks"]],
+    [["امروز","c:status:today"],["7 روز اخیر","c:status:7d"]],
+    [["30 روز اخیر","c:status:30d"],["بروزرسانی وضعیت","c:status:refresh"]],
+    [["مرکز مجازات","c:warnings"],["مدیریت اعضا","c:members"]],
+    [["مرکز اتوماسیون","c:automation"],["استودیو دستورات","c:commands"]],
+    [["استودیو محتوا","c:content"],["زمان‌بندی پیام‌ها","c:schedule"]],
+    [["تحلیل و آمار","c:analytics"],["مرکز استثناها","c:exceptions"]],
+    [["‹ بازگشت","c:home"]]
+  ]);
+  return {text,markup};
 }
 
 async function renderOwner(pool:Pool,uid:number,chatId:number,msgId?:number,view="main"){
@@ -734,8 +922,14 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     return edit(msg.chat.id,msg.message_id,panelTitle("زبان ربات","⛂ - زبان جدید : "+languageNative(lang)+"\n⛂ - وضعیت : فعال"),menu([[["زبان ربات","c:language"],["‹ بازگشت","c:home"]]]));
   }
 
-  if(data==="c:status"){
-    return edit(msg.chat.id,msg.message_id,await customerStatus(pool,uid,groupId),menu([[["بروزرسانی","c:status"],["‹ بازگشت","c:home"]]]));
+  if(data==="c:status"||data==="c:status:refresh"){
+    const dashboard=await customerStatus(pool,uid,groupId,"today");
+    return edit(msg.chat.id,msg.message_id,dashboard.text,dashboard.markup);
+  }
+  if(data==="c:status:today"||data==="c:status:7d"||data==="c:status:30d"){
+    const period=data.slice("c:status:".length) as CustomerStatusPeriod;
+    const dashboard=await customerStatus(pool,uid,groupId,period);
+    return edit(msg.chat.id,msg.message_id,dashboard.text,dashboard.markup);
   }
 
   if(data==="c:locks"){
