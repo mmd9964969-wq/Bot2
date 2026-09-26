@@ -674,17 +674,23 @@ async function processMessage(msg: TgMessage, edited = false) {
   if (!msg.from) return;
 
   const chat = msg.chat;
+  const normalizedEntry = text.replace(/^[/!]/,"").trim().toLowerCase();
+  const isConfigRequest = ["config","پیکربندی"].includes(normalizedEntry);
   const isPrivate = chat.type === "private";
-  if (isPrivate) return;
+  // Private chat is normally disabled, but /config and «پیکربندی» are
+  // explicitly supported as a group-selection entry point.
+  if (isPrivate && !isConfigRequest) return;
   if (!studioPool) return;
 
-  const installationState = await installationGate(
-    studioPool,
-    msg,
-    config.ownerIds,
-    config.sudoIds,
-    !edited,
-  );
+  const installationState = isPrivate && isConfigRequest
+    ? "allow"
+    : await installationGate(
+        studioPool,
+        msg,
+        config.ownerIds,
+        config.sudoIds,
+        !edited,
+      );
   if (installationState !== "allow") return;
 
   await upsertWarningGroup(chat);
@@ -727,6 +733,11 @@ async function processMessage(msg: TgMessage, edited = false) {
   if (studioPool && await dispatchPanelMessage(studioPool, msg, config.ownerIds)) return;
 
   if (!isPrivate && studioPool) {
+    const groupConfig=(await studioPool.query<{system_enabled:boolean}>(
+      "SELECT system_enabled FROM bot_group_configuration WHERE group_id=$1 LIMIT 1",
+      [chat.id],
+    ).catch(()=>({rows:[] as any[]}))).rows[0];
+    if (groupConfig && groupConfig.system_enabled===false) return;
     const blocked = await enforceContentLocks({
       pool: studioPool,
       groupId: chat.id,
@@ -853,7 +864,7 @@ async function poll() {
             console.error("[update] message handler failed", error);
           });
         }
-        if (upd.callback_query?.from && upd.callback_query.message && upd.callback_query.message.chat.type !== "private" && studioPool) {
+        if (upd.callback_query?.from && upd.callback_query.message && studioPool) {
           void (async () => {
             const handled = await handleInstallationCallback(
               studioPool!,
