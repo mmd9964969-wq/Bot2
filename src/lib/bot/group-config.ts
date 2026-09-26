@@ -65,7 +65,7 @@ function clean(value:any){return String(value??"").trim();}
 
 async function isOwner(userId:number){
   const ids=(process.env.OWNER_IDS??"").split(/[,\s]+/).filter(Boolean);
-  return ids.includes(String(userId)) || String(userId)==="8247710529";
+  return ids.includes(String(userId));
 }
 
 async function groupAllowed(pool:Pool,userId:number,groupId:number){
@@ -613,7 +613,7 @@ export async function handleGroupConfigCallback(pool:Pool,cb:TgCallback){
     return edit(msg.chat.id,msg.message_id,title("زبان ربات","⛂ - زبان فعلی : "+languageNative(current)),{inline_keyboard:rows});
   }
   if(data.startsWith("cfg:setlang:")){
-    const code=data.slice(13);
+    const code=data.slice(12);
     if(!SUPPORTED_LANGUAGES.some(x=>x.code===code))return;
     await setGroupLanguage(pool,gid,code as any);
     return generalPage(pool,msg.chat.id,msg.message_id,gid);
@@ -690,7 +690,7 @@ export async function handleGroupConfigCallback(pool:Pool,cb:TgCallback){
     return edit(msg.chat.id,msg.message_id,title("سطوح اخطار",rows.rows.map((r:any)=>"⛂ - سطح "+r.level_no+" : "+r.warning_count_required+" اخطار · "+r.penalty_type+(r.duration_value?(" · "+r.duration_value+" "+r.duration_unit):"")).join("\n")),keyboard(kbrows));
   }
   if(data.startsWith("cfg:warning:edit:")){
-    const level=Number(data.slice(18));if(!Number.isInteger(level)||level<1||level>5)return;
+    const level=Number(data.slice(17));if(!Number.isInteger(level)||level<1||level>5)return;
     setSession(uid,gid,"warning_level",{step:1,level});
     return edit(msg.chat.id,msg.message_id,title("ویرایش سطح اخطار","شماره سطح: "+level+"\nشماره سطح برای ویرایش را دوباره ارسال کنید."),keyboard([[back("cfg:warning:levels")]]));
   }
@@ -770,7 +770,7 @@ export async function handleGroupConfigCallback(pool:Pool,cb:TgCallback){
     return renderBackups(pool,msg.chat.id,msg.message_id,gid);
   }
   if(data.startsWith("cfg:backup:restore:")){
-    const id=Number(data.slice(20));if(!Number.isSafeInteger(id))return;
+    const id=Number(data.slice(19));if(!Number.isSafeInteger(id))return;
     const row=(await pool.query("SELECT id FROM bot_group_config_backups WHERE id=$1 AND group_id=$2",[id,gid])).rows[0];
     if(!row)return;
     setSession(uid,gid,"restore_confirm",{backupId:id});
