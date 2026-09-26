@@ -352,7 +352,7 @@ function lockCenterRichBlocks(rows:any[],lang:BotLang="fa"){
     {type:"paragraph",text:lockRichPlain(LOCK_PANEL_SEPARATOR)},
     {type:"paragraph",text:lockRichPlain(sectionLines)},
     {type:"paragraph",text:lockRichPlain(LOCK_PANEL_SEPARATOR)},
-    {type:"paragraph",text:lockRichPlain("⛂ - راهنما : رنگ دکمه وضعیت قفل را نشان می‌دهد.")}
+  body.push(LOCK_PANEL_SEPARATOR,"","⛂ - راهنما : رنگ دکمه وضعیت قفل را نشان می‌دهد.");
   ];
   return {blocks,is_rtl:lang==="fa"||lang==="ar"};
 }
