@@ -33,6 +33,11 @@ function visualButtonLabel(label:string,style:TelegramButtonStyle|undefined){
   return "› "+clean;
 }
 
+export function styledGlassButton(label:string,callbackData:string,style:TelegramButtonStyle):DesignedButton{
+  const clean=cleanButtonLabel(label);
+  return {text:style==="primary"?"‹ "+clean:clean,callback_data:callbackData,style};
+}
+
 export function glassButton(label:string,callbackData:string):DesignedButton{
   const style=semanticStyle(label,callbackData);
   // Telegram Bot API native button styles carry the color; labels stay clean.
