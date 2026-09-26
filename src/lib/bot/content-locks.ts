@@ -428,7 +428,7 @@ async function lockCenterText(pool:Pool,groupId:number){
     body.push(names[sec]," "+lockFmt(rs.filter((r:any)=>r.enabled).length)+" / "+lockFmt(rs.length));
     if(i<sections.length-1)body.push("");
   }
-    {type:"paragraph",text:lockRichPlain("⛂ - راهنما : رنگ دکمه وضعیت قفل را نشان می‌دهد.")}
+  body.push(LOCK_PANEL_SEPARATOR,"","⛂ - راهنما : رنگ دکمه وضعیت قفل را نشان می‌دهد.");
   return body.join("\n");
 }
 export async function runContentLockCommand(pool:Pool,ctx:LockCommandContext,commandId:string,args:string[]):Promise<string>{
