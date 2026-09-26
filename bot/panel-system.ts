@@ -413,8 +413,8 @@ async function customerStatus(pool:Pool,uid:number,chatId:number,period:Customer
     pool.query("SELECT created_at,COALESCE(custom_violation,violation_type,'warning') AS type FROM warning_events WHERE group_id=$1 AND action_type='warning' ORDER BY created_at DESC LIMIT 1",[chatId]).catch(()=>({rows:[]})),
     pool.query("SELECT created_at,COALESCE(reason,penalty_type,'ban') AS type FROM warning_penalties WHERE group_id=$1 AND penalty_type IN ('temp_ban','permanent_ban') ORDER BY created_at DESC LIMIT 1",[chatId]).catch(()=>({rows:[]})),
     pool.query("SELECT created_at,COALESCE(reason,penalty_type,'mute') AS type FROM warning_penalties WHERE group_id=$1 AND penalty_type IN ('mute','restrict') ORDER BY created_at DESC LIMIT 1",[chatId]).catch(()=>({rows:[]})),
-    pool.query("SELECT GREATEST(COALESCE((SELECT MAX(updated_at) FROM bot_group_settings WHERE group_id=$1),'epoch'::timestamptz),COALESCE((SELECT MAX(updated_at) FROM bot_group_configuration WHERE group_id=$1),'epoch'::timestamptz),COALESCE((SELECT MAX(updated_at) FROM content_lock_settings WHERE group_id=$1),'epoch'::timestamptz)) AS last_change",[chatId]).catch(()=>({rows:[{last_change:null}]})),
-    pool.query("SELECT GREATEST(COALESCE((SELECT MAX(updated_at) FROM content_lock_settings WHERE group_id=$1),'epoch'::timestamptz),COALESCE((SELECT MAX(updated_at) FROM content_lock_rules WHERE group_id=$1),'epoch'::timestamptz)) AS last_change",[chatId]).catch(()=>({rows:[{last_change:null}]})),
+    pool.query("SELECT NULLIF(GREATEST(COALESCE((SELECT MAX(updated_at) FROM bot_group_settings WHERE group_id=$1),'epoch'::timestamptz),COALESCE((SELECT MAX(updated_at) FROM bot_group_configuration WHERE group_id=$1),'epoch'::timestamptz),COALESCE((SELECT MAX(updated_at) FROM content_lock_settings WHERE group_id=$1),'epoch'::timestamptz)),'epoch'::timestamptz) AS last_change",[chatId]).catch(()=>({rows:[{last_change:null}]})),
+    pool.query("SELECT NULLIF(GREATEST(COALESCE((SELECT MAX(updated_at) FROM content_lock_settings WHERE group_id=$1),'epoch'::timestamptz),COALESCE((SELECT MAX(updated_at) FROM content_lock_rules WHERE group_id=$1),'epoch'::timestamptz)),'epoch'::timestamptz) AS last_change",[chatId]).catch(()=>({rows:[{last_change:null}]})),
     pool.query("SELECT created_at,event_type,target_id FROM supervision_events WHERE group_id=$1 AND event_type IN ('member_joined','member_left','member_banned','member_kicked') ORDER BY created_at DESC LIMIT 1",[chatId]).catch(()=>({rows:[]})),
     pool.query("SELECT created_at,event_type,severity FROM supervision_events WHERE group_id=$1 AND severity IN ('warning','error','critical') ORDER BY created_at DESC LIMIT 1",[chatId]).catch(()=>({rows:[]})),
     pool.query("SELECT * FROM bot_licenses WHERE customer_id=$1 ORDER BY expires_at NULLS LAST,id DESC LIMIT 1",[uid]).catch(()=>({rows:[]}))
@@ -470,7 +470,7 @@ async function customerStatus(pool:Pool,uid:number,chatId:number,period:Customer
   const dbStatus=dbCheck?"فعال":"خطا";
   const botState=Boolean(me.ok&&botInGroup?.ok);
   const groupStatus=groupRow.is_active!==false&&configRow.system_enabled!==false?"فعال":"غیرفعال";
-  const lastBotActivity=groupRow.updated_at||customerGroupRow.last_seen_at;
+  const lastBotActivity=[groupRow.updated_at,customerGroupRow.last_seen_at].filter(Boolean).sort((a:any,b:any)=>new Date(b).getTime()-new Date(a).getTime())[0]||null;
   const typeLabel=String(chat.result?.type||groupRow.type||"—");
   const activeUsers=Number(runtimeStats.activeUsers??0);
   const periodLabel=period==="today"?"امروز":period==="7d"?"7 روز اخیر":"30 روز اخیر";
@@ -1038,6 +1038,55 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
       "مرکز قفل و فیلتر",
       "⛂ - وضعیت بخش : "+(value?"● فعال":"○ خاموش")+"\n⛂ - قوانین تغییرکرده : "+(result.rowCount||0)
     ),menu([[["بازکردن بخش","cl:"+section],["‹ بازگشت به قفل‌ها","c:locks"]]]));
+  }
+
+  if(data==="c:exceptions"){
+    const [exceptions,domains]=await Promise.all([
+      pool.query("SELECT id,exception_type,target_id,target_label,scope,enabled,created_at FROM content_lock_exceptions WHERE group_id=$1 ORDER BY id DESC LIMIT 30",[groupId]).catch(()=>({rows:[]})),
+      pool.query("SELECT id,domain,enabled,created_at FROM content_lock_domains WHERE group_id=$1 ORDER BY id DESC LIMIT 30",[groupId]).catch(()=>({rows:[]}))
+    ]);
+    const lines=[
+      "⛂ - استثناهای ثبت‌شده : "+exceptions.rows.length,
+      "⛂ - دامنه‌های مجاز : "+domains.rows.length,
+      "",
+      exceptions.rows.length
+        ?"● استثناها\n"+exceptions.rows.map((x:any)=>"⛂ - #"+x.id+" · "+String(x.exception_type)+" · "+String(x.target_label||x.target_id)+" · "+(x.enabled?"فعال":"غیرفعال")).join("\n")
+        :"● استثناها\n⛂ - موردی ثبت نشده است.",
+      "",
+      domains.rows.length
+        ?"● دامنه‌های مجاز\n"+domains.rows.map((x:any)=>"⛂ - #"+x.id+" · "+String(x.domain)+" · "+(x.enabled?"فعال":"غیرفعال")).join("\n")
+        :"● دامنه‌های مجاز\n⛂ - دامنه‌ای ثبت نشده است."
+    ].join("\n");
+    return edit(msg.chat.id,msg.message_id,panelTitle("مرکز استثناها",lines),menu([
+      [["افزودن استثنای کاربر","ex:add:user"],["افزودن نقش مجاز","ex:add:role"]],
+      [["افزودن منبع فوروارد","ex:add:forward_source"],["افزودن دامنه","ex:add:domain"]],
+      [["حذف استثنا","ex:delete"],["حذف دامنه","ex:domain_delete"]],
+      [["بروزرسانی","c:exceptions"],["‹ بازگشت","c:home"]]
+    ]));
+  }
+
+  if(data.startsWith("ex:add:")){
+    const kind=data.slice(7);
+    if(!["user","role","forward_source","domain"].includes(kind))return;
+    session(uid,"exception_add",{chatId:groupId,kind});
+    const prompt=kind==="user"
+      ?"آیدی عددی کاربر را ارسال کنید."
+      :kind==="role"
+        ?"نقش را ارسال کنید: owner / sudo / admin / member"
+        :kind==="forward_source"
+          ?"آیدی عددی منبع فوروارد را ارسال کنید."
+          :"دامنه را ارسال کنید؛ نمونه: example.com";
+    return edit(msg.chat.id,msg.message_id,panelTitle("مرکز استثناها","⛂ - نوع استثنا : "+kind+"\n\n"+prompt),menu([[["‹ بازگشت","c:exceptions"]]]));
+  }
+
+  if(data==="ex:delete"){
+    session(uid,"exception_delete",{chatId:groupId});
+    return edit(msg.chat.id,msg.message_id,panelTitle("حذف استثنا","⛂ - شناسه عددی استثنا را ارسال کنید."),menu([[["‹ بازگشت","c:exceptions"]]]));
+  }
+
+  if(data==="ex:domain_delete"){
+    session(uid,"domain_delete",{chatId:groupId});
+    return edit(msg.chat.id,msg.message_id,panelTitle("حذف دامنه","⛂ - شناسه عددی دامنه را ارسال کنید."),menu([[["‹ بازگشت","c:exceptions"]]]));
   }
 
   if(data==="c:automation"){
