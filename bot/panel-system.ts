@@ -791,7 +791,7 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
       inline_keyboard:buttons.map((row:any[])=>row.map((button:any[])=>{
         const label=String(button[0]??"");
         const callbackData=String(button[1]??"");
-        if(/^‹\\s*بازگشت/u.test(label)) return styledGlassButton("‹ بازگشت",callbackData,"primary");
+        if(label==="‹ بازگشت") return styledGlassButton("‹ بازگشت",callbackData,"primary");
         const dbRow=rows.find((item:any)=>("clt:"+String(item.rule_key)+":"+(item.enabled===true?"off":"on"))===callbackData);
         return styledGlassButton(label,callbackData,dbRow?.enabled===true?"success":"danger");
       }))
