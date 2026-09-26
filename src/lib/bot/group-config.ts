@@ -1,6 +1,6 @@
 import type { Pool } from "pg";
 import { telegramApi } from "../telegram/api.ts";
-import { glassKeyboard, styledGlassButton } from "./panel-design.ts";
+import { glassButton, glassKeyboard, styledGlassButton } from "./panel-design.ts";
 import { ensureContentLocks } from "./content-locks.ts";
 import { getGroupLanguage, setGroupLanguage, SUPPORTED_LANGUAGES, languageNative } from "./i18n.ts";
 import { bindPanelMessage } from "./panel-session.ts";
@@ -606,7 +606,9 @@ export async function handleGroupConfigCallback(pool:Pool,cb:TgCallback){
   if(data==="cfg:language"){
     const current=await getGroupLanguage(pool,gid,"fa");
     const rows=SUPPORTED_LANGUAGES.map(x=>{
-      const b=styledGlassButton(x.native,"cfg:setlang:"+x.code,x.code===current?"success":"primary");
+      const b=x.code===current
+        ? styledGlassButton(x.native,"cfg:setlang:"+x.code,"success")
+        : glassButton(x.native,"cfg:setlang:"+x.code);
       return [b];
     });
     rows.push([back("cfg:general")]);
@@ -760,6 +762,36 @@ export async function handleGroupConfigCallback(pool:Pool,cb:TgCallback){
         "\n\nاین گزارش بر اساس داده‌های ثبت‌شده ربات تهیه شده است."
       ),keyboard([[back("cfg:security")]]));
     }
+  }
+
+  if(data==="cfg:stats:purge"){
+    setSession(uid,gid,"stats_purge_confirm1",{});
+    return edit(msg.chat.id,msg.message_id,title("پاک‌سازی آمار","مرحله ۱ از ۲\n\nرویدادهای آماری قدیمی‌تر از مدت نگهداری حذف می‌شوند؛ لاگ‌های ممیزی و سابقه اخطار حفظ می‌شوند."),keyboard([
+      [neutral("ادامه پاک‌سازی","cfg:stats:purge:confirm1")],
+      [back("cfg:stats")]
+    ]));
+  }
+  if(data==="cfg:stats:purge:confirm1"){
+    const ss=getSession(uid);if(!ss||ss.flow!=="stats_purge_confirm1")return;
+    setSession(uid,gid,"stats_purge_confirm2",{});
+    return edit(msg.chat.id,msg.message_id,title("تأیید نهایی پاک‌سازی","مرحله ۲ از ۲\n\nآمار قدیمی به‌صورت دائمی حذف می‌شود."),keyboard([
+      [neutral("پاک‌سازی نهایی","cfg:stats:purge:confirm2")],
+      [back("cfg:stats")]
+    ]));
+  }
+  if(data==="cfg:stats:purge:confirm2"){
+    const ss=getSession(uid);if(!ss||ss.flow!=="stats_purge_confirm2")return;
+    const keep=(await loadConfig(pool,gid)).config.stats_retention_days||90;
+    const cutoff=Math.min(3650,Math.max(1,Number(keep)));
+    const results:any[]=[];
+    for(const table of ["supervision_events","content_lock_logs"]){
+      try{
+        const q=await pool.query("DELETE FROM "+table+" WHERE group_id=$1 AND created_at < NOW() - ($2 * INTERVAL '1 day')",[gid,cutoff]);
+        results.push((q.rowCount||0));
+      }catch{results.push(0);}
+    }
+    clearSession(uid);
+    return edit(msg.chat.id,msg.message_id,"✓ پاک‌سازی انجام شد. موارد حذف‌شده: "+results.reduce((a,b)=>a+b,0),keyboard([[back("cfg:stats")]]));
   }
 
   if(data==="cfg:backup")return renderBackups(pool,msg.chat.id,msg.message_id,gid);
