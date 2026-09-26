@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS bot_group_configuration (
   report_enabled BOOLEAN NOT NULL DEFAULT TRUE,
   daily_report_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   report_target_chat_id BIGINT,
+  membership_verification BOOLEAN NOT NULL DEFAULT FALSE,
+  rules_text TEXT NOT NULL DEFAULT '',
   stats_retention_days INTEGER NOT NULL DEFAULT 90 CHECK (stats_retention_days BETWEEN 1 AND 3650),
   forbidden_words JSONB NOT NULL DEFAULT '[]'::jsonb,
   default_commands_enabled BOOLEAN NOT NULL DEFAULT TRUE,
