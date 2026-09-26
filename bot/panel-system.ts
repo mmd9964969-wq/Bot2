@@ -4,7 +4,7 @@ import type { Pool } from "pg";
 import { telegramApi } from "../src/lib/telegram/api.ts";
 import type { Rank } from "../src/lib/bot/registry.ts";
 import { ensureContentLocks, editRichLockCenter } from "../src/lib/bot/content-locks.ts";
-import { glassKeyboard } from "../src/lib/bot/panel-design.ts";
+import { glassKeyboard, styledGlassButton } from "../src/lib/bot/panel-design.ts";
 import { getGroupLanguage, setGroupLanguage, ensureGroupLanguageSchema, normalizeBotLang, languageNative, languageButtonLabel, SUPPORTED_LANGUAGES, type BotLang } from "../src/lib/bot/i18n.ts";
 import { AUTOMATION_ACTIONS } from "../src/lib/bot/automation-engine.ts";
 import { executeRuntimeAction, isRuntimeMaintenance } from "./runtime-control.ts";
@@ -787,12 +787,11 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
         const a=fresh.rows[i],b=fresh.rows[i+1];
         const aLabel=labels[a.rule_key]||a.title||a.rule_key;
         const bLabel=b?(labels[b.rule_key]||b.title||b.rule_key):"";
-        const row:any=[[aLabel,"clt:"+a.rule_key+":"+(a.enabled?"off":"on")]];
+        const row:any[]=[[aLabel,"clt:"+a.rule_key+":"+(a.enabled?"off":"on")]];
         if(b)row.push([bLabel,"clt:"+b.rule_key+":"+(b.enabled?"off":"on")]);
         buttons.push(row);
       }
       const active=fresh.rows.filter((x:any)=>x.enabled).length;
-      buttons.unshift([["فعال‌سازی بخش","cls:"+section+":on"],["خاموش‌سازی بخش","cls:"+section+":off"]]);
       buttons.push([["‹ بازگشت","c:locks"]]);
       return {buttons,active,total:fresh.rows.length};
     };
@@ -801,7 +800,15 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
       panelTitle(names[section]||section,
         "⛂ - قوانین فعال : "+rendered.active+" از "+rendered.total+"\n\n⛂ - راهنما : رنگ دکمه وضعیت قفل را نشان می‌دهد."
       ),
-      menu(rendered.buttons)
+      {
+        inline_keyboard: rendered.buttons.map((row:any[])=>row.map((button:any)=>{
+          const label=String(button[0]??"");
+          const callbackData=String(button[1]??"");
+          if(/^‹\s*بازگشت/u.test(label)) return styledGlassButton("‹ بازگشت",callbackData,"primary");
+          const enabledNow=callbackData.endsWith(":off");
+          return styledGlassButton(label,callbackData,enabledNow?"success":"danger");
+        }))
+      }
     );
   }
 
