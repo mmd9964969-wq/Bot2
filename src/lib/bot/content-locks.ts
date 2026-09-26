@@ -404,10 +404,10 @@ async function lockSectionText(pool:Pool,groupId:number,section:string,title:str
   const active=rows.filter((x:any)=>x.enabled).length;
   const body=[
     "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · "+title,"",
-    "⛂ - وضعیت بخش : "+(active?"● فعال":"○ خاموش"),
-    "⛂ - قوانین : "+lockFmt(rows.length),
-    "⛂ - فعال : "+lockFmt(active),
-    "⛂ - خاموش : "+lockFmt(Math.max(0,rows.length-active))
+    "⛂ - قوانین فعال : "+lockFmt(active)+" از "+lockFmt(rows.length),"",
+    LOCK_PANEL_SEPARATOR,"",
+    "⛂ - راهنما : رنگ دکمه وضعیت قفل را نشان می‌دهد.","",
+    LOCK_PANEL_SEPARATOR
   ];
   for(const row of rows.slice(0,limit)) body.push("⛂ - "+(LOCK_LABELS[row.rule_key]||row.rule_key)+" : "+lockStateLine(!!row.enabled));
   return body.join("\n");
@@ -433,8 +433,8 @@ async function lockCenterText(pool:Pool,groupId:number){
 }
 export async function runContentLockCommand(pool:Pool,ctx:LockCommandContext,commandId:string,args:string[]):Promise<string>{
   const normalizedArgs=lockNorm(args.join(" "));
-  if(commandId==="lockall"||((commandId==="lock")&&normalizedArgs==="همه")){await pool.query("UPDATE content_lock_rules SET enabled=TRUE,updated_at=NOW() WHERE group_id=$1",[ctx.chatId]);cache.delete(ctx.chatId);return "━━━━━━━━━━━━━━━━━━━━━━━━\n◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ - Lᴏᴄᴋ Aʟʟ\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n✓ همه قفل‌های سیستم فعال شدند.\n⛂ - قوانین فعال : "+lockFmt((await lockRows(pool,ctx.chatId)).length); }
-  if(commandId==="unlockall"||((commandId==="unlock")&&normalizedArgs==="همه")){await pool.query("UPDATE content_lock_rules SET enabled=FALSE,updated_at=NOW() WHERE group_id=$1",[ctx.chatId]);cache.delete(ctx.chatId);return "━━━━━━━━━━━━━━━━━━━━━━━━\n◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ - Uɴʟᴏᴄᴋ Aʟʟ\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n✓ همه قفل‌های سیستم خاموش شدند."; }
+  if(commandId==="lockall"||((commandId==="lock")&&normalizedArgs==="همه")){await pool.query("UPDATE content_lock_rules SET enabled=TRUE,updated_at=NOW() WHERE group_id=$1",[ctx.chatId]);cache.delete(ctx.chatId);return "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Lᴏᴄᴋ Aʟʟ\n\n⛂ - وضعیت : فعال\n⛂ - قوانین فعال : "+lockFmt((await lockRows(pool,ctx.chatId)).length)+" از "+lockFmt((await lockRows(pool,ctx.chatId)).length); }
+  if(commandId==="unlockall"||((commandId==="unlock")&&normalizedArgs==="همه")){await pool.query("UPDATE content_lock_rules SET enabled=FALSE,updated_at=NOW() WHERE group_id=$1",[ctx.chatId]);cache.delete(ctx.chatId);return "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Uɴʟᴏᴄᴋ Aʟʟ\n\n⛂ - وضعیت : خاموش\n⛂ - قوانین فعال : 0 از "+lockFmt((await lockRows(pool,ctx.chatId)).length); }
   if(commandId==="lock"&&(!normalizedArgs||normalizedArgs==="وضعیت"||normalizedArgs==="status"||normalizedArgs==="ها"||normalizedArgs==="همه قفل‌ها"||normalizedArgs==="قفل‌ها"))return lockCenterText(pool,ctx.chatId);
   if(commandId==="lock"&&(normalizedArgs==="حالت عادی"||normalizedArgs==="قفل‌های حالت عادی"||normalizedArgs==="normal"||normalizedArgs==="normal locks"))return lockSectionText(pool,ctx.chatId,"normal","Nᴏʀᴍᴀʟ Lᴏᴄᴋs");
   if(commandId==="lock"&&(normalizedArgs==="زبان"||normalizedArgs==="قفل زبان"||normalizedArgs==="language"||normalizedArgs==="language locks"))return lockSectionText(pool,ctx.chatId,"language","Lᴀɴɢᴜᴀɢᴇ Lᴏᴄᴋs");
