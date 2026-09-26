@@ -799,7 +799,7 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     const active=rows.filter((item:any)=>item.enabled===true).length;
     return edit(msg.chat.id,msg.message_id,panelTitle(
       names[section]||section,
-      "⛂ - قوانین فعال : "+active+" از "+rows.length+"\\n\\n⛂ - راهنما : رنگ دکمه، وضعیت واقعی قفل را نشان می‌دهد."
+      "⛂ - قوانین فعال : "+active+" از "+rows.length+"\n\n⛂ - راهنما : رنگ دکمه وضعیت قفل را نشان می‌دهد."
     ),keyboard);
   };
 
