@@ -779,7 +779,6 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
       language_arabic:"زبان عربی",language_russian:"زبان روسی",language_turkish:"زبان ترکی",
       language_chinese:"زبان چینی",language_japanese:"زبان ژاپنی",language_korean:"زبان کره‌ای"
     };
-    const rows=await pool.query("SELECT rule_key,enabled,title FROM content_lock_rules WHERE group_id=$1 AND section=$2 ORDER BY id",[groupId,section]);
     const renderSection=async()=>{
       const fresh=await pool.query("SELECT rule_key,enabled,title FROM content_lock_rules WHERE group_id=$1 AND section=$2 ORDER BY id",[groupId,section]);
       const buttons:any[]=[];
@@ -861,7 +860,6 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
       buttons.push(row);
     }
     const active=fresh.rows.filter((x:any)=>x.enabled).length;
-    buttons.unshift([["فعال‌سازی بخش","cls:"+section+":on"],["خاموش‌سازی بخش","cls:"+section+":off"]]);
     buttons.push([["‹ بازگشت","c:locks"]]);
     return edit(msg.chat.id,msg.message_id,panelTitle(
       names[section]||section,
@@ -878,7 +876,7 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     return edit(msg.chat.id,msg.message_id,panelTitle(
       "مرکز قفل و فیلتر",
       "⛂ - وضعیت بخش : "+(value?"● فعال":"○ خاموش")+"\n⛂ - قوانین تغییرکرده : "+(result.rowCount||0)
-    ),menu([[["بازکردن بخش","cl:"+section],["‹ بازگشت به قفل‌ها","c:locks"]]]));
+    ),menu([[["مدیریت قفل‌ها","cl:"+section],["‹ بازگشت","c:locks"]]]));
   }
 
   if(data==="c:automation"){
