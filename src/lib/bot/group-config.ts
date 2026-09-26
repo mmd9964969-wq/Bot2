@@ -165,7 +165,7 @@ async function saveField(pool:Pool,groupId:number,field:string,value:any){
   const allowed=new Set([
     "system_enabled","system_notifications","command_prefix","timezone","quiet_mode_enabled",
     "quiet_start","quiet_end","default_message","report_enabled","daily_report_enabled",
-    "report_target_chat_id","stats_retention_days","forbidden_words","default_commands_enabled",
+    "report_target_chat_id","membership_verification","rules_text","stats_retention_days","forbidden_words","default_commands_enabled",
     "welcome_button","welcome_media","goodbye_media"
   ]);
   if(!allowed.has(field))throw new Error("invalid_config_field");
@@ -240,7 +240,7 @@ async function welcomePage(pool:Pool,chatId:number,messageId:number,groupId:numb
     "\n⛂ - پیام خوش‌آمد : "+(clean(settings.welcome_text)||"تنظیم نشده")+
     "\n⛂ - متغیرها : {name} {username} {id} {group} {count}"
   ),keyboard([
-    [toggle("خوش‌آمدگویی","cfg:welcome:toggle:welcome_enabled",settings.welcome_enabled),toggle("تأیید عضویت","cfg:welcome:toggle:welcome_enabled",settings.welcome_enabled)],
+    [toggle("خوش‌آمدگویی","cfg:welcome:toggle:welcome_enabled",settings.welcome_enabled),toggle("تأیید عضویت","cfg:welcome:toggle:membership_verification",(await loadConfig(pool,groupId)).config.membership_verification)],
     [toggle("ارسال قوانین","cfg:welcome:toggle:rules_on_join",settings.rules_on_join),toggle("خوش‌آمدگویی خصوصی","cfg:welcome:toggle:pv_welcome",settings.pv_welcome)],
     [neutral("متن خوش‌آمدگویی","cfg:input:welcome_text"),neutral("متن خداحافظی","cfg:input:goodbye_text")],
     [neutral("متن قوانین","cfg:input:rules_text"),neutral("رسانه خوش‌آمدگویی","cfg:media:welcome")],
@@ -284,6 +284,7 @@ async function securityPage(pool:Pool,chatId:number,messageId:number,groupId:num
   await ensureContentLocks(pool,groupId);
   await ensureConfig(pool,groupId);
   const settings=(await pool.query("SELECT * FROM bot_group_settings WHERE group_id=$1 LIMIT 1",[groupId])).rows[0]??{};
+  const config=(await loadConfig(pool,groupId)).config;
   const locks=(await pool.query("SELECT rule_key,enabled FROM content_lock_rules WHERE group_id=$1 AND rule_key IN ('normal_bot','attack_join_flood') ORDER BY rule_key",[groupId])).rows;
   const antiBot=locks.find((x:any)=>x.rule_key==="normal_bot")?.enabled===true;
   const joinFlood=locks.find((x:any)=>x.rule_key==="attack_join_flood")?.enabled===true;
@@ -418,6 +419,8 @@ export async function ensureGroupConfigSchema(pool:Pool){
       report_enabled BOOLEAN NOT NULL DEFAULT TRUE,
       daily_report_enabled BOOLEAN NOT NULL DEFAULT FALSE,
       report_target_chat_id BIGINT,
+      membership_verification BOOLEAN NOT NULL DEFAULT FALSE,
+      rules_text TEXT NOT NULL DEFAULT '',
       stats_retention_days INTEGER NOT NULL DEFAULT 90,
       forbidden_words JSONB NOT NULL DEFAULT '[]'::jsonb,
       default_commands_enabled BOOLEAN NOT NULL DEFAULT TRUE,
@@ -495,10 +498,10 @@ export async function handleGroupConfigInput(pool:Pool,msg:TgMessage){
       const words=value.split(/[,،\\n]+/).map((x:string)=>x.trim().toLowerCase()).filter(Boolean).slice(0,200);
       await saveField(pool,gid,field,words);
     }else if(field==="welcome_text"||field==="goodbye_text"||field==="rules_text"){
-      const col=field==="welcome_text"?"welcome_text":field==="goodbye_text"?"goodbye_text":"rules_on_join";
+      const col=field==="welcome_text"?"welcome_text":"goodbye_text";
       if(field==="rules_text"){
+        await saveField(pool,gid,"rules_text",value.slice(0,4000));
         await pool.query("UPDATE bot_group_settings SET rules_on_join=TRUE,updated_at=NOW() WHERE group_id=$1",[gid]);
-        await pool.query("INSERT INTO bot_group_configuration(group_id,default_message) VALUES($1,$2) ON CONFLICT(group_id) DO UPDATE SET default_message=EXCLUDED.default_message,updated_at=NOW()",[gid,value.slice(0,4000)]);
       }else{
         await pool.query("UPDATE bot_group_settings SET "+col+"=$1,updated_at=NOW() WHERE group_id=$2",[value.slice(0,4000),gid]);
       }
@@ -702,10 +705,15 @@ export async function handleGroupConfigCallback(pool:Pool,cb:TgCallback){
     return edit(msg.chat.id,msg.message_id,title("مدت جریمه","مدت را با قالب «عدد واحد» ارسال کنید؛ نمونه: 6 hours یا 2 روز."),keyboard([[back("cfg:warning:levels")]]));
   }
 
-  if(data==="cfg:welcome:toggle:welcome_enabled"||data==="cfg:welcome:toggle:rules_on_join"||data==="cfg:welcome:toggle:pv_welcome"){
+  if(data==="cfg:welcome:toggle:welcome_enabled"||data==="cfg:welcome:toggle:rules_on_join"||data==="cfg:welcome:toggle:pv_welcome"||data==="cfg:welcome:toggle:membership_verification"){
     const field=data.slice("cfg:welcome:toggle:".length);
-    const current=(await pool.query("SELECT "+field+" FROM bot_group_settings WHERE group_id=$1",[gid])).rows[0]?.[field]===true;
-    await pool.query("UPDATE bot_group_settings SET "+field+"=$1,updated_at=NOW() WHERE group_id=$2",[!current,gid]);
+    if(field==="membership_verification"){
+      const current=(await loadConfig(pool,gid)).config.membership_verification===true;
+      await saveField(pool,gid,field,!current);
+    }else{
+      const current=(await pool.query("SELECT "+field+" FROM bot_group_settings WHERE group_id=$1",[gid])).rows[0]?.[field]===true;
+      await pool.query("UPDATE bot_group_settings SET "+field+"=$1,updated_at=NOW() WHERE group_id=$2",[!current,gid]);
+    }
     return welcomePage(pool,msg.chat.id,msg.message_id,gid);
   }
 
