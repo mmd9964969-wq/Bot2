@@ -74,6 +74,29 @@ export async function runAutomations(pool:Pool,groupId:number,userId:number,firs
   return acted;
 }
 
+async function renderDailyReport(pool:Pool,sourceGroupId:number){
+  const [events,warnings,locks,commands,schedules]=await Promise.all([
+    pool.query("SELECT COUNT(*)::int n FROM supervision_events WHERE group_id=$1 AND created_at>=CURRENT_DATE",[sourceGroupId]).catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(*)::int n FROM warning_events WHERE group_id=$1 AND created_at>=CURRENT_DATE",[sourceGroupId]).catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(*)::int n FROM content_lock_logs WHERE group_id=$1 AND created_at>=CURRENT_DATE",[sourceGroupId]).catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(*)::int n FROM bot_group_commands WHERE group_id=$1 AND enabled=TRUE",[sourceGroupId]).catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(*)::int n FROM bot_schedules WHERE group_id=$1 AND enabled=TRUE",[sourceGroupId]).catch(()=>({rows:[{n:0}]}))
+  ]);
+  return [
+    "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Dᴀɪʟʏ Rᴇᴘᴏʀᴛ",
+    "",
+    "─────━━───── ◈ ─────━━─────",
+    "",
+    "⛂ - رویدادهای امروز : "+Number(events.rows[0]?.n||0),
+    "⛂ - اخطارهای امروز : "+Number(warnings.rows[0]?.n||0),
+    "⛂ - تخلف‌های قفل محتوا : "+Number(locks.rows[0]?.n||0),
+    "⛂ - دستورات فعال : "+Number(commands.rows[0]?.n||0),
+    "⛂ - زمان‌بندی‌های فعال : "+Number(schedules.rows[0]?.n||0),
+    "",
+    "⛂ - زمان گزارش : "+new Date().toLocaleString("fa-IR")
+  ].join("\n");
+}
+
 export async function tickSchedules(pool:Pool){
   const rows=await pool.query(
     "SELECT id,group_id,creator_id,message_text,send_at,repeat_seconds FROM bot_schedules WHERE enabled=TRUE AND send_at<=NOW() ORDER BY send_at LIMIT 20"
@@ -83,7 +106,10 @@ export async function tickSchedules(pool:Pool){
     if(scheduleLocks.has(key))continue;
     scheduleLocks.add(key);
     try{
-      const result=await telegramApi("sendMessage",{chat_id:Number(row.group_id),text:String(row.message_text||"")});
+      const rawMessage=String(row.message_text||"");
+      const reportMarker=rawMessage.match(/^__PERSIAN_BOT_DAILY_REPORT__:(-?\\d+)$/);
+      const messageText=reportMarker?await renderDailyReport(pool,Number(reportMarker[1])):rawMessage;
+      const result=await telegramApi("sendMessage",{chat_id:Number(row.group_id),text:messageText});
       if(Number(row.repeat_seconds||0)>0){
         let next=new Date(row.send_at).getTime()+Number(row.repeat_seconds)*1000;
         while(next<=Date.now())next+=Number(row.repeat_seconds)*1000;
