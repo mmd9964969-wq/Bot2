@@ -780,23 +780,28 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
       language_chinese:"زبان چینی",language_japanese:"زبان ژاپنی",language_korean:"زبان کره‌ای"
     };
     const rows=await pool.query("SELECT rule_key,enabled,title FROM content_lock_rules WHERE group_id=$1 AND section=$2 ORDER BY id",[groupId,section]);
-    const buttons:any=[];
-    for(let i=0;i<rows.rows.length;i+=2){
-      const a=rows.rows[i],b=rows.rows[i+1];
-      const aLabel=labels[a.rule_key]||a.title||a.rule_key;
-      const bLabel=b?(labels[b.rule_key]||b.title||b.rule_key):"";
-      const row:any=[[(a.enabled?"خاموش‌سازی":"فعال‌سازی")+" | "+aLabel,"clt:"+a.rule_key+":"+(a.enabled?"off":"on")]];
-      if(b)row.push([((b.enabled?"خاموش‌سازی":"فعال‌سازی")+" | "+bLabel),"clt:"+b.rule_key+":"+(b.enabled?"off":"on")]);
-      buttons.push(row);
-    }
-    const active=rows.rows.filter((x:any)=>x.enabled).length;
-    buttons.unshift([["فعال‌سازی بخش","cls:"+section+":on"],["خاموش‌سازی بخش","cls:"+section+":off"]]);
-    buttons.push([["‹ بازگشت","c:locks"]]);
+    const renderSection=async()=>{
+      const fresh=await pool.query("SELECT rule_key,enabled,title FROM content_lock_rules WHERE group_id=$1 AND section=$2 ORDER BY id",[groupId,section]);
+      const buttons:any[]=[];
+      for(let i=0;i<fresh.rows.length;i+=2){
+        const a=fresh.rows[i],b=fresh.rows[i+1];
+        const aLabel=labels[a.rule_key]||a.title||a.rule_key;
+        const bLabel=b?(labels[b.rule_key]||b.title||b.rule_key):"";
+        const row:any=[[aLabel,"clt:"+a.rule_key+":"+(a.enabled?"off":"on")]];
+        if(b)row.push([bLabel,"clt:"+b.rule_key+":"+(b.enabled?"off":"on")]);
+        buttons.push(row);
+      }
+      const active=fresh.rows.filter((x:any)=>x.enabled).length;
+      buttons.unshift([["فعال‌سازی بخش","cls:"+section+":on"],["خاموش‌سازی بخش","cls:"+section+":off"]]);
+      buttons.push([["‹ بازگشت","c:locks"]]);
+      return {buttons,active,total:fresh.rows.length};
+    };
+    const rendered=await renderSection();
     return edit(msg.chat.id,msg.message_id,
       panelTitle(names[section]||section,
-        "⛂ - قوانین فعال : "+active+" از "+rows.rows.length+"\n\n⛂ - راهنما : روی هر قفل بزنید تا فقط همان قانون تغییر کند."
+        "⛂ - قوانین فعال : "+rendered.active+" از "+rendered.total+"\n\n⛂ - راهنما : رنگ دکمه وضعیت قفل را نشان می‌دهد."
       ),
-      menu(buttons)
+      menu(rendered.buttons)
     );
   }
 
@@ -809,10 +814,52 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     const next=requested==="on"?true:requested==="off"?false:!r.rows[0].enabled;
     await pool.query("UPDATE content_lock_rules SET enabled=$1,updated_at=NOW() WHERE group_id=$2 AND rule_key=$3",[next,groupId,key]);
     await audit(pool,String(uid),"content_lock_rule_changed",key,{groupId,enabled:next});
+    const section=String(r.rows[0].section||"normal");
+    const names:any={
+      normal:"قفل‌های حالت عادی",media:"رسانه",links:"لینک‌ها",advertising:"تبلیغات",
+      forwarding:"فوروارد و اشتراک‌گذاری",files:"فایل و سند",messages:"پیام و نرخ ارسال",
+      interactions:"تعامل و هویت",advanced:"محتوای پیشرفته",anti_attack:"امنیت و ضد اتک",language:"قفل زبان"
+    };
+    const labels:any={
+      normal_media:"رسانه",normal_links:"لینک",normal_ads:"تبلیغات",normal_files:"فایل",normal_forward:"فوروارد",
+      normal_contact:"تماس",normal_location:"موقعیت",normal_poll:"نظرسنجی",normal_dice:"تاس",normal_game:"بازی",
+      normal_web_app:"وب‌اپ",normal_reply:"ریپلای",normal_edit:"ویرایش",normal_mention:"منشن",normal_bot:"ورود ربات",
+      media_photo:"عکس",media_video:"ویدیو",media_audio:"موزیک",media_animation:"GIF",media_sticker:"استیکر",
+      media_voice:"ویس",media_video_note:"ویدیو نوت",links_all:"تمام لینک‌ها",links_telegram:"لینک تلگرام",
+      links_external:"لینک خارجی",links_invites:"لینک دعوت",links_username:"یوزرنیم لینک",links_phone:"شماره در لینک",
+      links_auto_delete:"حذف خودکار لینک",links_notify:"اعلان لینک",advertising_text:"متن تبلیغاتی",
+      advertising_links:"لینک تبلیغاتی",advertising_invites:"دعوت تبلیغاتی",advertising_phone:"شماره تبلیغاتی",
+      advertising_username:"یوزرنیم تبلیغاتی",forward_all:"همه فورواردها",forward_groups:"فوروارد گروه‌ها",
+      forward_channels:"فوروارد کانال‌ها",forward_private:"فوروارد پیوی",forward_auto_delete:"حذف خودکار فوروارد",
+      forward_notify:"اعلان فوروارد",file_documents:"اسناد",file_archives:"فایل فشرده",file_executables:"فایل اجرایی",
+      file_auto_delete:"حذف فایل",file_max_size:"حداکثر طول",file_max_size:"حداکثر حجم فایل",message_min_length:"حداقل طول",
+      message_max_length:"حداکثر طول",message_rate_limit:"محدودیت نرخ",reply_lock:"ریپلای",edit_lock:"ویرایش",
+      hashtag_limit:"محدودیت هشتگ",mention_limit:"محدودیت منشن",username_lock:"یوزرنیم",phone_lock:"شماره تلفن",
+      email_lock:"ایمیل",web_preview_lock:"پیش‌نمایش لینک",story_share_lock:"اشتراک‌گذاری استوری",
+      contact_lock:"مخاطب",location_lock:"موقعیت",poll_lock:"نظرسنجی",dice_lock:"تاس",game_lock:"بازی",
+      web_app_lock:"وب‌اپ",bot_join_lock:"ورود ربات",attack_flood:"ضد فلود",attack_duplicate:"ضد تکرار",
+      attack_caps:"کنترل حروف بزرگ",attack_link_burst:"ضد حمله لینک",attack_media_burst:"ضد حمله رسانه",
+      attack_join_flood:"ضد هجوم عضو",language_persian:"زبان فارسی",language_english:"زبان انگلیسی",
+      language_arabic:"زبان عربی",language_russian:"زبان روسی",language_turkish:"زبان ترکی",
+      language_chinese:"زبان چینی",language_japanese:"زبان ژاپنی",language_korean:"زبان کره‌ای"
+    };
+    const fresh=await pool.query("SELECT rule_key,enabled,title FROM content_lock_rules WHERE group_id=$1 AND section=$2 ORDER BY id",[groupId,section]);
+    const buttons:any[]=[];
+    for(let i=0;i<fresh.rows.length;i+=2){
+      const a=fresh.rows[i],b=fresh.rows[i+1];
+      const aLabel=labels[a.rule_key]||a.title||a.rule_key;
+      const bLabel=b?(labels[b.rule_key]||b.title||b.rule_key):"";
+      const row:any=[[aLabel,"clt:"+a.rule_key+":"+(a.enabled?"off":"on")]];
+      if(b)row.push([bLabel,"clt:"+b.rule_key+":"+(b.enabled?"off":"on")]);
+      buttons.push(row);
+    }
+    const active=fresh.rows.filter((x:any)=>x.enabled).length;
+    buttons.unshift([["فعال‌سازی بخش","cls:"+section+":on"],["خاموش‌سازی بخش","cls:"+section+":off"]]);
+    buttons.push([["‹ بازگشت","c:locks"]]);
     return edit(msg.chat.id,msg.message_id,panelTitle(
-      "مرکز قفل و فیلتر",
-      "⛂ - قفل : "+(r.rows[0].title||key)+"\n⛂ - وضعیت : "+(next?"● فعال":"○ خاموش")
-    ),menu([[["‹ بازگشت به قفل‌ها","c:locks"]]]));
+      names[section]||section,
+      "⛂ - قوانین فعال : "+active+" از "+fresh.rows.length+"\n\n⛂ - راهنما : رنگ دکمه وضعیت قفل را نشان می‌دهد."
+    ),menu(buttons));
   }
 
   if(data.startsWith("cls:")){
