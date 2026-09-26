@@ -733,11 +733,6 @@ async function processMessage(msg: TgMessage, edited = false) {
   if (studioPool && await dispatchPanelMessage(studioPool, msg, config.ownerIds)) return;
 
   if (!isPrivate && studioPool) {
-    const groupConfig=(await studioPool.query<{system_enabled:boolean}>(
-      "SELECT system_enabled FROM bot_group_configuration WHERE group_id=$1 LIMIT 1",
-      [chat.id],
-    ).catch(()=>({rows:[] as any[]}))).rows[0];
-    if (groupConfig && groupConfig.system_enabled===false) return;
     const blocked = await enforceContentLocks({
       pool: studioPool,
       groupId: chat.id,
