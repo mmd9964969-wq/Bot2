@@ -234,7 +234,7 @@ async function welcomePage(pool:Pool,chatId:number,messageId:number,groupId:numb
   return edit(chatId,messageId,title("خوش‌آمدگویی و خروج",
     "⛂ - خوش‌آمدگویی : "+(settings.welcome_enabled?"فعال":"خاموش")+
     "\n⛂ - خداحافظی : "+(settings.goodbye_text?"تنظیم شده":"خالی")+
-    "\n⛂ - تأیید عضویت : "+(settings.welcome_enabled?"فعال":"خاموش")+
+    "\n⛂ - تأیید عضویت : "+((await loadConfig(pool,groupId)).config.membership_verification?"فعال":"خاموش")+
     "\n⛂ - ارسال قوانین : "+(settings.rules_on_join?"فعال":"خاموش")+
     "\n⛂ - خوش‌آمدگویی خصوصی : "+(settings.pv_welcome?"فعال":"خاموش")+
     "\n⛂ - پیام خوش‌آمد : "+(clean(settings.welcome_text)||"تنظیم نشده")+
@@ -476,8 +476,8 @@ export async function handleGroupConfigInput(pool:Pool,msg:TgMessage){
   if(s.flow==="input"){
     const field=String(s.data.field||"");
     if(field==="stats_retention_days"){
-      const n=Math.max(1,Math.min(3650,Number(value)||0));
-      if(!n)return send(msg.chat.id,"مقدار نگهداری باید بین ۱ تا ۳۶۵۰ روز باشد.").then(()=>true);
+      const n=Number(value);
+      if(!Number.isInteger(n)||n<1||n>3650)return send(msg.chat.id,"مقدار نگهداری باید بین ۱ تا ۳۶۵۰ روز باشد.").then(()=>true);
       await saveField(pool,gid,field,n);
     }else if(field==="report_target_chat_id"||field==="new_account_days"){
       const n=Number(value);if(!Number.isSafeInteger(n))return send(msg.chat.id,"شناسه یا مقدار عددی معتبر نیست.").then(()=>true);
@@ -643,7 +643,7 @@ export async function handleGroupConfigCallback(pool:Pool,cb:TgCallback){
     if(field==="report_target"||field==="new_account_days"||field==="retention") {
       const dbField=field==="report_target"?"report_target_chat_id":field==="retention"?"stats_retention_days":"new_account_days";
       setSession(uid,gid,"input",{field:dbField});
-      return edit(msg.chat.id,msg.message_id,title("تنظیم مقدار","⛂ - مقدار جدید را ارسال کنید."),keyboard([[back(field==="new_account_days"?"cfg:security":"cfg:"+field)]]));
+      return edit(msg.chat.id,msg.message_id,title("تنظیم مقدار","⛂ - مقدار جدید را ارسال کنید."),keyboard([[back(field==="new_account_days"?"cfg:security":"cfg:stats")]]));
     }
     const allowed=["prefix","timezone","default_message","welcome_text","goodbye_text","rules_text"];
     const map:any={prefix:"command_prefix",timezone:"timezone",default_message:"default_message"};
@@ -731,7 +731,7 @@ export async function handleGroupConfigCallback(pool:Pool,cb:TgCallback){
       const next=!current;
       if(mode==="full_lock"){
         const permissions=next
-          ?{can_send_messages:false,can_send_audios:false,can_documents:false,can_send_documents:false,can_send_photos:false,can_send_videos:false,can_send_video_notes:false,can_send_voice_notes:false,can_send_polls:false,can_send_other_messages:false,can_add_web_page_previews:false}
+          ?{can_send_messages:false,can_send_audios:false,can_send_documents:false,can_send_photos:false,can_send_videos:false,can_send_video_notes:false,can_send_voice_notes:false,can_send_polls:false,can_send_other_messages:false,can_add_web_page_previews:false}
           :{can_send_messages:true,can_send_audios:true,can_send_documents:true,can_send_photos:true,can_send_videos:true,can_send_video_notes:true,can_send_voice_notes:true,can_send_polls:true,can_send_other_messages:true,can_add_web_page_previews:true};
         const tg=await telegramApi("setChatPermissions",{chat_id:gid,permissions,use_independent_chat_permissions:true});
         if(!tg.ok)return edit(msg.chat.id,msg.message_id,title("مرکز امنیت","⛂ - Telegram : "+(tg.description||"خطا")),keyboard([[back("cfg:security")]]));
