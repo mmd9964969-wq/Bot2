@@ -251,7 +251,7 @@ const LOCK_BUNDLE_KEYS=[
   "normal_media","normal_links","normal_ads","normal_files","normal_forward","normal_contact","normal_location","normal_poll","normal_dice","normal_game","normal_web_app","normal_reply","normal_edit","normal_mention","normal_bot"
 ];
 const LOCK_LABELS:Record<string,string>={
-  normal_media:"رسانه",normal_links:"لینک",normal_ads:"تبلیغات",normal_files:"فایل",normal_forward:"فوروارد",normal_contact:"تماس",normal_location:"موقعیت",normal_poll:"نظرسنجی",normal_dice:"تاس",normal_game:"بازی",normal_web_app:"وب اپ",normal_reply:"ریپلای",normal_edit:"ویرایش",normal_mention:"منشن",normal_bot:"ربات",
+  normal_media:"رسانه",normal_links:"لینک‌ها",normal_ads:"تبلیغات",normal_files:"فایل",normal_forward:"فوروارد",normal_contact:"تماس",normal_location:"موقعیت",normal_poll:"نظرسنجی",normal_dice:"تاس",normal_game:"بازی",normal_web_app:"وب اپ",normal_reply:"ریپلای",normal_edit:"ویرایش",normal_mention:"منشن",normal_bot:"ربات",
   media_photo:"عکس",media_video:"ویدیو",media_audio:"موزیک",media_animation:"گیف",media_sticker:"استیکر",media_voice:"ویس",media_video_note:"ویدیو نوت",
   file_documents:"سند",file_archives:"فایل فشرده",file_executables:"فایل اجرایی",file_max_size:"حداکثر حجم فایل",
   links_all:"همه لینک‌ها",links_telegram:"لینک تلگرام",links_external:"لینک خارجی",links_invites:"لینک دعوت",links_username:"یوزرنیم لینک",links_phone:"شماره در لینک",
