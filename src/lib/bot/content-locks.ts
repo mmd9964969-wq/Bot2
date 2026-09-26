@@ -481,6 +481,23 @@ async function enforceContentLocksNow(input:Input):Promise<boolean>{
   const text=input.text||"";
   const entities=[...(input.message.entities??[]),...(input.message.caption_entities??[])];
 
+  // Group configuration blacklist: forbidden words are enforced through the same
+  // exception system used by content locks, so admins/allowlisted users remain exempt.
+  if(text){
+    try{
+      const cfg=(await input.pool.query("SELECT forbidden_words FROM bot_group_configuration WHERE group_id=$1 LIMIT 1",[input.groupId])).rows[0];
+      const words=Array.isArray(cfg?.forbidden_words)?cfg.forbidden_words.map((x:any)=>String(x).trim().toLowerCase()).filter(Boolean):[];
+      const hit=words.find((word:string)=>word.length>=2&&text.toLowerCase().includes(word));
+      if(hit && !(await exceptionMatches(data,input,"normal","forbidden_words"))){
+        try{await telegramApi("deleteMessage",{chat_id:input.groupId,message_id:input.message.message_id});}catch{}
+        await log(input.pool!,input,"forbidden_words","forbidden_word","delete",{word:hit});
+        return true;
+      }
+    }catch(error){
+      console.error("[content-locks] forbidden-word lookup failed:",error);
+    }
+  }
+
   if(input.edited&&enabled(data,"normal_edit")&&await block(input,data,"normal_edit","edited_message","قفل ویرایش حالت عادی"))return true;
   if(input.edited&&enabled(data,"edit_lock")&&await block(input,data,"edit_lock","edited_message","پیام ویرایش‌شده"))return true;
   if(input.message.reply_to_message&&enabled(data,"normal_reply")&&await block(input,data,"normal_reply","reply","قفل ریپلای حالت عادی"))return true;
