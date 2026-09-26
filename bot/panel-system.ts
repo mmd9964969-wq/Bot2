@@ -384,13 +384,13 @@ function dashboardDate(value:unknown){
 async function customerStatus(pool:Pool,uid:number,chatId:number,period:CustomerStatusPeriod="today"){
   await Promise.all([
     ensureContentLocks(pool,chatId).catch(()=>{}),
-    ensureGroupConfigSchema(pool,chatId).catch(()=>{})
+    ensureGroupConfigSchema(pool).catch(()=>{})
   ]);
 
   const periodStart=customerStatusPeriodStart(period);
   const periodWhere=" AND created_at>="+periodStart;
 
-  const [chat,memberCount,admins,me,dbCheck,group,customerGroup,settings,config,lockSettings,lockSummary,warningSummary,limitedSummary,bannedSummary,periodWarnings,periodBans,periodKicks,periodMutes,periodSecurity,lastWarning,lastBan,lastMute,lastSettings,lastLock,lastMembership,lastSecurity,license]=await Promise.all([
+  const [chat,memberCount,admins,me,dbCheck,group,customerGroup,settings,warningSettings,config,lockSettings,lockSummary,warningSummary,limitedSummary,bannedSummary,periodWarnings,periodBans,periodKicks,periodMutes,periodSecurity,lastWarning,lastBan,lastMute,lastSettings,lastLock,lastMembership,lastSecurity,license]=await Promise.all([
     telegramApi<any>("getChat",{chat_id:chatId}).catch(()=>({ok:false,result:null})),
     telegramApi<any>("getChatMemberCount",{chat_id:chatId}).catch(()=>({ok:false,result:null})),
     telegramApi<any[]>("getChatAdministrators",{chat_id:chatId}).catch(()=>({ok:false,result:[]})),
@@ -399,6 +399,7 @@ async function customerStatus(pool:Pool,uid:number,chatId:number,period:Customer
     pool.query("SELECT * FROM bot_groups WHERE id=$1 LIMIT 1",[chatId]).catch(()=>({rows:[]})),
     pool.query("SELECT last_seen_at,is_active,title FROM bot_customer_groups WHERE group_id=$1 AND customer_id=$2 LIMIT 1",[chatId,uid]).catch(()=>({rows:[]})),
     pool.query("SELECT * FROM bot_group_settings WHERE group_id=$1 LIMIT 1",[chatId]).catch(()=>({rows:[]})),
+    pool.query("SELECT * FROM warning_system_settings WHERE group_id=$1 LIMIT 1",[chatId]).catch(()=>({rows:[]})),
     pool.query("SELECT * FROM bot_group_configuration WHERE group_id=$1 LIMIT 1",[chatId]).catch(()=>({rows:[]})),
     pool.query("SELECT enabled,updated_at FROM content_lock_settings WHERE group_id=$1 LIMIT 1",[chatId]).catch(()=>({rows:[]})),
     pool.query("SELECT COUNT(*)::int total,COUNT(*) FILTER(WHERE enabled)::int active,MAX(updated_at) AS last_change FROM content_lock_rules WHERE group_id=$1",[chatId]).catch(()=>({rows:[{total:0,active:0,last_change:null}]})),
@@ -502,7 +503,7 @@ async function customerStatus(pool:Pool,uid:number,chatId:number,period:Customer
     "⛂ - ضدلینک : "+dashboardStatus(antiLinks.rows.length>0),
     "⛂ - ضدربات : "+dashboardStatus(antiBot.rows.length>0),
     "⛂ - محافظت از اعضا : "+dashboardStatus(configRow.membership_verification===true),
-    "⛂ - محافظت از ادمین‌ها : "+dashboardStatus(settingsRow.exempt_admins!==false),
+    "⛂ - محافظت از ادمین‌ها : "+dashboardStatus(warningSettingsRow.exempt_admins!==false),
     "⛂ - حالت اضطراری : "+dashboardStatus(settingsRow.emergency_mode===true),
     "",
     "─────━━───── ◈ ─────━━─────","",
