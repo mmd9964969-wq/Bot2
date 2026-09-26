@@ -29,6 +29,7 @@ function visualButtonLabel(label:string,style:TelegramButtonStyle|undefined){
   const clean=cleanButtonLabel(raw);
   if(!clean)return style==="primary"?"‹":"›";
   if(style==="primary")return "‹ "+clean;
+  if(style==="success"||style==="danger")return clean;
   return "› "+clean;
 }
 
