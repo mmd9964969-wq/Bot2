@@ -452,6 +452,7 @@ async function customerStatus(pool:Pool,uid:number,chatId:number,period:Customer
   const groupRow=group.rows[0]??{};
   const customerGroupRow=customerGroup.rows[0]??{};
   const settingsRow=settings.rows[0]??{};
+  const warningSettingsRow=warningSettings.rows[0]??{};
   const configRow=config.rows[0]??{};
   const lockSettingsRow=lockSettings.rows[0]??{};
   const lockSummaryRow=lockSummary.rows[0]??{total:0,active:0,last_change:null};
