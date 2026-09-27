@@ -30,6 +30,7 @@ export const Route=createFileRoute("/game/$sessionId")({component:GameMiniApp});
 
 function GameMiniApp(){
   const {sessionId}=Route.useParams();
+  const launchToken=new URLSearchParams(typeof window!=="undefined"?window.location.search:"").get("launch")||"";
   const [session,setSession]=useState<SessionState|null>(null);
   const [score,setScore]=useState(0);
   const [busy,setBusy]=useState(false);
@@ -56,10 +57,10 @@ function GameMiniApp(){
 
   async function action(action:string,payload:string,add=10){
     const initData=window.Telegram?.WebApp?.initData||"";
-    if(!initData){setError("این بازی باید از داخل Telegram اجرا شود.");return;}
+    if(!initData&&!launchToken){setError("لینک اجرای بازی معتبر نیست. بازی را از دکمه «اجرای بازی» باز کنید.");return;}
     setBusy(true);setError("");
     try{
-      const r=await fetch("/api/game",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({sessionId:Number(sessionId),action,payload,initData})});
+      const r=await fetch("/api/game",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({sessionId:Number(sessionId),action,payload,initData,launchToken})});
       const x=await r.json();if(!x.ok)throw new Error(x.error||"game_error");
       setSession(x.session);if(action==="move")setScore(v=>Math.min(1000,v+add));
     }catch(e:any){setError(String(e.message||e));}
