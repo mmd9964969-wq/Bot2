@@ -139,7 +139,7 @@ function typeLabel(type: string) {
 }
 
 async function ensureInviteLinkSchema(pool: Pool) {
-  await pool.query(\`CREATE TABLE IF NOT EXISTS group_invite_links (
+  await pool.query(`CREATE TABLE IF NOT EXISTS group_invite_links (
     id BIGSERIAL PRIMARY KEY,
     group_id BIGINT NOT NULL,
     telegram_invite_link TEXT NOT NULL UNIQUE,
@@ -161,8 +161,8 @@ async function ensureInviteLinkSchema(pool: Pool) {
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     revoked_at TIMESTAMPTZ,
     consumed_at TIMESTAMPTZ
-  )\`);
-  await pool.query(\`CREATE TABLE IF NOT EXISTS invite_link_events (
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS invite_link_events (
     id BIGSERIAL PRIMARY KEY,
     group_id BIGINT NOT NULL,
     invite_link_id BIGINT REFERENCES group_invite_links(id) ON DELETE CASCADE,
@@ -170,8 +170,8 @@ async function ensureInviteLinkSchema(pool: Pool) {
     event_type TEXT NOT NULL,
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )\`);
-  await pool.query(\`CREATE TABLE IF NOT EXISTS invite_link_join_requests (
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS invite_link_join_requests (
     id BIGSERIAL PRIMARY KEY,
     group_id BIGINT NOT NULL,
     invite_link_id BIGINT REFERENCES group_invite_links(id) ON DELETE CASCADE,
@@ -183,8 +183,8 @@ async function ensureInviteLinkSchema(pool: Pool) {
     processed_at TIMESTAMPTZ,
     processed_by BIGINT,
     UNIQUE(invite_link_id,user_id)
-  )\`);
-  await pool.query(\`CREATE TABLE IF NOT EXISTS invite_link_flows (
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS invite_link_flows (
     user_id BIGINT NOT NULL,
     group_id BIGINT NOT NULL,
     state TEXT NOT NULL,
@@ -192,7 +192,7 @@ async function ensureInviteLinkSchema(pool: Pool) {
     message_id BIGINT,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY(user_id,group_id)
-  )\`);
+  )`);
   await pool.query("CREATE INDEX IF NOT EXISTS idx_group_invite_links_group ON group_invite_links(group_id)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_group_invite_links_active ON group_invite_links(group_id,is_active)");
 }
@@ -228,9 +228,9 @@ async function getFlow(pool: Pool, userId: number, groupId: number): Promise<Flo
 
 async function setFlow(pool: Pool, userId: number, groupId: number, state: string, data: Record<string, unknown>, messageId: number | null) {
   await pool.query(
-    \`INSERT INTO invite_link_flows(user_id,group_id,state,data,message_id,updated_at)
+    `INSERT INTO invite_link_flows(user_id,group_id,state,data,message_id,updated_at)
      VALUES($1,$2,$3,$4::jsonb,$5,NOW())
-     ON CONFLICT(user_id,group_id) DO UPDATE SET state=EXCLUDED.state,data=EXCLUDED.data,message_id=EXCLUDED.message_id,updated_at=NOW()\`,
+     ON CONFLICT(user_id,group_id) DO UPDATE SET state=EXCLUDED.state,data=EXCLUDED.data,message_id=EXCLUDED.message_id,updated_at=NOW()`,
     [userId, groupId, state, JSON.stringify(data), messageId],
   );
 }
@@ -1056,11 +1056,11 @@ async function recordJoinRequest(pool: Pool, req: any) {
   if (!invite) return false;
   await ensureInviteLinkSchema(pool);
   const row = await upsertTelegramLink(pool,groupId,req.invite_link);
-  await pool.query(\`
+  await pool.query(`
     INSERT INTO invite_link_join_requests(group_id,invite_link_id,user_id,username,first_name,status,requested_at)
     VALUES($1,$2,$3,$4,$5,'pending',NOW())
     ON CONFLICT(invite_link_id,user_id) DO UPDATE SET username=EXCLUDED.username,first_name=EXCLUDED.first_name,status='pending',requested_at=NOW(),processed_at=NULL,processed_by=NULL
-  \`,[groupId,row.id,Number(req.from.id),req.from.username||null,req.from.first_name||null]);
+  `,[groupId,row.id,Number(req.from.id),req.from.username||null,req.from.first_name||null]);
   await event(pool,row.id,groupId,Number(req.from.id),"join_request_created",{user_id:Number(req.from.id)});
   return true;
 }
