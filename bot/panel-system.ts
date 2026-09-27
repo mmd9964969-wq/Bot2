@@ -627,7 +627,35 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
     const step=Number(s.data.step||1);
     if(step===1){
       const customer=await resolveCustomer(pool,raw);
-      if(!customer)return send(msg.chat.id,"✗ مشتری پیدا نشد. برای @username، مشتری باید قبلاً در سامانه ثبت شده باشد.",menu([[["‹ بازگشت","o:subscriptions"]]]))&&true;
+      if(!customer){
+        if(/^[0-9]+$/.test(raw)){
+          const customerId=Number(raw);
+          if(!Number.isSafeInteger(customerId)||customerId<=0)return send(msg.chat.id,"✗ آیدی مشتری معتبر نیست.",menu([[["‹ بازگشت","o:subscriptions"]]]))&&true;
+          await pool.query(
+            "INSERT INTO bot_customers(user_id,status,last_active_at) VALUES($1,'active',NOW()) ON CONFLICT(user_id) DO UPDATE SET status=CASE WHEN bot_customers.status='blocked' THEN bot_customers.status ELSE 'active' END,last_active_at=NOW()",
+            [customerId]
+          );
+          const created=(await pool.query("SELECT user_id,username,first_name FROM bot_customers WHERE user_id=$1 LIMIT 1",[customerId])).rows[0];
+          s.data.customerId=customerId;
+          s.data.customerUsername=created?.username||"";
+          s.data.customerName=created?.first_name||"";
+          s.data.step=2;
+          session(uid,s.flow,s.data);
+          return send(msg.chat.id,
+            "◈ انتخاب گروه\n\n⛂ مشتری ثبت شد\n⛂ آیدی : "+customerId+"\n\n⛂ لینک گروه را ارسال کنید\n\nمثال:\nhttps://t.me/...",
+            menu([[["‹ بازگشت","o:subscriptions"]]])
+          )&&true;
+        }
+        const requestedUsername=raw.replace(/^@/,"");
+        if(!/^[A-Za-z0-9_]{5,32}$/.test(requestedUsername)){
+          return send(msg.chat.id,"✗ آیدی عددی یا @username معتبر وارد کنید.",menu([[["‹ بازگشت","o:subscriptions"]]]))&&true;
+        }
+        session(uid,"owner_customer_register",{step:1,username:requestedUsername,returnTo:"subscription"});
+        return send(msg.chat.id,
+          "◈ ثبت مشتری جدید\n\n⛂ یوزرنیم : @"+requestedUsername+"\n\nاین مشتری هنوز در سامانه ثبت نشده است. برای ساخت اشتراک، آیدی عددی همان حساب تلگرام را ارسال کنید.",
+          menu([[["‹ بازگشت","o:subscriptions"]]])
+        )&&true;
+      }
       s.data.customerId=Number(customer.user_id);
       s.data.customerUsername=customer.username||"";
       s.data.customerName=customer.first_name||"";
@@ -724,6 +752,36 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
     )&&true;
   }
 
+  if(s&&s.flow==="owner_customer_register"){
+    const requestedUsername=String(s.data.username||"").trim().replace(/^@/,"");
+    const customerId=Number(raw);
+    if(!Number.isSafeInteger(customerId)||customerId<=0)return send(msg.chat.id,"✗ آیدی عددی مشتری معتبر نیست. آیدی عددی تلگرام را ارسال کنید.",menu([[["‹ بازگشت","o:subscriptions"]]]))&&true;
+    const existingByUsername=requestedUsername
+      ? (await pool.query("SELECT user_id FROM bot_customers WHERE LOWER(username)=LOWER($1) LIMIT 1",[requestedUsername])).rows[0]
+      : null;
+    if(existingByUsername && Number(existingByUsername.user_id)!==customerId){
+      return send(msg.chat.id,"✗ این یوزرنیم قبلاً برای مشتری دیگری ثبت شده است. آیدی همان حساب را بررسی کنید.",menu([[["‹ بازگشت","o:subscriptions"]]]))&&true;
+    }
+    await pool.query(
+      "INSERT INTO bot_customers(user_id,username,status,last_active_at) VALUES($1,$2,'active',NOW()) ON CONFLICT(user_id) DO UPDATE SET username=COALESCE(EXCLUDED.username,bot_customers.username),status=CASE WHEN bot_customers.status='blocked' THEN bot_customers.status ELSE 'active' END,last_active_at=NOW()",
+      [customerId,requestedUsername||null]
+    );
+    const customer=(await pool.query("SELECT user_id,username,first_name FROM bot_customers WHERE user_id=$1 LIMIT 1",[customerId])).rows[0];
+    if(!customer)return send(msg.chat.id,"✗ ثبت مشتری انجام نشد. دوباره تلاش کنید.",menu([[["‹ بازگشت","o:subscriptions"]]]))&&true;
+    await audit(pool,String(uid),"customer_registered",String(customerId),{username:customer.username||requestedUsername||null});
+    if(s.data.returnTo==="subscription"){
+      const next={...s.data,customerId:Number(customer.user_id),customerUsername:customer.username||requestedUsername,customerName:customer.first_name||"",step:2};
+      delete next.returnTo;
+      session(uid,"owner_subscription_create",next);
+      return send(msg.chat.id,
+        "◈ انتخاب گروه\n\n⛂ مشتری ثبت شد\n⛂ آیدی : "+customer.user_id+"\n⛂ یوزرنیم : "+(customer.username?"@"+customer.username:"ثبت نشده")+
+        "\n\n⛂ لینک گروه را ارسال کنید\n\nمثال:\nhttps://t.me/...",
+        menu([[["‹ بازگشت","o:subscriptions"]]])
+      )&&true;
+    }
+    clearSession(uid);
+    return sendCustomer(pool,uid,msg.chat.id,customer);
+  }
   if(s&&s.flow==="owner_customer_search"){
     clearSession(uid);const q=raw.replace(/^@/,"");const r=await pool.query("SELECT * FROM bot_customers WHERE user_id::text=$1 OR LOWER(username)=LOWER($1) LIMIT 1",[q]);
     if(!r.rowCount)return send(msg.chat.id,"مشتری با این مشخصات یافت نشد.",menu([[["جستجوی مجدد","o:customers"],["‹ بازگشت","o:home"]]]))&&true;
@@ -959,7 +1017,26 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
 
   if(data==="o:home")return renderOwner(pool,uid,msg.chat.id,msg.message_id,"main");
   if(data==="o:stats")return renderOwner(pool,uid,msg.chat.id,msg.message_id,"stats");
-  if(data==="o:customers"){session(uid,"owner_customer_search");return edit(msg.chat.id,msg.message_id,"آیدی عددی یا یوزرنیم مشتری را ارسال کنید.",menu([[["‹ بازگشت","o:home"]]]));}
+  if(data==="o:customers"){
+    return edit(msg.chat.id,msg.message_id,
+      "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Cᴜsᴛᴏᴍᴇʀ Cᴇɴᴛᴇʀ\n\n⛂ مدیریت ثبت‌شده‌های سامانه",
+      menu([
+        [["جستجوی مشتری","o:customer_search"],["ثبت مشتری جدید","o:customer_add"]],
+        [["‹ بازگشت","o:home"]]
+      ])
+    );
+  }
+  if(data==="o:customer_search"){
+    session(uid,"owner_customer_search");
+    return edit(msg.chat.id,msg.message_id,"آیدی عددی یا یوزرنیم مشتری را ارسال کنید.",menu([[["‹ بازگشت","o:customers"]]]));
+  }
+  if(data==="o:customer_add"){
+    session(uid,"owner_customer_register",{step:1,username:"",returnTo:"customers"});
+    return edit(msg.chat.id,msg.message_id,
+      "◈ ثبت مشتری جدید\n\n⛂ آیدی عددی تلگرام مشتری را ارسال کنید\n⛂ در مرحله بعد یوزرنیم را ثبت می‌کنیم.",
+      menu([[["‹ بازگشت","o:customers"]]])
+    );
+  }
   if(data==="o:licenses")return edit(msg.chat.id,msg.message_id,"◈ مدیریت لایسنس‌ها",menu([[["ایجاد لایسنس جدید","o:lic_create"],["لایسنس‌های فعال","o:lic_active"]],[["در حال انقضا","o:lic_expiring"],["منقضی‌شده","o:lic_expired"]],[["محدودیت گروه هر نوع","o:lic_limits"],["‹ بازگشت","o:home"]]]));
   if(data==="o:lic_limits"){const r=await pool.query("SELECT license_type,MAX(group_limit)::int max_limit,COUNT(*)::int count FROM bot_licenses GROUP BY license_type ORDER BY license_type");return edit(msg.chat.id,msg.message_id,r.rows.length?r.rows.map((x:any)=>"• "+x.license_type+" · سقف "+x.max_limit+" · "+x.count+" لایسنس").join("\n"):"هنوز لایسنسی ثبت نشده است.",menu([[["‹ بازگشت","o:licenses"]] ]));}
   if(data==="o:lic_create"){session(uid,"owner_license_create",{step:1});return edit(msg.chat.id,msg.message_id,"نوع لایسنس را انتخاب کنید.",menu(LICENSE_TYPES.map(x=>[[x.label,"o:lic_type:"+x.key]]).concat([[["‹ بازگشت","o:licenses"]]])));} 
