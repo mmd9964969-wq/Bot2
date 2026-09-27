@@ -601,25 +601,31 @@ export async function handleMessageToolsText(pool:Pool,msg:TgMessage,ownerIds:st
       clearSession(uid);return telegramApi("sendMessage",{chat_id:chatId,text:r.ok?"✓ پیام پین شد.":"✗ پین انجام نشد: "+r.reason,reply_to_message_id:msg.message_id}).then(()=>true);
     }
     if(s.kind==="purge"){
-      await del(chatId,msg.message_id);
-      s.data.filter={...(s.data.filter||{}),userId:s.data.filter?.userId};
       const text=String(msg.text||"").trim();
       if(s.data.step==="count"){
+        await del(chatId,msg.message_id);
         const limit=Math.max(1,Math.min(100,Number(text)||0));if(!limit)return true;
+        s.data.filter={...(s.data.filter||{})};
         s.data.filter.limit=limit;s.data.step="confirm";
       }else if(s.data.step==="user"){
+        await del(chatId,msg.message_id);
         const users=await parseUsers(pool,chatId,text);if(!users.length)return true;
+        s.data.filter={...(s.data.filter||{})};
         s.data.filter.userId=users[0].id;s.data.step="confirm";
       }else if(s.data.step==="time"){
+        await del(chatId,msg.message_id);
         const m=text.match(/^(\d+)\s*(m|min|minute|دقیقه|h|hour|ساعت|d|day|روز)$/i);
         if(!m)return true;
         const n=Number(m[1]);const mult=/^(m|min|minute|دقیقه)$/i.test(m[2])?60000:/^(h|hour|ساعت)$/i.test(m[2])?3600000:86400000;
+        s.data.filter={...(s.data.filter||{})};
         s.data.filter.since=new Date(Date.now()-n*mult);s.data.step="confirm";
-      }else return true;
-      const ids=await purgePreview(pool,chatId,s.data.filter);
+      }else{
+        // Confirmation state: ordinary user messages are not purge input.
+        return false;
+      }
+      const ids=await purgePreview(pool,chatId,s.data.filter||{});
       return sendPanel(pool,chatId,uid,"◈ Pᴜʀɢᴇ · Pʀᴇᴠɪᴇᴡ\n\n⛂ - قابل حذف : "+ids.length+"\n⛂ - عملیات پس از تأیید اجرا می‌شود.",[[["✓ تأیید پاکسازی","purge:confirm"],["✕ لغو","purge:cancel"]]]).then(()=>true);
-    }
-  }
+    }  }
 
   const delAliases=["حذف","delete","del"];
   if(delAliases.includes(raw)){
