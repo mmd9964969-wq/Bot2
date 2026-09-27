@@ -1008,12 +1008,33 @@ async function poll() {
               },data);
               await telegramApi("answerCallbackQuery",{
                 callback_query_id:callback.id,
-                ...(result?.callbackUrl ? {url:result.callbackUrl} : {})
+                text:result?.miniApp?.url ? "بازی در پیام خصوصی شما آماده شد." : undefined
               });
+              if(result?.miniApp?.url){
+                const app=result.miniApp;
+                const tgResult=await telegramApi("sendMessage",{
+                  chat_id:callback.from.id,
+                  text:"◈ "+(result.text?.match(/^◈\s+(.+)$/m)?.[1]||"بازی")+"\n\nبرای اجرای بازی، دکمه زیر را بزنید.",
+                  reply_markup:{
+                    inline_keyboard:[
+                      [{text:"‹ اجرای بازی",web_app:{url:app.url}}],
+                      [{text:"‹ وضعیت بازی",callback_data:"game:engine:view:"+app.sessionId+":"+callback.from.id}]
+                    ]
+                  }
+                });
+                if(!tgResult.ok){
+                  await telegramApi("sendMessage",{
+                    chat_id:callback.from.id,
+                    text:"✗ اجرای مستقیم Mini App ممکن نشد. لطفاً ابتدا ربات را با /start فعال کنید.",
+                    reply_markup:{inline_keyboard:[]}
+                  });
+                }
+              }
               if(result){
                 const cleanResult:any={...result};
-                delete cleanResult.callbackUrl;
+                delete cleanResult.miniApp;
                 delete cleanResult.sessionId;
+                delete cleanResult.callbackUrl;
                 await telegramApi("editMessageText",{
                   chat_id:chat.id,
                   message_id:callback.message.message_id,
