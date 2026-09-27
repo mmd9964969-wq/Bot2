@@ -351,13 +351,8 @@ export async function recordMessage(chatId:number,userId:number,messageId:number
 }
 
 export async function moderateLive(ctx:{chatId:number;userId:number;messageId:number;text:string}){
-  const s=state(ctx.chatId);const now=Date.now();
-  const times=messageTimes.get(ctx.chatId)??[];while(times.length&&now-times[0]>10000)times.shift();messageTimes.set(ctx.chatId,times);
-  if(s.nightOn){const h=new Date().getHours();if(h>=0&&h<6){try{await api("deleteMessage",{chat_id:ctx.chatId,message_id:ctx.messageId});return true}catch{}}}
-  if(s.floodOn&&times.length>s.floodMax){try{await api("deleteMessage",{chat_id:ctx.chatId,message_id:ctx.messageId});return true}catch{}}
-  if(s.spamOn&&/(https?:\/\/|t\.me\/|telegram\.me\/)/i.test(ctx.text)){try{await api("deleteMessage",{chat_id:ctx.chatId,message_id:ctx.messageId});return true}catch{}}
-  const lower=ctx.text.toLowerCase();for(const w of s.filters){if(w&&lower.includes(w)){try{await api("deleteMessage",{chat_id:ctx.chatId,message_id:ctx.messageId});return true}catch{}}}
-  if(s.locks.has("link")&&/(https?:\/\/|t\.me\/)/i.test(ctx.text)){try{await api("deleteMessage",{chat_id:ctx.chatId,message_id:ctx.messageId});return true}catch{}}
+  // Automatic member-message deletion is intentionally disabled.
+  // Messages are only removable through explicit manager actions such as «حذف» or confirmed «پاکسازی».
   return false;
 }
 
