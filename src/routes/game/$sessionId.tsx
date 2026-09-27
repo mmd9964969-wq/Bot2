@@ -40,9 +40,18 @@ function GameMiniApp(){
   useEffect(()=>{
     const tg=window.Telegram?.WebApp;
     tg?.ready();tg?.expand();
-    fetch("/api/game?session="+encodeURIComponent(sessionId)).then(r=>r.json()).then(x=>{
-      if(!x.ok)throw new Error(x.error||"not_found");setSession(x.session);
-    }).catch(e=>setError(String(e.message||e)));
+    let alive=true;
+    const load=async()=>{
+      try{
+        const r=await fetch("/api/game?session="+encodeURIComponent(sessionId),{cache:"no-store"});
+        const x=await r.json();
+        if(!x.ok)throw new Error(x.error||"not_found");
+        if(alive)setSession(x.session);
+      }catch(e){if(alive)setError(String((e as any)?.message||e));}
+    };
+    void load();
+    const timer=window.setInterval(load,1500);
+    return()=>{alive=false;window.clearInterval(timer);};
   },[sessionId]);
 
   async function action(action:string,payload:string,add=10){
