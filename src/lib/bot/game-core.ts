@@ -78,9 +78,265 @@ export function gameSingleKeyboard(userId:number){
 export function gameMultiKeyboard(userId:number){
   const s=String(userId);
   return {inline_keyboard:[
-    [{text:"‹ دوئل تاس",callback_data:"game:duel:new:"+s},{text:"‹ بازی‌های در انتظار",callback_data:"game:duel:list:"+s}],
+    [{text:"‹ ساخت اتاق آنلاین",callback_data:"game:room:new:"+s},{text:"‹ اتاق‌های آنلاین",callback_data:"game:room:list:"+s}],
     [{text:"‹ قوانین چندنفره",callback_data:"game:multi:rules:"+s},{text:"‹ بازگشت",callback_data:"game:play:"+s}],
   ]};
+}
+
+function roomName(code:string){return gameTitle(code);}
+
+function roomOwnerKeyboard(roomId:number,hostId:number,status:string){
+  if(status==="waiting")return {inline_keyboard:[
+    [{text:"‹ بروزرسانی اتاق",callback_data:"game:room:refresh:"+roomId+":"+hostId}],
+    [{text:"‹ لغو اتاق",callback_data:"game:room:cancel:"+roomId+":"+hostId},{text:"‹ خروج",callback_data:"game:room:leave:"+roomId+":"+hostId}],
+    [{text:"‹ بازگشت به چندنفره",callback_data:"game:multi:"+hostId}],
+  ]};
+  if(status==="ready")return {inline_keyboard:[
+    [{text:"‹ شروع بازی",callback_data:"game:room:start:"+roomId+":"+hostId}],
+    [{text:"‹ بروزرسانی اتاق",callback_data:"game:room:refresh:"+roomId+":"+hostId}],
+    [{text:"‹ خروج از اتاق",callback_data:"game:room:leave:"+roomId+":"+hostId}],
+    [{text:"‹ بازگشت به چندنفره",callback_data:"game:multi:"+hostId}],
+  ]};
+  return {inline_keyboard:[
+    [{text:"‹ بازگشت به چندنفره",callback_data:"game:multi:"+hostId}],
+    [{text:"‹ مرکز بازی",callback_data:"game:center"}],
+  ]};
+}
+
+function roomJoinKeyboard(roomId:number,userId:number){
+  return {inline_keyboard:[
+    [{text:"‹ پیوستن به اتاق",callback_data:"game:room:join:"+roomId+":"+userId}],
+    [{text:"‹ بروزرسانی",callback_data:"game:room:refresh:"+roomId+":"+userId}],
+    [{text:"‹ بازگشت به چندنفره",callback_data:"game:multi:"+userId}],
+  ]};
+}
+
+function roomSelectKeyboard(userId:number){
+  const s=String(userId);
+  return {inline_keyboard:[
+    [{text:"‹ دوئل تاس · فعال",callback_data:"game:room:create:duel_dice:"+s}],
+    [{text:"‹ دوز · به‌زودی",callback_data:"game:room:locked:"+s},{text:"‹ سنگ، کاغذ، قیچی · به‌زودی",callback_data:"game:room:locked:"+s}],
+    [{text:"‹ کوییز رقابتی · به‌زودی",callback_data:"game:room:locked:"+s}],
+    [{text:"‹ بازگشت به چندنفره",callback_data:"game:multi:"+s}],
+  ]};
+}
+
+async function roomState(pool:Pool,ctx:GameContext,roomId:number):Promise<{room:any;players:any[]}|null>{
+  const room=(await pool.query<any>("SELECT * FROM game_multiplayer_rooms WHERE id=$1 AND group_id=$2",[roomId,ctx.chatId])).rows[0];
+  if(!room)return null;
+  const players=(await pool.query<any>("SELECT rp.user_id,rp.slot,rp.ready,COALESCE(p.first_name,p.username,rp.user_id::text) name FROM game_multiplayer_room_players rp LEFT JOIN game_players p ON p.group_id=rp.group_id AND p.user_id=rp.user_id WHERE rp.room_id=$1 AND rp.left_at IS NULL ORDER BY rp.slot",[roomId])).rows;
+  return {room,players};
+}
+
+async function roomView(pool:Pool,ctx:GameContext,roomId:number,viewerId?:number):Promise<{text:string;replyMarkup:any}>{
+  const state=await roomState(pool,ctx,roomId);
+  if(!state)return {text:"✗ این اتاق پیدا نشد یا به این گروه تعلق ندارد.",replyMarkup:gameMultiKeyboard(ctx.userId)};
+  const {room,players}=state;
+  const host=players.find((p:any)=>Number(p.user_id)===Number(room.host_id))||players[0];
+  const status=room.status==="waiting"?"در انتظار حریف":room.status==="ready"?"آماده شروع":room.status==="active"?"در حال اجرا":room.status==="finished"?"پایان‌یافته":"لغوشده";
+  const slots=Array.from({length:Number(room.max_players)},(_,i)=>{
+    const p=players[i];
+    return p
+      ? "⛂ - بازیکن "+fa(i+1)+" : "+p.name+" · "+(p.ready?"آماده":"منتظر")
+      : "⛂ - بازیکن "+fa(i+1)+" : در انتظار بازیکن";
+  });
+  const myPlayer=players.some((p:any)=>Number(p.user_id)===Number(ctx.userId));
+  let mark:any;
+  if(room.status==="waiting"||room.status==="ready"){
+    mark=myPlayer?roomOwnerKeyboard(roomId,Number(room.host_id),room.status):roomJoinKeyboard(roomId,ctx.userId);
+  }else{
+    mark=roomOwnerKeyboard(roomId,Number(room.host_id),room.status);
+  }
+  return {
+    text:[
+      "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · اتاق آنلاین",
+      "",
+      "⛂ - بازی : "+roomName(room.game_code),
+      "⛂ - حالت : آنلاین · چندنفره",
+      "⛂ - اتاق : #"+fa(Number(room.id)),
+      "⛂ - ظرفیت : "+fa(Number(room.max_players))+" نفر",
+      "⛂ - وضعیت : "+status,
+      "",
+      "─────━━───── ◈ ─────━━─────",
+      "",
+      ...slots,
+      "",
+      "⛂ - سازنده اتاق : "+(host?.name||String(room.host_id)),
+      "⛂ - محدوده : فقط همین گروه",
+      "",
+      room.status==="waiting"
+        ? "اتاق ساخته شد؛ بازیکن بعدی می‌تواند همین حالا جوین شود."
+        : room.status==="ready"
+        ? "دو بازیکن حاضرند. سازنده اتاق می‌تواند بازی را شروع کند."
+        : room.status==="active"
+        ? "بازی در حال اجراست."
+        : room.status==="finished"
+        ? "بازی این اتاق به پایان رسیده است."
+        : "این اتاق دیگر فعال نیست."
+    ].join("\n"),
+    replyMarkup:mark
+  };
+}
+
+async function createGameRoom(ctx:GameContext,gameCode="duel_dice",maxPlayers=2){
+  await ensurePlayer(ctx.pool,ctx);
+  if(ctx.chatId>0)return {text:"✗ اتاق آنلاین فقط داخل گروه ساخته می‌شود.",replyMarkup:gameMultiKeyboard(ctx.userId)};
+  if(!(await enabled(ctx.pool,ctx.chatId)))return {text:"✗ سیستم بازی در این گروه خاموش است.",replyMarkup:gameMultiKeyboard(ctx.userId)};
+  const open=(await ctx.pool.query<any>("SELECT r.id FROM game_multiplayer_rooms r JOIN game_multiplayer_room_players rp ON rp.room_id=r.id WHERE r.group_id=$1 AND rp.user_id=$2 AND rp.left_at IS NULL AND r.status IN ('waiting','ready','active') ORDER BY r.id DESC LIMIT 1",[ctx.chatId,ctx.userId])).rows[0];
+  if(open)return await roomView(ctx.pool,ctx,Number(open.id));
+  const client=await ctx.pool.connect();
+  let id=0;
+  try{
+    await client.query("BEGIN");
+    const q=await client.query<{id:number}>("INSERT INTO game_multiplayer_rooms(group_id,game_code,host_id,max_players,status) VALUES($1,$2,$3,$4,'waiting') RETURNING id",[ctx.chatId,gameCode,ctx.userId,maxPlayers]);
+    id=Number(q.rows[0].id);
+    await client.query("INSERT INTO game_multiplayer_room_players(room_id,group_id,user_id,slot,ready) VALUES($1,$2,$3,1,TRUE)",[id,ctx.chatId,ctx.userId]);
+    await client.query("COMMIT");
+  }catch(error){
+    await client.query("ROLLBACK").catch(()=>{});
+    throw error;
+  }finally{client.release();}
+  return await roomView(ctx.pool,ctx,id);
+}
+
+async function joinGameRoom(ctx:GameContext,roomId:number){
+  await ensurePlayer(ctx.pool,ctx);
+  if(ctx.chatId>0)return {text:"✗ اتاق آنلاین فقط داخل گروه قابل استفاده است.",replyMarkup:gameMultiKeyboard(ctx.userId)};
+  const client=await ctx.pool.connect();
+  try{
+    await client.query("BEGIN");
+    const room=(await client.query<any>("SELECT * FROM game_multiplayer_rooms WHERE id=$1 AND group_id=$2 FOR UPDATE",[roomId,ctx.chatId])).rows[0];
+    if(!room){await client.query("ROLLBACK");return {text:"✗ این اتاق در این گروه پیدا نشد.",replyMarkup:gameMultiKeyboard(ctx.userId)};}
+    if(!["waiting","ready"].includes(room.status)){await client.query("ROLLBACK");return {text:"✗ این اتاق دیگر قابل پیوستن نیست.",replyMarkup:gameMultiKeyboard(ctx.userId)};}
+    const existing=(await client.query<any>("SELECT * FROM game_multiplayer_room_players WHERE room_id=$1 AND user_id=$2 AND left_at IS NULL",[roomId,ctx.userId])).rows[0];
+    if(existing){await client.query("COMMIT");return await roomView(ctx.pool,ctx,roomId);}
+    const other=(await client.query<any>("SELECT r.id FROM game_multiplayer_rooms r JOIN game_multiplayer_room_players rp ON rp.room_id=r.id WHERE r.group_id=$1 AND rp.user_id=$2 AND rp.left_at IS NULL AND r.status IN ('waiting','ready','active') LIMIT 1",[ctx.chatId,ctx.userId])).rows[0];
+    if(other){await client.query("ROLLBACK");return {text:"⛂ - شما همین حالا در اتاق #"+fa(Number(other.id))+" هستید.",replyMarkup:await roomView(ctx.pool,ctx,Number(other.id)).then(x=>x.replyMarkup)};}
+    const count=Number((await client.query("SELECT COUNT(*)::int n FROM game_multiplayer_room_players WHERE room_id=$1 AND left_at IS NULL",[roomId])).rows[0]?.n||0);
+    if(count>=Number(room.max_players)){await client.query("ROLLBACK");return {text:"✗ ظرفیت این اتاق تکمیل شده است.",replyMarkup:gameMultiKeyboard(ctx.userId)};}
+    const slot=count+1;
+    await client.query("INSERT INTO game_multiplayer_room_players(room_id,group_id,user_id,slot,ready) VALUES($1,$2,$3,$4,TRUE)",[roomId,ctx.chatId,ctx.userId,slot]);
+    const nextCount=count+1;
+    const nextStatus=nextCount>=Number(room.max_players)?"ready":"waiting";
+    await client.query("UPDATE game_multiplayer_rooms SET status=$2 WHERE id=$1",[roomId,nextStatus]);
+    await client.query("COMMIT");
+  }catch(error){
+    await client.query("ROLLBACK").catch(()=>{});
+    throw error;
+  }finally{client.release();}
+  return await roomView(ctx.pool,ctx,roomId);
+}
+
+async function leaveGameRoom(ctx:GameContext,roomId:number){
+  const client=await ctx.pool.connect();
+  try{
+    await client.query("BEGIN");
+    const room=(await client.query<any>("SELECT * FROM game_multiplayer_rooms WHERE id=$1 AND group_id=$2 FOR UPDATE",[roomId,ctx.chatId])).rows[0];
+    if(!room){await client.query("ROLLBACK");return {text:"✗ اتاق پیدا نشد.",replyMarkup:gameMultiKeyboard(ctx.userId)};}
+    const member=(await client.query("SELECT 1 FROM game_multiplayer_room_players WHERE room_id=$1 AND user_id=$2 AND left_at IS NULL",[roomId,ctx.userId])).rowCount;
+    if(!member){await client.query("ROLLBACK");return {text:"⛂ - شما در این اتاق نیستید.",replyMarkup:gameMultiKeyboard(ctx.userId)};}
+    if(Number(room.host_id)===ctx.userId){
+      await client.query("UPDATE game_multiplayer_room_players SET left_at=NOW() WHERE room_id=$1 AND left_at IS NULL",[roomId]);
+      await client.query("UPDATE game_multiplayer_rooms SET status='cancelled',cancelled_at=NOW(),finished_at=NOW() WHERE id=$1",[roomId]);
+    }else{
+      await client.query("UPDATE game_multiplayer_room_players SET left_at=NOW() WHERE room_id=$1 AND user_id=$2 AND left_at IS NULL",[roomId,ctx.userId]);
+      const count=Number((await client.query("SELECT COUNT(*)::int n FROM game_multiplayer_room_players WHERE room_id=$1 AND left_at IS NULL",[roomId])).rows[0]?.n||0);
+      await client.query("UPDATE game_multiplayer_rooms SET status=$2 WHERE id=$1 AND status='ready'",[roomId,count>=Number(room.max_players)?"ready":"waiting"]);
+    }
+    await client.query("COMMIT");
+  }catch(error){
+    await client.query("ROLLBACK").catch(()=>{});
+    throw error;
+  }finally{client.release();}
+  return {text:"✓ از اتاق خارج شدید.",replyMarkup:gameMultiKeyboard(ctx.userId)};
+}
+
+async function cancelGameRoom(ctx:GameContext,roomId:number){
+  const r=await ctx.pool.query("UPDATE game_multiplayer_rooms SET status='cancelled',cancelled_at=NOW(),finished_at=NOW() WHERE id=$1 AND group_id=$2 AND host_id=$3 AND status IN ('waiting','ready') RETURNING id",[roomId,ctx.chatId,ctx.userId]);
+  if(!r.rowCount)return {text:"✗ این اتاق دیگر قابل لغو نیست.",replyMarkup:gameMultiKeyboard(ctx.userId)};
+  await ctx.pool.query("UPDATE game_multiplayer_room_players SET left_at=NOW() WHERE room_id=$1 AND left_at IS NULL",[roomId]);
+  return {text:"✓ اتاق #"+fa(roomId)+" لغو شد.",replyMarkup:gameMultiKeyboard(ctx.userId)};
+}
+
+async function startGameRoom(ctx:GameContext,roomId:number){
+  if(ctx.chatId>0)return {text:"✗ شروع اتاق فقط داخل گروه انجام می‌شود.",replyMarkup:gameMultiKeyboard(ctx.userId)};
+  const state=await roomState(ctx.pool,ctx,roomId);
+  if(!state)return {text:"✗ اتاق پیدا نشد.",replyMarkup:gameMultiKeyboard(ctx.userId)};
+  const {room,players}=state;
+  if(Number(room.host_id)!==ctx.userId)return {text:"⛂ - فقط سازنده اتاق می‌تواند بازی را شروع کند.",replyMarkup:await roomView(ctx.pool,ctx,roomId).then(x=>x.replyMarkup)};
+  if(room.status!=="ready"||players.length<Number(room.max_players))return {text:"⛂ - هنوز ظرفیت اتاق کامل نشده است.",replyMarkup:await roomView(ctx.pool,ctx,roomId).then(x=>x.replyMarkup)};
+  if(room.game_code!=="duel_dice")return {text:"⛂ - موتور این بازی هنوز به اتاق متصل نشده است.",replyMarkup:await roomView(ctx.pool,ctx,roomId).then(x=>x.replyMarkup)};
+  const locked=await ctx.pool.connect();
+  let creator:any,opponent:any,matchId=0;
+  try{
+    await locked.query("BEGIN");
+    const fresh=(await locked.query<any>("SELECT * FROM game_multiplayer_rooms WHERE id=$1 AND group_id=$2 FOR UPDATE",[roomId,ctx.chatId])).rows[0];
+    if(!fresh||fresh.status!=="ready"){await locked.query("ROLLBACK");return {text:"✗ این اتاق دیگر در وضعیت شروع نیست.",replyMarkup:gameMultiKeyboard(ctx.userId)};}
+    const ps=(await locked.query<any>("SELECT user_id,slot FROM game_multiplayer_room_players WHERE room_id=$1 AND left_at IS NULL ORDER BY slot",[roomId])).rows;
+    if(ps.length<2){await locked.query("ROLLBACK");return {text:"⛂ - بازیکن دوم خارج شده است؛ اتاق دوباره منتظر حریف است.",replyMarkup:await roomView(ctx.pool,ctx,roomId).then(x=>x.replyMarkup)};}
+    creator=ps[0];opponent=ps[1];
+    const cr=1+Math.floor(Math.random()*6);
+    let or=1+Math.floor(Math.random()*6);
+    while(or===cr)or=1+Math.floor(Math.random()*6);
+    const creatorWins=cr>or;
+    const q=await locked.query<{id:number}>("INSERT INTO game_multiplayer_matches(group_id,game_code,creator_id,opponent_id,status,creator_roll,opponent_roll,started_at) VALUES($1,'duel_dice',$2,$3,'active',$4,$5,NOW()) RETURNING id",[ctx.chatId,creator.user_id,opponent.user_id,cr,or]);
+    matchId=Number(q.rows[0].id);
+    await locked.query("UPDATE game_multiplayer_rooms SET status='active',match_id=$2,started_at=NOW() WHERE id=$1",[roomId,matchId]);
+    await locked.query("COMMIT");
+    const a=(await ctx.pool.query<any>("SELECT first_name,username FROM game_players WHERE group_id=$1 AND user_id=$2",[ctx.chatId,creator.user_id])).rows[0]??{};
+    const b=(await ctx.pool.query<any>("SELECT first_name,username FROM game_players WHERE group_id=$1 AND user_id=$2",[ctx.chatId,opponent.user_id])).rows[0]??{};
+    const aCtx:GameContext={...ctx,userId:Number(creator.user_id),user:{id:Number(creator.user_id),username:a.username,firstName:a.first_name}};
+    const bCtx:GameContext={...ctx,userId:Number(opponent.user_id),user:{id:Number(opponent.user_id),username:b.username,firstName:b.first_name}};
+    const winnerId=creatorWins?Number(creator.user_id):Number(opponent.user_id);
+    await record(ctx.pool,aCtx,"duel_dice",winnerId===Number(creator.user_id),winnerId===Number(creator.user_id)?150:70,winnerId===Number(creator.user_id)?120:30,winnerId===Number(creator.user_id)?35:-15,{mode:"multiplayer",room_id:roomId,match_id:matchId,roll:cr,opponent_id:Number(opponent.user_id)});
+    await record(ctx.pool,bCtx,"duel_dice",winnerId===Number(opponent.user_id),winnerId===Number(opponent.user_id)?150:70,winnerId===Number(opponent.user_id)?120:30,winnerId===Number(opponent.user_id)?35:-15,{mode:"multiplayer",room_id:roomId,match_id:matchId,roll:or,opponent_id:Number(creator.user_id)});
+    await ctx.pool.query("UPDATE game_multiplayer_matches SET status='finished',winner_id=$1,creator_xp=$2,opponent_xp=$3,creator_gems=$4,opponent_gems=$5,creator_rating_delta=$6,opponent_rating_delta=$7,finished_at=NOW() WHERE id=$8",[winnerId,winnerId===Number(creator.user_id)?150:70,winnerId===Number(opponent.user_id)?150:70,winnerId===Number(creator.user_id)?120:30,winnerId===Number(opponent.user_id)?120:30,winnerId===Number(creator.user_id)?35:-15,winnerId===Number(opponent.user_id)?35:-15,matchId]);
+    await ctx.pool.query("UPDATE game_multiplayer_rooms SET status='finished',finished_at=NOW() WHERE id=$1",[roomId]);
+    await ctx.pool.query("UPDATE game_multiplayer_room_players SET left_at=NOW() WHERE room_id=$1 AND left_at IS NULL",[roomId]);
+    const winnerName=winnerId===Number(creator.user_id)?(a.first_name||a.username||String(creator.user_id)):(b.first_name||b.username||String(opponent.user_id));
+    const myWin=winnerId===ctx.userId;
+    return {
+      text:[
+        "◈ نتیجه اتاق آنلاین",
+        "",
+        "⛂ - بازی : دوئل تاس",
+        "⛂ - برنده : "+winnerName,
+        "",
+        "⛂ - بازیکن اول : "+(a.first_name||a.username||String(creator.user_id))+" · "+fa(cr),
+        "⛂ - بازیکن دوم : "+(b.first_name||b.username||String(opponent.user_id))+" · "+fa(or),
+        "",
+        "⛂ - نتیجه شما : "+(myWin?"برد":"باخت"),
+        "⛂ - جم : +"+fa(myWin?120:30),
+        "⛂ - تجربه : +"+fa(myWin?150:70),
+        "⛂ - امتیاز رقابتی : "+(myWin?"+":"−")+fa(myWin?35:15),
+        "",
+        "اتاق #"+fa(roomId)+" بسته شد؛ نتیجه در تاریخچه هر دو بازیکن ثبت شد."
+      ].join("\n"),
+      replyMarkup:gameResultKeyboard(ctx.userId)
+    };
+  }catch(error){
+    await locked.query("ROLLBACK").catch(()=>{});
+    await ctx.pool.query("UPDATE game_multiplayer_rooms SET status='cancelled',cancelled_at=NOW(),finished_at=NOW(),metadata=metadata||'{}'::jsonb||$1::jsonb WHERE id=$2",[JSON.stringify({error:String((error as any)?.message??error)}),roomId]).catch(()=>{});
+    throw error;
+  }finally{locked.release();}
+}
+
+async function listGameRooms(ctx:GameContext){
+  await ensurePlayer(ctx.pool,ctx);
+  if(ctx.chatId>0)return {text:"✗ اتاق‌های آنلاین فقط داخل گروه نمایش داده می‌شوند.",replyMarkup:gameMultiKeyboard(ctx.userId)};
+  const rows=(await ctx.pool.query<any>("SELECT r.id,r.game_code,r.host_id,r.max_players,r.status,COALESCE(p.first_name,p.username,r.host_id::text) host_name,COUNT(rp.user_id)::int player_count FROM game_multiplayer_rooms r LEFT JOIN game_players p ON p.group_id=r.group_id AND p.user_id=r.host_id LEFT JOIN game_multiplayer_room_players rp ON rp.room_id=r.id AND rp.left_at IS NULL WHERE r.group_id=$1 AND r.status IN ('waiting','ready') GROUP BY r.id,p.first_name,p.username ORDER BY CASE WHEN r.status='ready' THEN 0 ELSE 1 END,r.created_at ASC LIMIT 12",[ctx.chatId])).rows;
+  if(!rows.length)return {text:"◈ اتاق‌های آنلاین\n\nدر حال حاضر اتاق آماده‌ای در این گروه وجود ندارد.\n\nیک بازی انتخاب کنید و اتاق جدید بسازید.",replyMarkup:{inline_keyboard:[
+    [{text:"‹ ساخت اتاق آنلاین",callback_data:"game:room:new:"+ctx.userId}],
+    [{text:"‹ بازگشت به چندنفره",callback_data:"game:multi:"+ctx.userId}],
+  ]}};
+  return {
+    text:["◈ اتاق‌های آنلاین","","اتاق‌های همین گروه در این فهرست نمایش داده می‌شوند.","",...rows.map((x:any,i:number)=>String(i+1).padStart(2,"0")+" · "+roomName(x.game_code)+" · "+fa(+x.player_count)+"/"+fa(+x.max_players)+" · #"+fa(+x.id))].join("\n"),
+    replyMarkup:{inline_keyboard:[
+      ...rows.map((x:any)=>[{text:"‹ ورود به #"+fa(+x.id),callback_data:"game:room:view:"+x.id+":"+ctx.userId}]),
+      [{text:"‹ ساخت اتاق جدید",callback_data:"game:room:new:"+ctx.userId}],
+      [{text:"‹ بازگشت به چندنفره",callback_data:"game:multi:"+ctx.userId}],
+    ]}
+  };
 }
 
 export function gameProfileKeyboard(userId:number){
