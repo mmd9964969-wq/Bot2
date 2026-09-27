@@ -1884,7 +1884,6 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     [["ویژه دسته‌جمعی","spb:start:set"],["عملیات گروهی","m:bulk"]],
     [["تغییر نقش","m:role"]],
     [["› تگ","mt:home"],["› پین","pin:center"]],
-    [["› پاکسازی پیام","purge:center"]],
     [["‹ بازگشت","c:home"]]
   ]));
   if(data==="m:search"){session(uid,"member_search",{chatId:groupId});return edit(msg.chat.id,msg.message_id,panelTitle("جستجوی عضو","آیدی تلگرام یا نام کاربری را ارسال کنید."),menu([[["‹ بازگشت","c:members"]]]));}
@@ -2405,7 +2404,7 @@ export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:str
     if(data.startsWith("cfg:")) return handleGroupConfigCallback(pool,cb as any);
     if(data.startsWith("spb:")) return handleSpecialBulkCallback(pool,cb,ownerIds);
     if(data.startsWith("sp:")) return handleSpecialCallback(pool,cb,ownerIds);
-    if(data.startsWith("mt:")||data.startsWith("pin:")||data.startsWith("purge:")){
+    if(data.startsWith("mt:")||data.startsWith("pin:")){
       try{return await handleMessageToolsCallback(pool,cb,ownerIds);}catch(error){
         console.error("[message-tools] callback failed",error);
         await telegramApi("editMessageText",{chat_id:cb.message!.chat.id,message_id:cb.message!.message_id,text:"◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Mᴇssᴀɢᴇ Tᴏᴏʟs\n\n⛂ - وضعیت : ✗ عملیات انجام نشد\n⛂ - دلیل : خطای داخلی در پردازش این بخش.",reply_markup:kb([[["‹ بازگشت","c:members"]]])}).catch(()=>{});
