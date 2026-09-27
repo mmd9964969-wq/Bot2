@@ -80,7 +80,7 @@ export async function sweepSpecialUsers(pool:Pool){
       [row.group_id,row.user_id,row.expires_at,"انقضای خودکار"]).catch(()=>{});
   }
 }
-async function info(chatId:number,userId:number){
+async function userInfo(chatId:number,userId:number){
   const r=await telegramApi<any>("getChatMember",{chat_id:chatId,user_id:userId});
   if(!r.ok)return null;
   return {user:r.result?.user as TgUser,status:String(r.result?.status||"member")};
@@ -91,7 +91,7 @@ async function event(pool:Pool,o:any){
 }
 async function apply(pool:Pool,groupId:number,userId:number,actorId:number,actorName:string,sec:number,mode:Mode,reason:string){
   await sweepSpecialUsers(pool);
-  const i=await info(groupId,userId); if(!i)return {ok:false,error:"کاربر در گروه پیدا نشد."};
+  const i=await userInfo(groupId,userId); if(!i)return {ok:false,error:"کاربر در گروه پیدا نشد."};
   const cur=(await pool.query<any>("SELECT * FROM special_users WHERE group_id=$1 AND user_id=$2 LIMIT 1",[groupId,userId])).rows[0];
   const now=Date.now(),previous=cur?.expires_at??null;
   if(mode==="reduce"&&!cur)return {ok:false,error:"این کاربر ویژه فعال ندارد."};
@@ -134,7 +134,7 @@ async function sendPanel(pool:Pool,chatId:number,actorId:number,text:string,rows
 }
 async function centerText(pool:Pool,chatId:number,targetId:number){
   const lang=await getGroupLanguage(pool,chatId,"fa");
-  const i=await info(chatId,targetId); if(!i)return {lang,text:tr(lang,"✗ کاربر در گروه پیدا نشد.","✗ User was not found in this group.")};
+  const i=await userInfo(chatId,targetId); if(!i)return {lang,text:tr(lang,"✗ کاربر در گروه پیدا نشد.","✗ User was not found in this group.")};
   const r=(await pool.query<any>("SELECT * FROM special_users WHERE group_id=$1 AND user_id=$2 LIMIT 1",[chatId,targetId])).rows[0];
   const active=r?.status==="active"&&(!r.expires_at||new Date(r.expires_at).getTime()>Date.now());
   const name=i.user?.username?"@"+i.user.username:(i.user?.first_name||String(targetId));
@@ -194,7 +194,7 @@ async function renderHistory(pool:Pool,chatId:number,actorId:number,targetId:num
   const rows=await pool.query("SELECT action_type,duration_seconds,actor_id,actor_name,created_at FROM special_user_events WHERE group_id=$1 AND user_id=$2 ORDER BY created_at DESC LIMIT $3 OFFSET $4",[chatId,targetId,size,p*size]);
   const count=Number((await pool.query("SELECT COUNT(*)::int n FROM special_user_events WHERE group_id=$1 AND user_id=$2",[chatId,targetId])).rows[0]?.n||0),pages=Math.max(1,Math.ceil(count/size)),cur=Math.min(p,pages-1);
   const labels:any={set:"تنظیم ویژه",extend:"افزایش مدت",reduce:"کاهش مدت",remove:"حذف ویژه",expire:"انقضای خودکار"};
-  const info=await info(chatId,targetId),name=info?.user?.username?"@"+info.user.username:(info?.user?.first_name||String(targetId));
+  const info=await userInfo(chatId,targetId),name=info?.user?.username?"@"+info.user.username:(info?.user?.first_name||String(targetId));
   const body=rows.rows.length?rows.rows.map((x:any,i:number)=>`${String(i+1).padStart(2,"0")} · ${lang==="fa"?(labels[x.action_type]||x.action_type):x.action_type}\n   └ ${x.duration_seconds?fmtSec(Number(x.duration_seconds),lang):"—"} · ${fmtDate(x.created_at,lang)} · ${x.actor_name||x.actor_id||"system"}`).join("\n\n"):tr(lang,"⛂ - سابقه‌ای ثبت نشده است.","⛂ - No history recorded.");
   const text=`◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴘᴇᴄɪᴀʟ Hɪsᴛᴏʀʏ\n\n⛂ - ${tr(lang,"کاربر","User")} : ${name}\n⛂ - ${tr(lang,"شناسه","ID")} : ${targetId}\n\n─────━━───── ◈ ─────━━─────\n\n${body}`;
   const nav:any[]=[];if(cur>0)nav.push({text:"‹ قبلی",callback_data:`sp:history:${targetId}:${cur-1}`});nav.push({text:`${cur+1}/${pages}`,callback_data:"sp:noop"});if(cur<pages-1)nav.push({text:"بعدی ›",callback_data:`sp:history:${targetId}:${cur+1}`});
