@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 
 declare global {
   interface Window {
@@ -244,12 +245,12 @@ function Twenty48Board({board,busy,finished,onMove}:{board:number[];busy:boolean
     return()=>window.removeEventListener("keydown",onKey);
   },[canMove,onMove]);
 
-  function pointerDown(e:React.PointerEvent<HTMLDivElement>){
+  function pointerDown(e:ReactPointerEvent<HTMLDivElement>){
     if(!canMove)return;
     setPointerStart({x:e.clientX,y:e.clientY});
   }
 
-  function pointerUp(e:React.PointerEvent<HTMLDivElement>){
+  function pointerUp(e:ReactPointerEvent<HTMLDivElement>){
     if(!canMove||!pointerStart)return;
     const dx=e.clientX-pointerStart.x,dy=e.clientY-pointerStart.y;
     setPointerStart(null);
