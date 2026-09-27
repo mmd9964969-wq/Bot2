@@ -184,7 +184,7 @@ function miniMarkup(sessionId:number,code:string,userId:number,privateChat=false
     [{text:"‹ وضعیت بازی",callback_data:"game:engine:view:"+sessionId+":"+userId}],
     [{text:"‹ مرکز بازی",callback_data:"game:center"}]
   ]};
-  const url=base+"/game/"+sessionId+"?code="+encodeURIComponent(code);
+  const url=miniAppLaunchUrl(sessionId,code,userId);
   // Telegram WebApp buttons are supported in private chats only.
   // From a group we use a callback that sends a real WebApp button to the user's private chat.
   if(!privateChat){
@@ -366,7 +366,7 @@ export async function startEngine(ctx:GameContext,code:string,mode:EngineMode,pl
   if(getEngineGame(code)?.mode==="mini_app")view.miniApp={
     sessionId:id,
     gameCode:code,
-    url:(()=>{const raw=process.env.GAME_WEBAPP_URL||"";const base=raw.endsWith("/")?raw.slice(0,-1):raw;return base?base+"/game/"+id+"?code="+encodeURIComponent(code):"";})()
+    url:(()=>{const raw=process.env.GAME_WEBAPP_URL||"";const base=raw.endsWith("/")?raw.slice(0,-1):raw;return miniAppLaunchUrl(id,code,ctx.userId);})()
   };
   return view;
 }
@@ -376,7 +376,7 @@ async function launchMiniAppForSession(ctx:GameContext,sessionId:number){
   if(!v||v.game.mode!=="mini_app")return await engineView(ctx.pool,ctx,sessionId);
   const raw=process.env.GAME_WEBAPP_URL||"";
   const base=raw.endsWith("/")?raw.slice(0,-1):raw;
-  const url=base?base+"/game/"+sessionId+"?code="+encodeURIComponent(String(v.session.game_code)):"";
+  const url=miniAppLaunchUrl(sessionId,String(v.session.game_code),ctx.userId);
   const view:any=await engineView(ctx.pool,ctx,sessionId);
   view.sessionId=sessionId;
   view.miniApp={sessionId,gameCode:String(v.session.game_code),url};
@@ -406,6 +406,15 @@ export async function handleEngineCallback(ctx:GameContext,parts:string[]){
   }
   if(sub==="view")return await engineView(ctx.pool,ctx,sessionId);
   return null;
+}
+
+export function createMiniAppLaunchToken(sessionId:number,userId:number,botToken=String(process.env.BOT_TOKEN||"")){
+  return createHmac("sha256",botToken).update("miniapp:"+sessionId+":"+userId).digest("hex");
+}
+export function miniAppLaunchUrl(sessionId:number,code:string,userId:number){
+  const raw=process.env.GAME_WEBAPP_URL||"";const base=raw.endsWith("/")?raw.slice(0,-1):raw;
+  if(!base)return "";
+  return base+"/game/"+sessionId+"?code="+encodeURIComponent(code)+"&launch="+createMiniAppLaunchToken(sessionId,userId);
 }
 
 export function verifyTelegramInitData(initData:string,botToken:string,maxAgeSec=86400){
