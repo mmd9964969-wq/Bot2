@@ -641,29 +641,46 @@ export async function handleMessageToolsText(pool:Pool,msg:TgMessage,ownerIds:st
       // Only a syntactically valid value for the currently requested step
       // is considered purge input.
       if(s.data.step==="count"){
-        if(!/^\d+$/.test(text))return false;
+        if(!/^\d+$/.test(text)){
+          clearSession(uid);
+          return false;
+        }
         const limit=Number(text);
-        if(!Number.isInteger(limit)||limit<1||limit>100)return false;
+        if(!Number.isInteger(limit)||limit<1||limit>100){
+          clearSession(uid);
+          return false;
+        }
         await del(chatId,msg.message_id);
         s.data.filter={...(s.data.filter||{}),limit};
         s.data.step="confirm";
       }else if(s.data.step==="user"){
         const users=await parseUsers(pool,chatId,text);
-        if(!users.length)return false;
+        if(!users.length){
+          clearSession(uid);
+          return false;
+        }
         await del(chatId,msg.message_id);
         s.data.filter={...(s.data.filter||{}),userId:users[0].id};
         s.data.step="confirm";
       }else if(s.data.step==="time"){
         const m=text.match(/^(\d+)\s*(m|min|minute|دقیقه|h|hour|ساعت|d|day|روز)$/i);
-        if(!m)return false;
+        if(!m){
+          clearSession(uid);
+          return false;
+        }
         const n=Number(m[1]);
-        if(!Number.isInteger(n)||n<1)return false;
+        if(!Number.isInteger(n)||n<1){
+          clearSession(uid);
+          return false;
+        }
         const mult=/^(m|min|minute|دقیقه)$/i.test(m[2])?60000:/^(h|hour|ساعت)$/i.test(m[2])?3600000:86400000;
         await del(chatId,msg.message_id);
         s.data.filter={...(s.data.filter||{}),since:new Date(Date.now()-n*mult)};
         s.data.step="confirm";
       }else{
-        // Confirmation state: ordinary user messages are never purge input.
+        // Any message after preview/confirmation cancels the purge session.
+        // Nothing is deleted and no new panel is rendered.
+        clearSession(uid);
         return false;
       }
       const ids=await purgePreview(pool,chatId,s.data.filter||{});
