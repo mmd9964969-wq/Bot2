@@ -508,6 +508,8 @@ export async function handleSpecialBulkTextInput(pool:Pool,msg:TgMessage){
 
   if(s.step==="users"){
     const raw=messageText.replace(/\\r/g,"").trim();
+    // Panel input is temporary UI data; remove the user's input message after reading it.
+    await telegramApi("deleteMessage",{chat_id:s.groupId,message_id:msg.message_id}).catch(()=>{});
     const resolved=await resolveItems(pool,s.groupId,raw);
     if(resolved.error){
       await telegramApi("sendMessage",{chat_id:s.groupId,text:"✗ "+resolved.error,reply_to_message_id:msg.message_id});
