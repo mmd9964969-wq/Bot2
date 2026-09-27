@@ -13,6 +13,7 @@ import { dispatchPanelMessage, dispatchPanelCallback, openModerationCenterFromCo
 import { ensureGroupLanguageSchema, getGroupLanguage, normalizeBotLang, setGroupLanguage, languageChangedText, languagePickerText, SUPPORTED_LANGUAGES } from "../src/lib/bot/i18n.ts";
 import { ensureInstallationSchema, installationGate, handleInstallationCallback } from "./installation.ts";
 import { ensureModerationSchema, runModerationCommand } from "../src/lib/bot/moderation.ts";
+import { sweepGroupSubscriptions } from "../src/lib/bot/group-subscriptions.ts";
 
 const TOKEN = process.env.BOT_TOKEN ?? "";
 if (!TOKEN) { console.error("BOT_TOKEN is missing"); process.exit(1); }
@@ -836,6 +837,8 @@ async function poll() {
   }
   setInterval(() => void refreshStudio(), 5000);
   setInterval(() => { if (studioPool) void tickSchedules(studioPool).catch(error => console.error("[scheduler]", error)); }, 5000);
+  setInterval(() => { if (studioPool) void sweepGroupSubscriptions(studioPool).catch(error => console.error("[subscriptions]", error)); }, 30000);
+  void sweepGroupSubscriptions(studioPool).catch(error => console.error("[subscriptions]", error));
 
   console.log("nizam two-phase polling as " + config.botName);
 
