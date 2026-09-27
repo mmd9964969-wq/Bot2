@@ -52,10 +52,14 @@ export type ValidatedGroup = {
 export async function resolveCustomer(pool: Pool, value: unknown) {
   const raw = String(value ?? "").replace(/[\u200c\u200d\ufeff]/g, "").trim();
   if (!raw) return null;
-  const key = raw.replace(/^@/, "");
+  const key = raw.replace(/^@/, "").trim();
+  if (!key) return null;
   const r = /^\d+$/.test(key)
     ? await pool.query("SELECT user_id,username,first_name,status FROM bot_customers WHERE user_id=$1 LIMIT 1", [key])
-    : await pool.query("SELECT user_id,username,first_name,status FROM bot_customers WHERE LOWER(username)=LOWER($1) LIMIT 1", [key]);
+    : await pool.query(
+        "SELECT user_id,username,first_name,status FROM bot_customers WHERE LOWER(LTRIM(COALESCE(username,''),'@'))=LOWER($1) LIMIT 1",
+        [key],
+      );
   return r.rows[0] ?? null;
 }
 
