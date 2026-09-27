@@ -57,6 +57,58 @@ export function gameCenterKeyboard(){
   ]};
 }
 
+export function gamePlayKeyboard(){
+  return {inline_keyboard:[
+    [{text:"‹ بازی سریع",callback_data:"game:quick"},{text:"‹ تک‌نفره",callback_data:"game:single"}],
+    [{text:"‹ تاس",callback_data:"game:dice"},{text:"‹ کوییز",callback_data:"game:quiz"}],
+    [{text:"‹ بازی‌های آینده",callback_data:"game:future"},{text:"‹ بازگشت",callback_data:"game:back:center"}],
+  ]};
+}
+
+export function gameResultKeyboard(){
+  return {inline_keyboard:[
+    [{text:"‹ بازی دوباره",callback_data:"game:quick"},{text:"‹ انتخاب بازی",callback_data:"game:play"}],
+    [{text:"‹ بازگشت به مرکز",callback_data:"game:back:center"}],
+  ]};
+}
+
+export function gameSectionKeyboard(section:string){
+  if(section==="profile")return {inline_keyboard:[[ {text:"‹ بازگشت",callback_data:"game:back:center"} ]]};
+  return {inline_keyboard:[
+    [{text:"‹ بازگشت به مرکز",callback_data:"game:back:center"}],
+  ]};
+}
+
+export async function handleGameCallback(ctx:GameContext,data:string):Promise<{text:string;replyMarkup:any}|null>{
+  const z=norm(data);
+  await ensurePlayer(ctx.pool,ctx);
+  if(z==="game:play"){
+    return {text:"◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · انتخاب بازی\n\nاز منوی زیر حالت یا بازی موردنظر را انتخاب کنید.\n\n⛂ - بازی‌های فعال : ۲\n⛂ - حالت سریع : فعال\n⛂ - حالت رقابتی : در حال توسعه",replyMarkup:gamePlayKeyboard()};
+  }
+  if(z==="game:quick"){
+    return {text:Math.random()<0.5?await dice(ctx.pool,ctx):await startQuiz(ctx.pool,ctx),replyMarkup:gameResultKeyboard()};
+  }
+  if(z==="game:single"){
+    return {text:"◈ بازی‌های تک‌نفره\n\nدر نسخه فعلی، بازی‌های تاس و کوییز در دسترس هستند. بازی‌های حدس عدد، سنگ کاغذ قیچی و سرعتی در ساختار بازی قرار گرفته‌اند و در مراحل بعد فعال می‌شوند.",replyMarkup:gamePlayKeyboard()};
+  }
+  if(z==="game:dice")return {text:await dice(ctx.pool,ctx),replyMarkup:gameResultKeyboard()};
+  if(z==="game:quiz")return {text:await startQuiz(ctx.pool,ctx),replyMarkup:gameSectionKeyboard("play")};
+  if(z==="game:future")return {text:"◈ بازی‌های آینده\n\n⛂ - حدس عدد\n⛂ - سنگ، کاغذ، قیچی\n⛂ - بازی سرعتی\n⛂ - دوئل\n⛂ - بازی نوبتی\n⛂ - تورنمنت\n\nاین بخش‌ها با همان ساختار حساب بازیکن، تجربه، جم، امتیاز و تاریخچه اضافه خواهند شد.",replyMarkup:gamePlayKeyboard()};
+  if(z==="game:profile")return {text:await profile(ctx.pool,ctx,ctx.userId),replyMarkup:gameSectionKeyboard("profile")};
+  if(z==="game:wallet"){
+    const p=(await ctx.pool.query<any>("SELECT p.gems,p.level,p.xp,p.rating,COALESCE(w.lifetime_earned,0) lifetime_earned,COALESCE(w.lifetime_spent,0) lifetime_spent FROM game_players p LEFT JOIN game_wallets w ON w.group_id=p.group_id AND w.user_id=p.user_id WHERE p.group_id=$1 AND p.user_id=$2",[ctx.chatId,ctx.userId])).rows[0];
+    return {text:["◈ کیف پول بازی","","⛂ - موجودی جم : "+fa(+p.gems),"⛂ - سطح : "+fa(+p.level),"⛂ - تجربه : "+fa(+p.xp),"⛂ - جم دریافت‌شده : "+fa(+p.lifetime_earned),"⛂ - جم مصرف‌شده : "+fa(+p.lifetime_spent),"⛂ - لیگ : "+league(+p.rating)].join("\n"),replyMarkup:gameSectionKeyboard("wallet")};
+  }
+  if(z==="game:shop")return {text:await shop(ctx.pool,ctx),replyMarkup:gameSectionKeyboard("shop")};
+  if(z==="game:missions")return {text:await missionsText(ctx.pool,ctx),replyMarkup:gameSectionKeyboard("missions")};
+  if(z==="game:leaderboard")return {text:await rank(ctx.pool,ctx),replyMarkup:gameSectionKeyboard("rank")};
+  if(z==="game:rewards")return {text:"◈ جوایز بازی\n\n⛂ - جایزه روزانه : از بخش پاداش روزانه دریافت کنید.\n⛂ - جوایز مأموریت : از بخش مأموریت‌ها دریافت کنید.\n⛂ - جوایز دستاورد : پس از تکمیل دستاورد فعال می‌شوند.\n⛂ - جوایز سطح و فصل : با توسعه سیستم پیشرفت اضافه می‌شوند.",replyMarkup:gameSectionKeyboard("rewards")};
+  if(z==="game:history")return {text:await history(ctx.pool,ctx),replyMarkup:gameSectionKeyboard("history")};
+  if(z==="game:help")return {text:"◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · راهنمای بازی\n\n⛂ - بازی : بازی\n⛂ - بازی سریع : از منوی بازی کردن\n⛂ - بازی تاس : تاس\n⛂ - بازی کوییز : کوییز\n⛂ - پروفایل : پروفایل بازی\n⛂ - کیف پول : جم\n⛂ - رتبه‌بندی : رتبه بازی\n⛂ - تاریخچه : تاریخچه بازی\n⛂ - مأموریت‌ها : مأموریت‌های بازی\n⛂ - فروشگاه : فروشگاه بازی",replyMarkup:gameSectionKeyboard("help")};
+  if(z==="game:settings")return {text:"◈ تنظیمات بازی\n\n⛂ - سیستم بازی : "+(await enabled(ctx.pool,ctx.chatId)?"فعال":"خاموش")+"\n⛂ - اعلان‌ها : پیش‌فرض\n⛂ - نمایش پروفایل : عمومی\n⛂ - زبان پاسخ‌ها : فارسی",replyMarkup:gameSectionKeyboard("settings")};
+  if(z==="game:back:center")return {text:await center(ctx.pool,ctx),replyMarkup:gameCenterKeyboard()};
+  return null;
+}
 
 export async function ensureGameSchema(pool:Pool){
   if(!schema)schema=pool.query([
