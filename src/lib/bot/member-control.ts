@@ -996,14 +996,17 @@ async function toggleAdminRight(pool: Pool, cb: TgCallback, targetId: number, ke
   if (t.status !== "administrator" || t.member.can_be_edited === false) {
     return editPanel(pool, cb, panel("Aᴅᴍɪɴ Cᴇɴᴛᴇʀ", "✗ این ادمین توسط ربات قابل ویرایش نیست."), [[["‹ بازگشت", `mc:admin:${targetId}`]]]);
   }
-  const rights = adminRightsFrom(t.member);
-  (rights as any)[key] = !(rights as any)[key];
-  const payload: Record<string, unknown> = { chat_id: cb.message!.chat.id, user_id: targetId, ...rights };
+  const current = !!t.member[key];
+  const payload: Record<string, unknown> = {
+    chat_id: cb.message!.chat.id,
+    user_id: targetId,
+    [key]: !current,
+  };
   const r = await telegramApi("promoteChatMember", payload);
   if (!r.ok) {
     return editPanel(pool, cb, panel("Aᴅᴍɪɴ Cᴇɴᴛᴇʀ", "✗ تغییر دسترسی ناموفق بود: " + value(r.description, "Telegram error")), [[["‹ بازگشت", `mc:admin:${targetId}`]]]);
   }
-  await recordModeration(pool, cb, targetId, "admin_permission", null, ADMIN_PERMISSION_LABELS[key] + " → " + ((rights as any)[key] ? "فعال" : "خاموش"), true);
+  await recordModeration(pool, cb, targetId, "admin_permission", null, ADMIN_PERMISSION_LABELS[key] + " → " + (!current ? "فعال" : "خاموش"), true);
   return renderAdmin(pool, cb, targetId);
 }
 
@@ -1017,21 +1020,15 @@ async function demoteAdmin(pool: Pool, cb: TgCallback, targetId: number) {
     chat_id: cb.message!.chat.id,
     user_id: targetId,
     is_anonymous: false,
-    can_manage_chat: false,
     can_delete_messages: false,
     can_manage_video_chats: false,
     can_restrict_members: false,
     can_promote_members: false,
     can_change_info: false,
     can_invite_users: false,
-    can_post_stories: false,
-    can_edit_stories: false,
-    can_delete_stories: false,
     can_pin_messages: false,
     can_manage_topics: false,
-    can_manage_direct_messages: false,
     can_manage_tags: false,
-    can_send_welcome_messages: false,
   });
   if (!r.ok) return editPanel(pool, cb, panel("Aᴅᴍɪɴ Cᴇɴᴛᴇʀ", "✗ حذف مقام ناموفق بود: " + value(r.description, "Telegram error")), [[["‹ بازگشت", `mc:admin:${targetId}`]]]);
   await recordModeration(pool, cb, targetId, "demote", null, "حذف مقام ادمین از پنل عضو", true);
