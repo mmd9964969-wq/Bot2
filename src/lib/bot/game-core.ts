@@ -39,9 +39,26 @@ const req=(l:number)=>l*l*100;
 const bar=(x:number,l:number)=>{const p=Math.max(0,Math.min(100,Math.floor(((x-req(l-1))/Math.max(1,req(l)-req(l-1)))*100)));return "█".repeat(Math.floor(p/10))+"░".repeat(10-Math.floor(p/10));};
 const period=(p:string)=>{const d=new Date();return p==="daily"?d.toISOString().slice(0,10):d.getUTCFullYear()+"-"+String(d.getUTCMonth()+1).padStart(2,"0")+"-W"+Math.ceil(d.getUTCDate()/7);};
 
+export function isGameCenterCommand(text:string){
+  const z=norm(String(text??"").trim().replace(/^[/!.]+/,""));
+  return ["بازی","game","game center","مرکز بازی"].includes(z);
+}
+
+export function gameCenterKeyboard(){
+  return {inline_keyboard:[
+    [{text:"‹ بازی کردن",callback_data:"game:play"},{text:"‹ پروفایل",callback_data:"game:profile"}],
+    [{text:"‹ موجودی",callback_data:"game:wallet"},{text:"‹ فروشگاه",callback_data:"game:shop"}],
+    [{text:"‹ مأموریت‌ها",callback_data:"game:missions"},{text:"‹ رتبه‌بندی",callback_data:"game:leaderboard"}],
+    [{text:"‹ جوایز",callback_data:"game:rewards"},{text:"‹ تاریخچه",callback_data:"game:history"}],
+    [{text:"‹ راهنما",callback_data:"game:help"},{text:"‹ تنظیمات",callback_data:"game:settings"}],
+  ]};
+}
+
+
 export async function ensureGameSchema(pool:Pool){
   if(!schema)schema=pool.query([
-    "CREATE TABLE IF NOT EXISTS game_players(group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,username TEXT,first_name TEXT,level INT NOT NULL DEFAULT 1,xp BIGINT NOT NULL DEFAULT 0,gems BIGINT NOT NULL DEFAULT 0 CHECK(gems>=0),rating INT NOT NULL DEFAULT 1000,total_games INT NOT NULL DEFAULT 0,wins INT NOT NULL DEFAULT 0,losses INT NOT NULL DEFAULT 0,current_streak INT NOT NULL DEFAULT 0,best_streak INT NOT NULL DEFAULT 0,quiz_wins INT NOT NULL DEFAULT 0,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),last_active_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),PRIMARY KEY(group_id,user_id));",
+    "CREATE TABLE IF NOT EXISTS game_players(group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,username TEXT,first_name TEXT,level INT NOT NULL DEFAULT 1,xp BIGINT NOT NULL DEFAULT 0,gems BIGINT NOT NULL DEFAULT 0 CHECK(gems>=0),rating INT NOT NULL DEFAULT 1000,high_score INT NOT NULL DEFAULT 1000,total_games INT NOT NULL DEFAULT 0,wins INT NOT NULL DEFAULT 0,losses INT NOT NULL DEFAULT 0,current_streak INT NOT NULL DEFAULT 0,best_streak INT NOT NULL DEFAULT 0,quiz_wins INT NOT NULL DEFAULT 0,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),last_active_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),PRIMARY KEY(group_id,user_id));",
+    "ALTER TABLE game_players ADD COLUMN IF NOT EXISTS high_score INT NOT NULL DEFAULT 1000;",
     "CREATE INDEX IF NOT EXISTS idx_game_players_rank ON game_players(group_id,rating DESC);",
     "CREATE TABLE IF NOT EXISTS game_group_settings(group_id BIGINT PRIMARY KEY,enabled BOOLEAN NOT NULL DEFAULT TRUE,daily_reward BIGINT NOT NULL DEFAULT 50,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());",
     "CREATE TABLE IF NOT EXISTS game_wallet_ledger(id BIGSERIAL PRIMARY KEY,group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,delta BIGINT NOT NULL,balance_after BIGINT NOT NULL CHECK(balance_after>=0),reason TEXT NOT NULL,game_code TEXT,metadata JSONB NOT NULL DEFAULT '{}'::jsonb,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());",
@@ -95,7 +112,7 @@ async function unlock(pool:Pool,g:number,u:number){
   const out:string[]=[];for(const code of list){const q=await pool.query("INSERT INTO game_player_achievements(group_id,user_id,code) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",[g,u,code]);if(!q.rowCount)continue;const reward=Number((await pool.query<{reward_gems:number}>("SELECT reward_gems FROM game_achievements WHERE group_id=$1 AND code=$2",[g,code])).rows[0]?.reward_gems||0);if(reward)await changeGems(pool,g,u,reward,"Achievement reward",code);out.push(code);}return out;
 }
 async function record(pool:Pool,ctx:GameContext,code:string,win:boolean,x:number,g:number,rd:number,meta:any={}){
-  await pool.query("UPDATE game_players SET total_games=total_games+1,wins=wins+$3,losses=losses+$4,current_streak=CASE WHEN $5 THEN current_streak+1 ELSE 0 END,best_streak=GREATEST(best_streak,CASE WHEN $5 THEN current_streak+1 ELSE current_streak END),rating=GREATEST(0,rating+$6),last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,win?1:0,win?0:1,win,rd]);
+  await pool.query("UPDATE game_players SET total_games=total_games+1,wins=wins+$3,losses=losses+$4,current_streak=CASE WHEN $5 THEN current_streak+1 ELSE 0 END,best_streak=GREATEST(best_streak,CASE WHEN $5 THEN current_streak+1 ELSE current_streak END),rating=GREATEST(0,rating+$6),last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,win?1:0,win?0:1,win,rd]);\n  await pool.query("UPDATE game_players SET high_score=GREATEST(high_score,rating) WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId]);
   const xr=await addXp(pool,ctx.chatId,ctx.userId,x);if(g){const gr=await changeGems(pool,ctx.chatId,ctx.userId,g,"Game reward",code,meta);if(!gr.ok)throw new Error("gem transaction rejected");}
   await pool.query("INSERT INTO game_match_history(group_id,user_id,game_code,result,xp_earned,gems_earned,rating_delta,metadata) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb)",[ctx.chatId,ctx.userId,code,win?"win":"loss",x,Math.max(0,g),rd,JSON.stringify(meta)]);
   await updateMission(pool,ctx.chatId,ctx.userId,"play_3",1);await updateMission(pool,ctx.chatId,ctx.userId,"play_15",1);if(win){await updateMission(pool,ctx.chatId,ctx.userId,"win_1",1);await updateMission(pool,ctx.chatId,ctx.userId,"win_8",1);}if(g>0){await updateMission(pool,ctx.chatId,ctx.userId,"earn_100",g);await updateMission(pool,ctx.chatId,ctx.userId,"earn_500",g);}await updateSeason(pool,ctx.chatId,ctx.userId,x,win);const a=await unlock(pool,ctx.chatId,ctx.userId);return {xr,a};
@@ -107,8 +124,42 @@ async function profile(pool:Pool,ctx:GameContext,id:number,name?:string){
   const nameOut=p.first_name||name||String(id);return ["◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Gᴀᴍᴇ Pʀᴏғɪʟᴇ","","⛂ - نام : "+nameOut,"⛂ - نام کاربری : "+(p.username?"@"+p.username:"—"),"⛂ - شناسه : "+id,"","─────━━───── ◈ ─────━━─────","","⛂ - سطح : "+fa(l),"⛂ - تجربه : "+fa(x)+" XP","⛂ - پیشرفت : "+bar(x,l),"⛂ - جم : "+fa(g),"⛂ - لیگ : "+league(r),"⛂ - امتیاز رقابتی : "+fa(r),"","⛂ - بازی‌ها : "+fa(ga),"⛂ - برد : "+fa(w),"⛂ - باخت : "+fa(lo),"⛂ - درصد برد : "+rate+"٪","⛂ - زنجیره فعلی : "+fa(+p.current_streak),"⛂ - بهترین زنجیره : "+fa(+p.best_streak),"","⛂ - دستاوردها : "+fa(ac),"⛂ - آیتم‌ها : "+fa(inv)].join("\n");
 }
 async function center(pool:Pool,ctx:GameContext){
-  await ensurePlayer(pool,ctx);const p=(await pool.query<any>("SELECT level,gems,rating FROM game_players WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId])).rows[0];const total=Number((await pool.query("SELECT COUNT(*)::int n FROM game_players WHERE group_id=$1",[ctx.chatId])).rows[0]?.n||0),active=Number((await pool.query("SELECT COUNT(*)::int n FROM game_players WHERE group_id=$1 AND last_active_at>=NOW()-INTERVAL '30 minutes'",[ctx.chatId])).rows[0]?.n||0);
-  return ["◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Gᴀᴍᴇ Cᴇɴᴛᴇʀ","","⛂ - بازیکنان ثبت‌شده : "+fa(total),"⛂ - بازیکنان فعال : "+fa(active),"⛂ - وضعیت : فعال","","─────━━───── ◈ ─────━━─────","","◈ پروفایل و پیشرفت","پروفایل بازی · game profile","جم · gems","رتبه بازی · game rank","آمار بازی · game stats","تاریخچه بازی · game history","ماموریت‌های بازی · game missions","دریافت مأموریت‌ها · claim missions","دستاوردهای بازی · game achievements","","◈ اقتصاد","فروشگاه بازی · game shop","خرید آیتم <code> · buy item <code>","انبار بازی · game inventory","","◈ رقابت","فصل بازی · game season","جدول بازی · game leaderboard","","◈ بازی‌ها","تاس · dice","کوییز · quiz","","راهنمای بازی · game help","","سطح شما : "+fa(+p.level)+" · جم : "+fa(+p.gems)+" · لیگ : "+league(+p.rating)].join("\n");
+  await ensurePlayer(pool,ctx);
+  const p=(await pool.query<any>("SELECT level,xp,gems,rating,total_games,wins,losses,current_streak,high_score FROM game_players WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId])).rows[0];
+  const pos=Number((await pool.query("SELECT 1+COUNT(*)::int pos FROM game_players a JOIN game_players me ON me.group_id=a.group_id AND me.user_id=$2 WHERE a.group_id=$1 AND (a.rating>me.rating OR (a.rating=me.rating AND a.user_id<me.user_id))",[ctx.chatId,ctx.userId])).rows[0]?.pos||1);
+  const nextXp=req(+p.level);
+  const today=new Date().toISOString().slice(0,10);
+  const claimed=(await pool.query("SELECT 1 FROM game_daily_claims WHERE group_id=$1 AND user_id=$2 AND claim_key=$3 LIMIT 1",[ctx.chatId,ctx.userId,today])).rowCount>0;
+  const dailyReward=Number((await pool.query<{daily_reward:number}>("SELECT daily_reward FROM game_group_settings WHERE group_id=$1",[ctx.chatId])).rows[0]?.daily_reward??50);
+  const status=await enabled(pool,ctx.chatId)?"فعال":"خاموش";
+  return [
+    "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Gᴀᴍᴇ Cᴇɴᴛᴇʀ",
+    "",
+    "به مرکز بازی خوش آمدید، "+(ctx.user.firstName||ctx.user.username||String(ctx.userId))+" .",
+    "",
+    "⛂ - نام بازیکن : "+(ctx.user.firstName||ctx.user.username||String(ctx.userId)),
+    "⛂ - سطح : "+fa(+p.level),
+    "⛂ - رتبه : #"+fa(pos),
+    "⛂ - امتیاز : "+fa(+p.rating),
+    "⛂ - جم : "+fa(+p.gems),
+    "",
+    "                     ─────━━───── ◈ ─────━━─────",
+    "",
+    "⛂ - تجربه : "+fa(+p.xp)+" / "+fa(nextXp)+" XP",
+    "⛂ - بردها : "+fa(+p.wins),
+    "⛂ - باخت‌ها : "+fa(+p.losses),
+    "⛂ - بازی‌ها : "+fa(+p.total_games),
+    "⛂ - برد متوالی : "+fa(+p.current_streak),
+    "⛂ - رکورد امتیاز : "+fa(+p.high_score),
+    "",
+    "                     ─────━━───── ◈ ─────━━─────",
+    "",
+    "وضعیت بازیکن : "+status,
+    "فعالیت امروز : "+(claimed?"انجام شده":"فعال"),
+    "پاداش روزانه : "+fa(dailyReward)+" جم",
+    "",
+    "برای ادامه، یکی از بخش‌های زیر را انتخاب کنید."
+  ].join("\n");
 }
 async function rank(pool:Pool,ctx:GameContext){
   await ensurePlayer(pool,ctx);const rows=(await pool.query<any>("SELECT user_id,COALESCE(username,first_name,user_id::text) name,rating FROM game_players WHERE group_id=$1 ORDER BY rating DESC,user_id ASC LIMIT 10",[ctx.chatId])).rows;const pos=Number((await pool.query("SELECT 1+COUNT(*)::int pos FROM game_players a JOIN game_players me ON me.group_id=a.group_id AND me.user_id=$2 WHERE a.group_id=$1 AND (a.rating>me.rating OR (a.rating=me.rating AND a.user_id<me.user_id))",[ctx.chatId,ctx.userId])).rows[0]?.pos||1);
