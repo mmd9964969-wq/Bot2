@@ -1005,13 +1005,19 @@ async function poll() {
                 user:{id:callback.from.id,username:callback.from.username,firstName:callback.from.first_name},
                 isAdmin:["owner","sudo","admin"].includes(rank),
               },data);
-              await telegramApi("answerCallbackQuery",{callback_query_id:callback.id});
+              await telegramApi("answerCallbackQuery",{
+                callback_query_id:callback.id,
+                ...(result?.callbackUrl ? {url:result.callbackUrl} : {})
+              });
               if(result){
+                const cleanResult:any={...result};
+                delete cleanResult.callbackUrl;
+                delete cleanResult.sessionId;
                 await telegramApi("editMessageText",{
                   chat_id:chat.id,
                   message_id:callback.message.message_id,
-                  text:result.text,
-                  reply_markup:result.replyMarkup,
+                  text:cleanResult.text,
+                  reply_markup:cleanResult.replyMarkup,
                 });
               }
               return;
