@@ -17,7 +17,7 @@ import { ensureInstallationSchema, installationGate, handleInstallationCallback 
 import { ensureModerationSchema, runModerationCommand } from "../src/lib/bot/moderation.ts";
 import { sweepGroupSubscriptions } from "../src/lib/bot/group-subscriptions.ts";
 import { ensureInviteLinkSchema, handleInviteLinkCallback, handleInviteLinkJoinRequest, handleInviteLinkTextInput, handleInviteLinkUsage, openInviteLinkCenter } from "../src/lib/bot/invite-links.ts";
-import { handleGameText, gameCenterKeyboard, isGameCenterCommand } from "../src/lib/bot/game-core.ts";
+import { handleGameText, handleGameCallback, gameCenterKeyboard, isGameCenterCommand } from "../src/lib/bot/game-core.ts";
 
 const TOKEN = process.env.BOT_TOKEN ?? "";
 if (!TOKEN) { console.error("BOT_TOKEN is missing"); process.exit(1); }
@@ -954,16 +954,41 @@ async function poll() {
         }
         if (upd.callback_query?.from && upd.callback_query.message && studioPool) {
           void (async () => {
+            const callback=upd.callback_query as any;
+            const data=String(callback.data??"");
+            if (data.startsWith("game:")) {
+              const chat=callback.message.chat as TgChat;
+              const adminIds=chat.type==="private"?new Set<number>():await chatAdmins(chat.id);
+              const rank=rankOf(callback.from.id,adminIds);
+              const result=await handleGameCallback({
+                pool:studioPool!,
+                chatId:chat.id,
+                userId:callback.from.id,
+                user:{id:callback.from.id,username:callback.from.username,firstName:callback.from.first_name},
+                isAdmin:["owner","sudo","admin"].includes(rank),
+              },data);
+              await telegramApi("answerCallbackQuery",{callback_query_id:callback.id});
+              if(result){
+                await telegramApi("editMessageText",{
+                  chat_id:chat.id,
+                  message_id:callback.message.message_id,
+                  text:result.text,
+                  reply_markup:result.replyMarkup,
+                });
+              }
+              return;
+            }
             const handled = await handleInstallationCallback(
               studioPool!,
-              upd.callback_query as any,
+              callback,
               config.ownerIds,
               config.sudoIds,
             );
             if (handled) return;
-            await dispatchPanelCallback(studioPool!, upd.callback_query as any, config.ownerIds);
+            await dispatchPanelCallback(studioPool!, callback, config.ownerIds);
           })().catch((error) => {
             console.error("[update] callback handler failed", error);
+            void telegramApi("answerCallbackQuery",{callback_query_id:upd.callback_query?.id,text:"خطا در اجرای این بخش",show_alert:false}).catch(()=>{});
           });
         }
         if (upd.chat_join_request && studioPool) {
