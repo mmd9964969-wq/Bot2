@@ -18,6 +18,7 @@ import { ensureModerationSchema, runModerationCommand } from "../src/lib/bot/mod
 import { sweepGroupSubscriptions } from "../src/lib/bot/group-subscriptions.ts";
 import { ensureInviteLinkSchema, handleInviteLinkCallback, handleInviteLinkJoinRequest, handleInviteLinkTextInput, handleInviteLinkUsage, openInviteLinkCenter } from "../src/lib/bot/invite-links.ts";
 import { handleGameText, handleGameCallback, gameCenterKeyboard, isGameCenterCommand } from "../src/lib/bot/game-core.ts";
+import { ensureEngineSchema, getEngineGame } from "../src/lib/bot/game-engine.ts";
 
 const TOKEN = process.env.BOT_TOKEN ?? "";
 if (!TOKEN) { console.error("BOT_TOKEN is missing"); process.exit(1); }
