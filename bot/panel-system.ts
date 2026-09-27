@@ -808,6 +808,7 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
       [["ساخت اشتراک","o:sub_create"],["اشتراک‌های فعال","o:sub_active"]],
       [["در حال انقضا","o:sub_expiring"],["تاریخچه اشتراک‌ها","o:sub_history"]],
       [["جستجوی مشتری","o:sub_customer"],["جستجوی گروه","o:sub_group"]],
+      [["لغو اشتراک","o:sub_cancel"]],
       [["‹ بازگشت","o:home"]]
     ]));
   }
