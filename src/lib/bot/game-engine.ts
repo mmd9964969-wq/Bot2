@@ -267,7 +267,7 @@ async function settleEngine(pool:Pool,sessionId:number,outcomes:Array<{userId:nu
   }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e;}finally{client.release();}
 }
 
-async function resolveAction(pool:Pool,ctx:GameContext,sessionId:number,action:string,payload:string){
+export async function resolveAction(pool:Pool,ctx:GameContext,sessionId:number,action:string,payload:string){
   const x=await ensureParticipant(pool,ctx,sessionId);if(!x)throw new Error("not_participant");
   const {s}=x;if(s.status==="finished")return;
   const game=getEngineGame(String(s.game_code));if(!game)throw new Error("unknown_game");
