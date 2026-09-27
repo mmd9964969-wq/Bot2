@@ -1315,7 +1315,8 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
         menu([[["تمدید لایسنس","c:renew"],["پشتیبانی","c:support"]]])
       );
     }
-    if(!(await isGroupAdmin(groupId,uid))){
+    const logicalGroupOwner=(allowed as any)?.__groupSubscription===true;
+    if(!logicalGroupOwner && !(await isGroupAdmin(groupId,uid))){
       return edit(msg.chat.id,msg.message_id,
         panelTitle("دسترسی رد شد","⛂ - وضعیت : فقط مدیر گروه مجاز به تغییر تنظیمات است."),
         menu([[["‹ بازگشت","c:home"]]])
