@@ -219,8 +219,8 @@ async function renderMain(pool: Pool, chatId: number, actorId: number, targetId:
   const t = await target(pool, chatId, targetId);
   if (!t.ok) {
     const text = panel("Mᴇᴍʙᴇʀ Cᴏɴᴛʀᴏʟ", "✗ " + t.error);
-    if (edit?.message) return editPanel(pool, edit, text, [[["‹ بازگشت"]]] as any);
-    return sendPanel(pool, chatId, actorId, text, [[["‹ بازگشت"]]] as any);
+    if (edit?.message) return editPanel(pool, edit, text, [[["‹ بازگشت", "c:members"]]]);
+    return sendPanel(pool, chatId, actorId, text, [[["‹ بازگشت", "c:members"]]]);
   }
   const warnings = await warningCount(pool, chatId, targetId);
   const special = await specialRow(pool, chatId, targetId);
