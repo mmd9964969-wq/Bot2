@@ -177,7 +177,7 @@ function botMarkup(sessionId:number,code:string,userId:number,state:any,players:
 }
 
 function miniMarkup(sessionId:number,code:string,userId:number){
-  const base=(process.env.GAME_WEBAPP_URL||"").replace(/\/$/,"");
+  const rawBase=process.env.GAME_WEBAPP_URL||""; const base=rawBase.endsWith("/")?rawBase.slice(0,-1):rawBase;
   if(!base)return {inline_keyboard:[[ {text:"‹ شروع در Mini App",callback_data:"game:engine:finish:"+sessionId+":"+userId} ],[{text:"‹ مرکز بازی",callback_data:"game:center"}]]};
   const url=base+"/game/"+sessionId+"?code="+encodeURIComponent(code);
   return {inline_keyboard:[
@@ -383,7 +383,7 @@ export function verifyTelegramInitData(initData:string,botToken:string,maxAgeSec
   if(!user?.id)return null;return user;
 }
 
-function fa(x:number){return String(x).replace(/\d/g,d=>"۰۱۲۳۴۵۶۷۸۹"[Number(d)]||d)}
+function fa(x:number){return String(x).split("").map(d=>"۰۱۲۳۴۵۶۷۸۹"[Number(d)]||d).join("")}
 
 export async function miniAppAction(pool:Pool,sessionId:number,initData:string,botToken:string,action:string,payload:string){
   const user=verifyTelegramInitData(initData,botToken);if(!user)throw new Error("invalid_telegram_init_data");
