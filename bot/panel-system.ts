@@ -2200,6 +2200,12 @@ export async function dispatchPanelMessage(pool:Pool,msg:TgMessage,ownerIds:stri
   if(!msg.from)return false;
   await ensurePanelSessionSchema(pool);
   return runWithPanelScope(msg.from.id,pool,async()=>{
+    // Keep the customer directory current from users the bot actually observes.
+    // Telegram Bot API does not provide a generic user-by-@username resolver,
+    // so observed users must be registered with their current username.
+    try{ await customerEnsure(pool,msg.from!.id,msg.from!); }
+    catch(error){ console.error("[customers] observed-user sync failed",error); }
+
     // Panel throttling must never consume group messages; content-lock
     // enforcement needs to see every message, including rapid photo bursts.
     if(msg.chat.type==="private" && !allowed(msg.from.id))return false;
