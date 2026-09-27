@@ -161,6 +161,7 @@ async function centerText(pool:Pool,chatId:number,targetId:number){
     [{text:tr(lang,"بدون انقضا","Unlimited"),callback_data:`sp:set:${targetId}:0`},{text:tr(lang,"افزایش +۱ ساعت","Extend +1h"),callback_data:`sp:extend:${targetId}:3600`}],
     [{text:tr(lang,"کاهش ۱ ساعت","Reduce 1h"),callback_data:`sp:reduce:${targetId}:3600`},{text:tr(lang,"حذف ویژه","Remove Special"),callback_data:`sp:remove:${targetId}`}],
     [{text:tr(lang,"سابقه ویژه","Special History"),callback_data:`sp:history:${targetId}:0`},{text:tr(lang,"لیست ویژه‌ها","Special List"),callback_data:"sp:list:0"}],
+    [{text:tr(lang,"ویژه دسته‌جمعی","Bulk Special"),callback_data:"spb:start:set"}],
     [{text:"‹ بازگشت",callback_data:"c:members"}]
   ];
   return {lang,text:title+"\n\n"+body,rows};
@@ -185,6 +186,7 @@ async function renderList(pool:Pool,chatId:number,actorId:number,page:number,edi
   const buttons:any[][]=rows.rows.map((x:any)=>[{text:`${x.username?"@"+x.username:(x.first_name||x.user_id)} · ${x.expires_at?fmtSec(left(x.expires_at),lang):"∞"}`,callback_data:`sp:center:${x.user_id}`}]);
   const nav:any[]=[]; if(p>0)nav.push({text:"‹ قبلی",callback_data:`sp:${expired?"expired":"list"}:${p-1}`});nav.push({text:`${p+1}/${pages}`,callback_data:"sp:noop"});if(p<pages-1)nav.push({text:"بعدی ›",callback_data:`sp:${expired?"expired":"list"}:${p+1}`}); buttons.push(nav);
   buttons.push([{text:tr(lang,"افزودن ویژه","Add Special"),callback_data:"sp:add"},{text:tr(lang,"ویژه‌های منقضی","Expired"),callback_data:"sp:expired:0"}]);
+  buttons.push([{text:tr(lang,"ویژه دسته‌جمعی","Bulk Special"),callback_data:"spb:start:set"}]);
   buttons.push([{text:"‹ بازگشت",callback_data:"c:members"}]);
   if(edit)return telegramApi("editMessageText",{chat_id:edit.chatId,message_id:edit.messageId,text,reply_markup:kb(buttons)});
   return sendPanel(pool,chatId,actorId,text,buttons);
