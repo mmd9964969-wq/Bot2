@@ -357,7 +357,7 @@ function lockCenterRichBlocks(rows:any[],lang:BotLang="fa"){
   return {blocks,is_rtl:lang==="fa"||lang==="ar"};
 }
 
-async function sendRichLockCenter(pool:Pool,chatId:number,ownerId?:number){
+async function sendRichLockCenter(pool:Pool,chatId:number,ownerId?:number,panelKind:"customer"|"command"="customer"){
   const rows=await lockRows(pool,chatId);
   const lang=await getGroupLanguage(pool,chatId,"fa");
   const rich_message=lockCenterRichBlocks(rows,lang);
@@ -366,7 +366,7 @@ async function sendRichLockCenter(pool:Pool,chatId:number,ownerId?:number){
   if(rich.ok){
     if(ownerId){
       const messageId=Number((rich.result as any)?.message_id);
-      if(Number.isSafeInteger(messageId)&&messageId>0) await bindPanelMessage(pool,chatId,messageId,ownerId,"customer");
+      if(Number.isSafeInteger(messageId)&&messageId>0) await bindPanelMessage(pool,chatId,messageId,ownerId,panelKind);
     }
     return rich;
   }
@@ -396,8 +396,8 @@ export async function editRichLockCenter(pool:Pool,chatId:number,messageId:numbe
   return fallback;
 }
 
-export async function sendContentLockCenter(pool:Pool,chatId:number,ownerId?:number){
-  return sendRichLockCenter(pool,chatId,ownerId);
+export async function sendContentLockCenter(pool:Pool,chatId:number,ownerId?:number,panelKind:"customer"|"command"="customer"){
+  return sendRichLockCenter(pool,chatId,ownerId,panelKind);
 }
 async function lockSectionText(pool:Pool,groupId:number,section:string,title:string,limit=100){
   const rows=(await lockRows(pool,groupId)).filter((x:any)=>x.section===section);
