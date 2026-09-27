@@ -665,7 +665,7 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
     }
     if(step===2){
       const customerId=Number(s.data.customerId);
-      const checked=await validateGroup(pool,customerId,raw);
+      const checked=await validateGroup(pool,customerId,raw,{allowProvisionedOwner:true});
       if(!checked.ok)return send(msg.chat.id,"✗ بررسی گروه انجام نشد.\n\n"+checked.message,menu([[["‹ بازگشت","o:subscriptions"]]]))&&true;
       const current=await getCurrentGroupSubscription(pool,checked.group.id);
       if(current){
@@ -983,7 +983,7 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     const plan=s.data.plan as SubscriptionPlan|undefined;
     const customerId=Number(s.data.customerId),groupId=Number(s.data.groupId);
     if(!plan||!Number.isSafeInteger(customerId)||!Number.isSafeInteger(groupId))return;
-    const checked=await validateGroup(pool,customerId,String(s.data.groupRef||groupId));
+    const checked=await validateGroup(pool,customerId,String(s.data.groupRef||groupId),{allowProvisionedOwner:true});
     if(!checked.ok)return edit(msg.chat.id,msg.message_id,"✗ بررسی گروه در زمان تأیید ناموفق بود.\n\n"+checked.message,menu([[["‹ بازگشت","o:subscriptions"]]]));
     const result=await createGroupSubscription(pool,{customerId,group:checked.group,plan,createdBy:uid});
     if(!result.ok){
@@ -2190,7 +2190,7 @@ export async function openModerationCenterFromCommand(pool:Pool, chatId:number, 
   const result=await telegramApi("sendMessage",{chat_id:chatId,text:buildPanelText(title,body,lang),reply_markup:localizeMarkup(markup,lang)});
   if(result.ok){
     const messageId=Number((result.result as any)?.message_id);
-    if(Number.isSafeInteger(messageId)&&messageId>0)await bindPanelMessage(pool,chatId,messageId,actorId);
+    if(Number.isSafeInteger(messageId)&&messageId>0)await bindPanelMessage(pool,chatId,messageId,actorId,"command");
   }
   return result;
 }
