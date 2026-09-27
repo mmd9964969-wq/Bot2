@@ -96,6 +96,13 @@ export async function ensureMessageToolsSchema(pool:Pool){
       CREATE INDEX IF NOT EXISTS idx_bot_message_records_chat_user
         ON bot_message_records(chat_id,user_id,created_at DESC);
 
+      CREATE TABLE IF NOT EXISTS message_purge_settings(
+        group_id BIGINT PRIMARY KEY,
+        auto_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+        updated_by BIGINT,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
       CREATE TABLE IF NOT EXISTS member_tag_definitions(
         id BIGSERIAL PRIMARY KEY,
         group_id BIGINT NOT NULL,
@@ -481,25 +488,52 @@ async function unpin(pool:Pool,chatId:number,actorId:number){
   return {ok:true,reason:""};
 }
 
+async function getPurgeAutoEnabled(pool:Pool,chatId:number){
+  await pool.query(
+    "INSERT INTO message_purge_settings(group_id,auto_enabled) VALUES($1,FALSE) ON CONFLICT(group_id) DO NOTHING",
+    [chatId],
+  );
+  const r=await pool.query<any>(
+    "SELECT auto_enabled FROM message_purge_settings WHERE group_id=$1 LIMIT 1",
+    [chatId],
+  );
+  return r.rows[0]?.auto_enabled===true;
+}
+
+async function togglePurgeAuto(pool:Pool,chatId:number,actorId:number){
+  const current=await getPurgeAutoEnabled(pool,chatId);
+  const next=!current;
+  await pool.query(
+    "UPDATE message_purge_settings SET auto_enabled=$2,updated_by=$3,updated_at=NOW() WHERE group_id=$1",
+    [chatId,next,actorId],
+  );
+  await audit(pool,actorId,"purge_auto_toggled",String(chatId),{groupId:chatId,enabled:next});
+  return next;
+}
+
 async function renderPurgeCenter(pool:Pool,chatId:number,actorId:number,editMessageId?:number){
   const c=await pool.query<any>(
     "SELECT COUNT(*)::int n FROM bot_message_records WHERE chat_id=$1 AND created_at>=NOW()-INTERVAL '24 hours'",
     [chatId],
   );
   const tracked=Number(c.rows[0]?.n||0);
+  const autoEnabled=await getPurgeAutoEnabled(pool,chatId);
   const text=[
     "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Pᴜʀɢᴇ Cᴇɴᴛᴇʀ",
     "",
     "⛂ - پیام‌های ثبت‌شده ۲۴ ساعت اخیر : "+tracked,
-    "⛂ - وضعیت : آماده",
+    "⛂ - پاکسازی خودکار : "+(autoEnabled?"فعال":"خاموش"),
+    "⛂ - وضعیت عملیات دستی : آماده",
     "",
-    "پاکسازی با رکوردهای پیام ثبت‌شده توسط ربات انجام می‌شود."
+    "⚠️ پیام‌ها فقط با انتخاب عملیات و تأیید مدیر حذف می‌شوند.",
+    "⛂ - حالت خودکار به‌صورت پیش‌فرض خاموش است."
   ].join("\n");
   return sendPanel(pool,chatId,actorId,text,[
     [["› پاکسازی بر اساس تعداد","purge:count"],["› پاکسازی بر اساس کاربر","purge:user"]],
     [["› فقط رسانه","purge:media"],["› فقط لینک","purge:link"]],
     [["› پیام‌های اخیر","purge:recent"],["› بازه زمانی","purge:time"]],
     [["› پیش‌نمایش","purge:preview"]],
+    [[autoEnabled?"● خاموش‌کردن پاکسازی خودکار":"○ روشن‌کردن پاکسازی خودکار","purge:auto_toggle"]],
     [["‹ بازگشت","c:members"]]
   ],editMessageId);
 }
@@ -681,7 +715,10 @@ export async function handleMessageToolsText(pool:Pool,msg:TgMessage,ownerIds:st
   }
   if(["پاکسازی","purge"].includes(raw)){
     if(!(await isManager(chatId,uid,ownerIds)))return true;
-    await del(chatId,msg.message_id);await renderPurgeCenter(pool,chatId,uid);return true;
+    clearSession(uid);
+    await del(chatId,msg.message_id);
+    await renderPurgeCenter(pool,chatId,uid);
+    return true;
   }
 
   return false;
@@ -799,6 +836,10 @@ export async function handleMessageToolsCallback(pool:Pool,cb:TgCallback,ownerId
       return sendPanel(pool,chatId,uid,"◈ Pᴜʀɢᴇ · Pʀᴇᴠɪᴇᴡ\n\n⛂ - پیام‌های قابل حذف : "+ids.length+"\n⛂ - این فقط پیش‌نمایش است.",[[["✓ تأیید حذف 100 مورد","purge:confirm"],["‹ بازگشت","purge:center"]]],cb.message.message_id).then(()=>true);
     }
     if(a==="center")return renderPurgeCenter(pool,chatId,uid,cb.message.message_id).then(()=>true);
+    if(a==="auto_toggle"){
+      await togglePurgeAuto(pool,chatId,uid);
+      return renderPurgeCenter(pool,chatId,uid,cb.message.message_id).then(()=>true);
+    }
     if(a==="confirm"){
       const s=getSession(uid);if(!s||s.kind!=="purge")return true;
       const result=await executePurge(pool,chatId,uid,s.data.filter||{limit:100});
