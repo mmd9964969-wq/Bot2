@@ -614,6 +614,7 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
   }
   if(!await isOwner(pool,uid,ownerIds))return false;
   await customerEnsure(pool,uid,msg.from!);
+  const inputText=String(msg.text||"").trim();
   if(["owner","مالک"].includes(raw)){
     await audit(pool,String(uid),"owner_panel_opened",String(uid));await renderOwner(pool,uid,msg.chat.id);return true;
   }
@@ -694,7 +695,7 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
       // from the group's administrator list once the group is known.
       if(!Number.isSafeInteger(customerId)||customerId<=0){
         const pendingUsername=String(s.data.customerUsername||"").trim().replace(/^@/,"").toLowerCase();
-        const resolvedGroup=await resolveGroup(pool,raw);
+        const resolvedGroup=await resolveGroup(pool,inputText);
         if(!resolvedGroup){
           return send(msg.chat.id,"✗ گروه پیدا نشد. لینک عمومی یا لینک دعوت خصوصی معتبر گروه را ارسال کنید.",menu([[["‹ بازگشت","o:subscriptions"]]]))&&true;
         }
@@ -724,7 +725,7 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
         session(uid,s.flow,s.data);
       }
 
-      checked=await validateGroup(pool,customerId,raw,{allowProvisionedOwner:true});
+      checked=await validateGroup(pool,customerId,inputText,{allowProvisionedOwner:true});
       if(!checked.ok)return send(msg.chat.id,"✗ بررسی گروه انجام نشد.\n\n"+checked.message,menu([[["‹ بازگشت","o:subscriptions"]]]))&&true;
       const current=await getCurrentGroupSubscription(pool,checked.group.id);
       if(current){
@@ -734,11 +735,11 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
             menu([[["‹ بازگشت","o:subscriptions"]]])
           )&&true;
         }
-        s.data.groupId=checked.group.id;s.data.groupTitle=checked.group.title;s.data.groupRef=raw;s.data.step=3;s.data.mode="renew";
+        s.data.groupId=checked.group.id;s.data.groupTitle=checked.group.title;s.data.groupRef=inputText;s.data.step=3;s.data.mode="renew";
         session(uid,s.flow,s.data);
         return send(msg.chat.id,"◈ تمدید اشتراک\n\n⛂ گروه : "+checked.group.title+"\n⛂ مدت جدید را انتخاب کنید.",subscriptionPlansKeyboard("o:sub_renew:"))&&true;
       }
-      s.data.groupId=checked.group.id;s.data.groupTitle=checked.group.title;s.data.groupRef=raw;s.data.step=3;s.data.mode="create";
+      s.data.groupId=checked.group.id;s.data.groupTitle=checked.group.title;s.data.groupRef=inputText;s.data.step=3;s.data.mode="create";
       session(uid,s.flow,s.data);
       return send(msg.chat.id,"◈ انتخاب مدت اشتراک\n\n⛂ گروه : "+checked.group.title+"\n\n⛂ مدت را انتخاب کنید.",subscriptionPlansKeyboard("o:sub_plan:"))&&true;
     }
