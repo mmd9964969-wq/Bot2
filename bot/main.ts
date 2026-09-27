@@ -11,6 +11,7 @@ import { isRuntimeMaintenance, startRuntimeControlServer } from "./runtime-contr
 import { ensureAutomationSchema, runAutomations, tickSchedules } from "../src/lib/bot/automation-engine.ts";
 import { dispatchPanelMessage, dispatchPanelCallback, openModerationCenterFromCommand } from "./panel-system.ts";
 import { bindPanelMessage } from "../src/lib/bot/panel-session.ts";
+import { ensureSpecialUsersSchema, sweepSpecialUsers } from "../src/lib/bot/special-users.ts";
 import { ensureGroupLanguageSchema, getGroupLanguage, normalizeBotLang, setGroupLanguage, languageChangedText, languagePickerText, SUPPORTED_LANGUAGES } from "../src/lib/bot/i18n.ts";
 import { ensureInstallationSchema, installationGate, handleInstallationCallback } from "./installation.ts";
 import { ensureModerationSchema, runModerationCommand } from "../src/lib/bot/moderation.ts";
@@ -479,10 +480,10 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
     await logCommandAccess(ctx,"lang","command_executed","allowed","ADMIN");
     return languageChangedText(selected);
   }
-  const coreNoArgIds=new Set(["robot","id","admin","info","rank","me","ping","bot","status"]);
+  const coreNoArgIds=new Set(["robot","id","admin","info","rank","me","ping","bot","status","special"]);
   const coreNoArgAliases=new Set([
-    "robot","id","admin","info","rank","me","ping","bot","status",
-    "ربات","آیدی","ادمین","اطلاعات","مقام","اطلاعات مقام","من","پینگ","بات","وضعیت"
+    "robot","id","admin","info","rank","me","ping","bot","status","special",
+    "ربات","آیدی","ادمین","اطلاعات","مقام","اطلاعات مقام","من","پینگ","بات","وضعیت","ویژه"
   ]);
   const studioCommand=studio.commands.find(item=>{
     if(!item.enabled||item.phase>2)return false;
@@ -915,11 +916,14 @@ async function poll() {
     await ensureGroupLanguageSchema(studioPool);
     await ensureModerationSchema(studioPool);
     await ensureInviteLinkSchema(studioPool);
+    await ensureSpecialUsersSchema(studioPool);
   }
   setInterval(() => void refreshStudio(), 5000);
   setInterval(() => { if (studioPool) void tickSchedules(studioPool).catch(error => console.error("[scheduler]", error)); }, 5000);
   setInterval(() => { if (studioPool) void sweepGroupSubscriptions(studioPool).catch(error => console.error("[subscriptions]", error)); }, 30000);
+  setInterval(() => { if (studioPool) void sweepSpecialUsers(studioPool).catch(error => console.error("[special]", error)); }, 15000);
   void sweepGroupSubscriptions(studioPool).catch(error => console.error("[subscriptions]", error));
+  void sweepSpecialUsers(studioPool).catch(error => console.error("[special]", error));
 
   console.log("nizam two-phase polling as " + config.botName);
 
