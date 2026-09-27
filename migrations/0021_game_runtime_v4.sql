@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS game_session_players (
   PRIMARY KEY(session_id,user_id),
   UNIQUE(session_id,slot)
 );
+ALTER TABLE game_session_players ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 CREATE INDEX IF NOT EXISTS idx_game_session_players_user ON game_session_players(group_id,user_id,last_seen_at DESC);
 
 CREATE TABLE IF NOT EXISTS game_session_moves (
