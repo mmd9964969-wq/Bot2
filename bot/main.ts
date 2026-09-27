@@ -17,7 +17,7 @@ import { ensureInstallationSchema, installationGate, handleInstallationCallback 
 import { ensureModerationSchema, runModerationCommand } from "../src/lib/bot/moderation.ts";
 import { sweepGroupSubscriptions } from "../src/lib/bot/group-subscriptions.ts";
 import { ensureInviteLinkSchema, handleInviteLinkCallback, handleInviteLinkJoinRequest, handleInviteLinkTextInput, handleInviteLinkUsage, openInviteLinkCenter } from "../src/lib/bot/invite-links.ts";
-import { handleGameText } from "../src/lib/bot/game-core.ts";
+import { handleGameText, gameCenterKeyboard, isGameCenterCommand } from "../src/lib/bot/game-core.ts";
 
 const TOKEN = process.env.BOT_TOKEN ?? "";
 if (!TOKEN) { console.error("BOT_TOKEN is missing"); process.exit(1); }
@@ -851,7 +851,9 @@ async function processMessage(msg: TgMessage, edited = false) {
 
   const studioResult = await studioReplyLive(ctx);
   if (studioResult !== null) {
-    await telegramApi("sendMessage", { chat_id: chat.id, text: studioResult, reply_to_message_id: msg.message_id });
+    const payload:any = { chat_id: chat.id, text: studioResult, reply_to_message_id: msg.message_id };
+    if (!edited && isGameCenterCommand(text)) payload.reply_markup = gameCenterKeyboard();
+    await telegramApi("sendMessage", payload);
     return;
   }
 
