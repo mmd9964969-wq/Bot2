@@ -251,8 +251,10 @@ export async function cancelGroupSubscription(pool: Pool, subscriptionId: number
   return { ok: true as const, row: r.rows[0] };
 }
 
+function displayDate(value: unknown) { const d=new Date(String(value??"")); if(Number.isNaN(d.getTime())) return "—"; return new Intl.DateTimeFormat("en-GB",{day:"2-digit",month:"short",year:"numeric",timeZone:"Asia/Tehran"}).format(d); }
+
 function warningText(row: SubscriptionRow) {
-  const expiry = row.expires_at ? new Date(row.expires_at).toISOString().slice(0,10) : "—";
+  const expiry = row.expires_at ? displayDate(row.expires_at) : "—";
   return [
     "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴜʙsᴄʀɪᴘᴛɪᴏɴ",
     "",
@@ -310,14 +312,14 @@ async function expireRow(pool: Pool, row: SubscriptionRow) {
   if (!latest || latest.status === "CANCELLED" || latest.status === "LIFETIME" || (latest.expires_at && new Date(latest.expires_at).getTime() > Date.now())) return;
 
   try {
-    const notice = await telegramApi<any>("sendMessage", { chat_id: latest.group_id, text: expiredText(latest) });
+    const notice = await telegramApi<any>("sendMessage", { chat_id: latest.group_id, text: expiredText(expired) });
     if (!notice.ok) console.warn("[subscriptions] expiry notice failed:", notice.description);
   } catch (error) {
     console.warn("[subscriptions] expiry notice exception:", error);
   }
 
-  await telegramApi("leaveChat", { chat_id: latest.group_id }).catch((error) => console.warn("[subscriptions] leaveChat exception:", error));
-  await pool.query("UPDATE bot_customer_groups SET is_active=FALSE,last_seen_at=NOW() WHERE group_id=$1", [latest.group_id]).catch(() => {});
+  await telegramApi("leaveChat", { chat_id: expired.group_id }).catch((error) => console.warn("[subscriptions] leaveChat exception:", error));
+  await pool.query("UPDATE bot_customer_groups SET is_active=FALSE,last_seen_at=NOW() WHERE group_id=$1", [expired.group_id]).catch(() => {});
 }
 
 export async function sweepGroupSubscriptions(pool: Pool) {
