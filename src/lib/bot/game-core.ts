@@ -194,12 +194,14 @@ function roomName(code:string){
 
 function roomOwnerKeyboard(roomId:number,hostId:number,status:string){
   if(status==="waiting")return {inline_keyboard:[
+    [{text:"‹ جوین اتاق",callback_data:"game:room:join:"+roomId}],
     [{text:"‹ بروزرسانی اتاق",callback_data:"game:room:refresh:"+roomId+":"+hostId}],
     [{text:"‹ لغو اتاق",callback_data:"game:room:cancel:"+roomId+":"+hostId},{text:"‹ خروج",callback_data:"game:room:leave:"+roomId+":"+hostId}],
     [{text:"‹ بازگشت به چندنفره",callback_data:"game:multi:"+hostId}],
   ]};
   if(status==="ready")return {inline_keyboard:[
     [{text:"‹ شروع بازی",callback_data:"game:room:start:"+roomId+":"+hostId}],
+    [{text:"‹ جوین اتاق",callback_data:"game:room:join:"+roomId}],
     [{text:"‹ بروزرسانی اتاق",callback_data:"game:room:refresh:"+roomId+":"+hostId}],
     [{text:"‹ ترک اتاق",callback_data:"game:room:leave:"+roomId}],
     [{text:"‹ بازگشت به چندنفره",callback_data:"game:multi:"+hostId}],
