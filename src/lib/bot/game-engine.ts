@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Pool } from "pg";
+import { telegramApi } from "@/lib/telegram/api";
 import type { GameContext } from "./game-core.ts";
 
 export type EngineMode="solo"|"multi";
@@ -119,6 +120,73 @@ export async function createEngineSession(pool:Pool,ctx:GameContext,code:string,
   }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e;}finally{client.release();}
 }
 
+function spawn2048Tile(board:number[]){
+  const empty: number[]=[];
+  for(let i=0;i<board.length;i++)if(board[i]===0)empty.push(i);
+  if(!empty.length)return board;
+  const next=[...board];
+  const index=empty[Math.floor(Math.random()*empty.length)];
+  next[index]=Math.random()<0.9?2:4;
+  return next;
+}
+function make2048State(){
+  let board=Array(16).fill(0) as number[];
+  board=spawn2048Tile(board);
+  board=spawn2048Tile(board);
+  return {board,score:0,moves:0,bestTile:2,maxTurns:1000};
+}
+function move2048Line(line:number[]){
+  const compact=line.filter(Boolean);
+  const result:number[]=[];
+  let gained=0;
+  for(let i=0;i<compact.length;i++){
+    if(i+1<compact.length&&compact[i]===compact[i+1]){
+      const merged=compact[i]*2;
+      result.push(merged);
+      gained+=merged;
+      i++;
+    }else result.push(compact[i]);
+  }
+  while(result.length<4)result.push(0);
+  return {line:result,gained};
+}
+function move2048(board:number[],direction:string){
+  const next=Array(16).fill(0) as number[];
+  let gained=0;
+  for(let r=0;r<4;r++){
+    let line:number[]=[];
+    if(direction==="left"||direction==="right"){
+      line=[board[r*4],board[r*4+1],board[r*4+2],board[r*4+3]];
+      if(direction==="right")line.reverse();
+      const m=move2048Line(line);
+      line=m.line;if(direction==="right")line.reverse();
+      for(let c=0;c<4;c++)next[r*4+c]=line[c];
+      gained+=m.gained;
+    }
+  }
+  if(direction==="up"||direction==="down"){
+    for(let c=0;c<4;c++){
+      line=[board[c],board[4+c],board[8+c],board[12+c]];
+      if(direction==="down")line.reverse();
+      const m=move2048Line(line);
+      line=m.line;if(direction==="down")line.reverse();
+      for(let r=0;r<4;r++)next[r*4+c]=line[r];
+      gained+=m.gained;
+    }
+  }
+  const changed=next.some((v,i)=>v!==board[i]);
+  return {board:changed?spawn2048Tile(next):board,score:gained,changed};
+}
+function has2048Win(board:number[]){return board.some(v=>v>=2048);}
+function can2048Move(board:number[]){
+  if(board.some(v=>v===0))return true;
+  for(let r=0;r<4;r++)for(let c=0;c<4;c++){
+    const v=board[r*4+c];
+    if(c<3&&board[r*4+c+1]===v)return true;
+    if(r<3&&board[(r+1)*4+c]===v)return true;
+  }
+  return false;
+}
 function initialState(code:string,players:number[]){
   switch(code){
     case "quiz":
@@ -244,7 +312,7 @@ async function settleEngine(pool:Pool,sessionId:number,outcomes:Array<{userId:nu
       const info=JSON.stringify({...o.metadata,cups_delta:rr.c});
       const exists=(await client.query("SELECT 1 FROM game_results WHERE session_id=$1 AND user_id=$2",[sessionId,o.userId])).rowCount>0;
       if(exists)continue;
-      const p=(await client.query<any>("SELECT gems,xp,rating,cups,total_games,wins,losses,current_streak,best_streak FROM game_players WHERE group_id=$1 AND user_id=$2 FOR UPDATE",[s.group_id,o.userId])).rows[0];
+      const p=(await client.query<any>("SELECT gems,xp,rating,cups,total_games,wins,losses,current_streak,best_streak,COALESCE(display_name,first_name,username,user_id::text) AS display_name,username FROM game_players WHERE group_id=$1 AND user_id=$2 FOR UPDATE",[s.group_id,o.userId])).rows[0];
       if(!p)continue;
       const newGems=Math.max(0,Number(p.gems)+rr.g);
       const newXp=Math.max(0,Number(p.xp)+rr.xp);
@@ -264,6 +332,36 @@ async function settleEngine(pool:Pool,sessionId:number,outcomes:Array<{userId:nu
     await client.query("UPDATE game_sessions SET status='finished',winner_id=$2,ended_at=NOW(),ended_reason=$3,result=$4::jsonb WHERE id=$1",[sessionId,winners[0]?.userId||null,reason,JSON.stringify({outcomes})]);
     await client.query("UPDATE game_multiplayer_rooms SET status='finished',finished_at=NOW(),metadata=metadata||$1::jsonb WHERE metadata->>'session_id'=$2",[JSON.stringify({engine_status:"finished"}),String(sessionId)]);
     await client.query("COMMIT");
+    try{
+      const gameName=getEngineGame(String(s.game_code))?.name||String(s.game_code);
+      const resultFa=(result:"win"|"loss"|"draw")=>result==="win"?"برد":result==="loss"?"باخت":"مساوی";
+      const escapeHtml=(v:any)=>String(v??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+      const lines:string[]=[
+        "<b>◈ نتیجه بازی "+escapeHtml(gameName)+"</b>",
+        ""
+      ];
+      for(const o of outcomes){
+        const rr=reward(mode,o.result);
+        const p=(await pool.query<any>("SELECT COALESCE(display_name,first_name,username,user_id::text) AS display_name FROM game_players WHERE group_id=$1 AND user_id=$2",[s.group_id,o.userId])).rows[0];
+        const name=escapeHtml(p?.display_name||String(o.userId));
+        lines.push('<a href="tg://user?id='+o.userId+'">'+name+"</a>");
+        lines.push("⛂ - نتیجه : "+resultFa(o.result));
+        lines.push("⛂ - امتیاز : "+fa(Number(o.score||0)));
+        lines.push("⛂ - جم : +"+fa(Number(rr.g)));
+        lines.push("⛂ - تجربه : +"+fa(Number(rr.xp)));
+        lines.push("⛂ - رنک : "+(rr.r>=0?"+":"")+fa(Number(rr.r)));
+        lines.push("⛂ - کاپ : "+(rr.c>=0?"+":"")+fa(Number(rr.c)));
+        lines.push("");
+      }
+      const sent=await telegramApi("sendMessage",{
+        chat_id:Number(s.group_id),
+        text:lines.join("\n").trim(),
+        parse_mode:"HTML"
+      });
+      if(!sent.ok)console.error("[game-reward] group announcement failed:",sent.description);
+    }catch(error){
+      console.error("[game-reward] group announcement exception:",(error as any)?.message??error);
+    }
   }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e;}finally{client.release();}
 }
 
@@ -278,10 +376,36 @@ export async function resolveAction(pool:Pool,ctx:GameContext,sessionId:number,a
   if(game.turns&&s.current_turn_user_id&&Number(s.current_turn_user_id)!==ctx.userId)throw new Error("not_your_turn");
 
   if(action==="finish"){
+    if(game.code==="2048"){
+      const score=Math.max(0,Number(state.score||0));
+      if(s.mode==="solo")return settleEngine(pool,sessionId,[{userId:ctx.userId,result:"loss",score}],"2048_forfeit");
+      const other=players.find(x=>x!==ctx.userId)!;
+      return settleEngine(pool,sessionId,[{userId:ctx.userId,result:"loss",score},{userId:other,result:"win",score:score}],"2048_forfeit");
+    }
     const score=Math.max(0,Math.min(1000,Number(payload)||100));
     if(s.mode==="solo")return settleEngine(pool,sessionId,[{userId:ctx.userId,result:score>=500?"win":"loss",score}], "mini_app_finish");
     const mine=score>=500?"win":"loss";const other=players.find(x=>x!==ctx.userId)!;
     return settleEngine(pool,sessionId,[{userId:ctx.userId,result:mine,score},{userId:other,result:mine==="win"?"loss":"win",score:1000-score}],"mini_app_finish");
+  }
+
+  if(game.code==="2048"){
+    const direction=String(payload||"").toLowerCase();
+    if(!["up","down","left","right"].includes(direction))throw new Error("invalid_2048_move");
+    const currentBoard=Array.isArray(state.board)?state.board.map(Number):make2048State().board;
+    const moved=move2048(currentBoard,direction);
+    if(!moved.changed){
+      if(has2048Win(currentBoard))return settleEngine(pool,sessionId,[{userId:ctx.userId,result:"win",score:Number(state.score||0)}],"2048_win");
+      if(!can2048Move(currentBoard))return settleEngine(pool,sessionId,[{userId:ctx.userId,result:"loss",score:Number(state.score||0)}],"2048_game_over");
+      return;
+    }
+    state.board=moved.board;
+    state.score=Number(state.score||0)+moved.score;
+    state.moves=Number(state.moves||0)+1;
+    state.bestTile=Math.max(...state.board);
+    if(has2048Win(state.board))return settleEngine(pool,sessionId,[{userId:ctx.userId,result:"win",score:Number(state.score)}],"2048_win");
+    if(!can2048Move(state.board))return settleEngine(pool,sessionId,[{userId:ctx.userId,result:"loss",score:Number(state.score)}],"2048_game_over");
+    await pool.query("UPDATE game_sessions SET state=$2::jsonb,turn_no=turn_no+1 WHERE id=$1",[sessionId,JSON.stringify(state)]);
+    return;
   }
 
   if(game.code==="duel_dice"){
