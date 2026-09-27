@@ -34,6 +34,107 @@ const key=(g:number,u:number)=>g+":"+u;
 const norm=(s:string)=>String(s??"").trim().replace(/[\u200c\u200d]/g," ").replace(/\s+/g," ").toLowerCase();
 const fa=(x:number)=>String(x).replace(/\d/g,d=>"۰۱۲۳۴۵۶۷۸۹"[+d]??d);
 const league=(r:number)=>r>=2600?"افسانه":r>=2300?"استاد بزرگ":r>=2000?"استاد":r>=1750?"الماس":r>=1500?"پلاتینیوم":r>=1250?"طلا":r>=1000?"نقره":"برنز";
+const GAME_CATALOG={
+  single:[
+    {code:"quiz",name:"کوییز",mode:"Bot",status:"active"},
+    {code:"guess_number",name:"حدس عدد",mode:"Bot",status:"planned"},
+    {code:"rps_ai",name:"سنگ، کاغذ، قیچی با هوش مصنوعی",mode:"Bot",status:"planned"},
+    {code:"true_false",name:"درست یا غلط",mode:"Bot",status:"planned"},
+    {code:"word_guess",name:"حدس کلمه",mode:"Bot",status:"planned"},
+    {code:"hidden_word",name:"کلمه پنهان",mode:"Bot",status:"planned"},
+    {code:"word_chain",name:"زنجیره کلمات",mode:"Bot",status:"planned"},
+    {code:"sudoku",name:"سودوکو",mode:"Mini App",status:"planned"},
+    {code:"minesweeper",name:"مین‌روب",mode:"Mini App",status:"planned"},
+    {code:"2048",name:"۲۰۴۸",mode:"Mini App",status:"planned"},
+    {code:"fifteen",name:"پازل ۱۵",mode:"Mini App",status:"planned"},
+    {code:"snake",name:"مار",mode:"Mini App",status:"planned"},
+    {code:"maze",name:"لابیرنت",mode:"Mini App",status:"planned"},
+    {code:"target",name:"شکار هدف",mode:"Mini App",status:"planned"},
+    {code:"obstacles",name:"پرش از موانع",mode:"Mini App",status:"planned"},
+    {code:"tower",name:"برج‌سازی",mode:"Mini App",status:"planned"},
+    {code:"shooting",name:"تیراندازی به هدف",mode:"Mini App",status:"planned"},
+    {code:"tic_tac_toe_ai",name:"دوز مقابل ربات",mode:"Mini App",status:"planned"},
+  ],
+  multi:[
+    {code:"duel_dice",name:"دوئل تاس",mode:"Bot",status:"active"},
+    {code:"rps",name:"سنگ، کاغذ، قیچی",mode:"Bot",status:"planned"},
+    {code:"quiz_duel",name:"کوییز رقابتی",mode:"Bot",status:"planned"},
+    {code:"chess",name:"شطرنج",mode:"Mini App",status:"planned"},
+    {code:"checkers",name:"چکرز",mode:"Mini App",status:"planned"},
+    {code:"battleship",name:"نبرد ناوگان",mode:"Mini App",status:"planned"},
+    {code:"word_duel",name:"حدس کلمه دوئلی",mode:"Bot",status:"planned"},
+    {code:"math_battle",name:"جنگ ریاضی",mode:"Bot",status:"planned"},
+    {code:"typing_speed",name:"سرعت تایپ",mode:"Bot / Mini App",status:"planned"},
+    {code:"reaction",name:"مسابقه واکنش",mode:"Bot / Mini App",status:"planned"},
+    {code:"memory_duel",name:"حافظه رقابتی",mode:"Mini App",status:"planned"},
+    {code:"bingo",name:"بینگو",mode:"Mini App",status:"planned"},
+    {code:"draw_guess",name:"نقاشی و حدس",mode:"Mini App",status:"planned"},
+    {code:"emoji_guess",name:"حدس ایموجی",mode:"Bot / Mini App",status:"planned"},
+    {code:"trivia",name:"مسابقه اطلاعات عمومی",mode:"Bot / Mini App",status:"planned"},
+    {code:"territory",name:"نبرد منطقه‌ای",mode:"Mini App",status:"planned"},
+    {code:"mini_golf",name:"مینی‌گلف",mode:"Mini App",status:"planned"},
+    {code:"survival",name:"مسابقه بقا",mode:"Mini App",status:"planned"},
+    {code:"treasure_hunt",name:"شکار گنج دونفره",mode:"Mini App",status:"planned"},
+  ],
+} as const;
+
+function catalogPageKeyboard(kind:"single"|"multi",userId:number,page=1){
+  const list=GAME_CATALOG[kind];
+  const perPage=6;
+  const pages=Math.max(1,Math.ceil(list.length/perPage));
+  const p=Math.max(1,Math.min(pages,page));
+  const start=(p-1)*perPage;
+  const rows:any[]=[];
+  for(const g of list.slice(start,start+perPage)){
+    const marker=g.status==="active"?"فعال":"آماده‌سازی";
+    rows.push([{text:"‹ "+g.name+" · "+marker,callback_data:"game:catalog:open:"+kind+":"+g.code+":"+userId}]);
+  }
+  const nav:any[]=[];
+  if(p>1)nav.push({text:"‹ قبلی",callback_data:"game:catalog:"+kind+":"+String(p-1)+":"+userId});
+  nav.push({text:"صفحه "+fa(p)+" / "+fa(pages),callback_data:"game:catalog:"+kind+":"+String(p)+":"+userId});
+  if(p<pages)nav.push({text:"‹ بعدی",callback_data:"game:catalog:"+kind+":"+String(p+1)+":"+userId});
+  rows.push(nav);
+  rows.push([{text:"‹ بازگشت به "+(kind==="single"?"بازی کردن":"چندنفره"),callback_data:"game:"+(kind==="single"?"play":"multi")+":"+userId}]);
+  return {inline_keyboard:rows};
+}
+
+function catalogGameText(kind:"single"|"multi",code:string){
+  const g=GAME_CATALOG[kind].find(x=>x.code===code);
+  if(!g)return null;
+  const live=g.status==="active";
+  return [
+    "◈ "+g.name,
+    "",
+    "⛂ - بخش : "+(kind==="single"?"تک‌نفره":"چندنفره آنلاین"),
+    "⛂ - موتور : "+g.mode,
+    "⛂ - وضعیت : "+(live?"فعال":"در حال آماده‌سازی"),
+    "",
+    live
+      ?"این بازی به موتور فعلی متصل است و قابل اجراست."
+      :"موتور این بازی هنوز به مرحله اجرای زنده نرسیده؛ ساختار آن در فهرست بازی‌ها ثبت شده و به‌صورت مستقل به Room Engine متصل خواهد شد."
+  ].join("\n");
+}
+
+function catalogGameKeyboard(kind:"single"|"multi",code:string,userId:number){
+  const g=GAME_CATALOG[kind].find(x=>x.code===code);
+  if(!g)return catalogPageKeyboard(kind,userId,1);
+  if(kind==="multi"&&g.status==="active"){
+    return {inline_keyboard:[
+      [{text:"‹ ساخت اتاق آنلاین",callback_data:"game:room:create:"+g.code+":"+userId}],
+      [{text:"‹ اتاق‌های آنلاین",callback_data:"game:room:list:"+userId}],
+      [{text:"‹ بازگشت به بازی‌ها",callback_data:"game:catalog:multi:1:"+userId}],
+    ]};
+  }
+  if(kind==="single"&&g.status==="active"){
+    if(g.code==="quiz")return {inline_keyboard:[
+      [{text:"‹ شروع بازی",callback_data:"game:quiz:"+userId}],
+      [{text:"‹ بازگشت به بازی‌ها",callback_data:"game:catalog:single:1:"+userId}],
+    ]};
+    return {inline_keyboard:[[{text:"‹ بازگشت به بازی‌ها",callback_data:"game:catalog:single:1:"+userId}]]};
+  }
+  return {inline_keyboard:[[{text:"‹ بازگشت به بازی‌ها",callback_data:"game:catalog:"+kind+":1:"+userId}]]};
+}
+
 const gameTitle=(code:string)=>({dice:"تاس",quiz:"کوییز",duel_dice:"دوئل تاس",speed:"بازی سرعتی",guess:"حدس عدد",rps:"سنگ، کاغذ، قیچی",duel:"دوئل"} as Record<string,string>)[code]??code;
 const resultTitle=(value:string)=>value==="win"?"برد":value==="loss"?"باخت":value==="draw"?"مساوی":value;
 const reasonTitle=(value:string)=>({"Game reward":"پاداش بازی","Achievement reward":"پاداش دستاورد","Mission reward":"پاداش مأموریت","Daily reward":"پاداش روزانه","Shop purchase":"خرید از فروشگاه","Admin grant":"اعطای جم توسط مدیر","Admin remove":"کسر جم توسط مدیر"} as Record<string,string>)[value]??value;
@@ -70,14 +171,15 @@ export function gamePlayKeyboard(userId:number){
 export function gameSingleKeyboard(userId:number){
   const s=String(userId);
   return {inline_keyboard:[
-    [{text:"‹ تاس",callback_data:"game:dice:"+s},{text:"‹ کوییز",callback_data:"game:quiz:"+s}],
-    [{text:"‹ بازی سریع",callback_data:"game:quick:"+s},{text:"‹ بازگشت",callback_data:"game:play:"+s}],
+    [{text:"‹ فهرست بازی‌ها",callback_data:"game:catalog:single:1:"+s},{text:"‹ بازی سریع",callback_data:"game:quick:"+s}],
+    [{text:"‹ بازگشت",callback_data:"game:play:"+s}],
   ]};
 }
 
 export function gameMultiKeyboard(userId:number){
   const s=String(userId);
   return {inline_keyboard:[
+    [{text:"‹ بازی‌های آنلاین",callback_data:"game:catalog:multi:1:"+s}],
     [{text:"‹ ساخت اتاق آنلاین",callback_data:"game:room:new:"+s},{text:"‹ اتاق‌های آنلاین",callback_data:"game:room:list:"+s}],
     [{text:"‹ قوانین چندنفره",callback_data:"game:multi:rules:"+s},{text:"‹ بازگشت",callback_data:"game:play:"+s}],
   ]};
@@ -111,14 +213,23 @@ function roomJoinKeyboard(roomId:number,userId:number){
   ]};
 }
 
-function roomSelectKeyboard(userId:number){
-  const s=String(userId);
-  return {inline_keyboard:[
-    [{text:"‹ دوئل تاس · فعال",callback_data:"game:room:create:duel_dice:"+s}],
-    [{text:"‹ دوز · به‌زودی",callback_data:"game:room:locked:"+s},{text:"‹ سنگ، کاغذ، قیچی · به‌زودی",callback_data:"game:room:locked:"+s}],
-    [{text:"‹ کوییز رقابتی · به‌زودی",callback_data:"game:room:locked:"+s}],
-    [{text:"‹ بازگشت به چندنفره",callback_data:"game:multi:"+s}],
-  ]};
+function roomSelectKeyboard(userId:number,page=1){
+  const list=GAME_CATALOG.multi;
+  const perPage=6;
+  const pages=Math.max(1,Math.ceil(list.length/perPage));
+  const p=Math.max(1,Math.min(pages,page));
+  const start=(p-1)*perPage;
+  const rows:any[]=[];
+  for(const g of list.slice(start,start+perPage)){
+    rows.push([{text:"‹ "+g.name+" · "+(g.status==="active"?"فعال":"آماده‌سازی"),callback_data:"game:room:create:"+g.code+":"+userId}]);
+  }
+  const nav:any[]=[];
+  if(p>1)nav.push({text:"‹ قبلی",callback_data:"game:room:new:"+userId+":"+String(p-1)});
+  nav.push({text:"صفحه "+fa(p)+" / "+fa(pages),callback_data:"game:room:new:"+userId+":"+String(p)});
+  if(p<pages)nav.push({text:"‹ بعدی",callback_data:"game:room:new:"+userId+":"+String(p+1)});
+  rows.push(nav);
+  rows.push([{text:"‹ بازگشت به چندنفره",callback_data:"game:multi:"+userId}]);
+  return {inline_keyboard:rows};
 }
 
 async function roomState(pool:Pool,ctx:GameContext,roomId:number):Promise<{room:any;players:any[]}|null>{
@@ -625,10 +736,10 @@ export async function handleGameCallback(ctx:GameContext,data:string):Promise<{t
     return {text:result,replyMarkup:gameResultKeyboard(ctx.userId)};
   }
   if(action==="single"){
-    return {text:"◈ بازی‌های تک‌نفره\n\n⛂ - تاس : فعال\n⛂ - کوییز : فعال\n⛂ - پاداش : پایه\n⛂ - امتیاز : پایه\n\nاین بخش برای بازی سریع و پیشرفت تدریجی طراحی شده است.",replyMarkup:gameSingleKeyboard(ctx.userId)};
+    return {text:"◈ بازی‌های تک‌نفره\n\n⛂ - بازی‌های ثبت‌شده : "+fa(GAME_CATALOG.single.length)+"\n⛂ - Bot : بازی‌های سبک و سریع\n⛂ - Mini App : بازی‌های گرافیکی\n⛂ - پاداش : پایه\n\nفهرست بازی‌ها صفحه‌بندی شده تا انتخاب سریع و مرتب باقی بماند.",replyMarkup:gameSingleKeyboard(ctx.userId)};
   }
   if(action==="multi"){
-    return {text:"◈ بازی‌های چندنفره\n\n⛂ - اتاق آنلاین : فعال\n⛂ - دوئل تاس : فعال\n⛂ - اتاق‌های گروهی : فعال\n⛂ - بازی‌های نوبتی : به‌زودی\n⛂ - تورنمنت : به‌زودی\n\nهر اتاق به همین گروه محدود است؛ بازیکن وارد اتاق می‌شود و پس از تکمیل ظرفیت، سازنده آن را شروع می‌کند.",replyMarkup:gameMultiKeyboard(ctx.userId)};
+    return {text:"◈ بازی‌های چندنفره\n\n⛂ - بازی‌های آنلاین : "+fa(GAME_CATALOG.multi.length)+"\n⛂ - اتاق آنلاین : فعال\n⛂ - بازی‌های Bot : قابل توسعه\n⛂ - بازی‌های Mini App : قابل توسعه\n\nهر اتاق به همین گروه محدود است؛ بازیکن وارد اتاق می‌شود و پس از تکمیل ظرفیت، سازنده آن را شروع می‌کند.",replyMarkup:gameMultiKeyboard(ctx.userId)};
   }
   if(action==="dice")return {text:await dice(ctx.pool,ctx),replyMarkup:gameResultKeyboard(ctx.userId)};
   if(action==="quiz")return {text:await startQuiz(ctx.pool,ctx),replyMarkup:gameSectionKeyboard("single",ctx.userId)};
