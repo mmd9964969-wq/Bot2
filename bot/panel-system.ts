@@ -14,7 +14,7 @@ import { handleInviteLinkCallback, handleInviteLinkTextInput } from "../src/lib/
 import { handleSpecialCallback, handleSpecialCommand, handleSpecialTextInput } from "../src/lib/bot/special-users.ts";
 import { handleSpecialBulkCallback, handleSpecialBulkCommand, handleSpecialBulkTextInput } from "../src/lib/bot/special-bulk.ts";
 import { handleMemberControlCallback, handleMemberControlTextInput, renderMemberControl } from "../src/lib/bot/member-control.ts";
-import { ensureMessageToolsSchema, trackMessageAndActivity, handleMessageToolsText, handleMessageToolsCallback } from "../src/lib/bot/message-tools.ts";
+import { trackMessageAndActivity, handleMessageToolsText, handleMessageToolsCallback } from "../src/lib/bot/message-tools.ts";
 import { executeRuntimeAction, isRuntimeMaintenance } from "./runtime-control.ts";
 import {
   ensurePanelSessionSchema,
@@ -1884,7 +1884,7 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     [["ویژه دسته‌جمعی","spb:start:set"],["عملیات گروهی","m:bulk"]],
     [["تغییر نقش","m:role"]],
     [["› تگ","mt:home"],["› پین","pin:center"]],
-    [["› پاکسازی پیام","purge:center"],["› حذف سریع","m:delete_help"]],
+    [["› پاکسازی پیام","purge:center"]],
     [["‹ بازگشت","c:home"]]
   ]));
   if(data==="m:search"){session(uid,"member_search",{chatId:groupId});return edit(msg.chat.id,msg.message_id,panelTitle("جستجوی عضو","آیدی تلگرام یا نام کاربری را ارسال کنید."),menu([[["‹ بازگشت","c:members"]]]));}
