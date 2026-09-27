@@ -465,7 +465,7 @@ export async function handleSpecialBulkCommand(pool:Pool,msg:TgMessage,ownerIds:
   if(!msg.from||msg.chat.type==="private")return false;
   const raw=strip(msg.text||msg.caption||"");if(!raw)return false;
   let mode:BulkMode|null=null,durationText="";
-  const exactSet=new Set(["ویژه دسته جمعی","ویژه دسته‌جمعی","special bulk","تنظیم ویژه گروهی","setspecialbulk"]);
+  const exactSet=new Set(["ویژه دسته جمعی","ویژه دسته‌جمعی","special bulk","specialbulk","specialbulkusers","تنظیم ویژه گروهی","setspecialbulk"]);
   const exactExtend=new Set(["افزایش ویژه گروهی","افزایش ویژه دسته جمعی","increase special bulk","extendspecialbulk","special bulk extend"]);
   const exactReduce=new Set(["کاهش ویژه گروهی","کاهش ویژه دسته جمعی","decrease special bulk","reducespecialbulk","special bulk reduce"]);
   const exactRemove=new Set(["حذف ویژه گروهی","حذف ویژه دسته جمعی","remove special bulk","removespecialbulk","special bulk remove"]);
@@ -476,9 +476,9 @@ export async function handleSpecialBulkCommand(pool:Pool,msg:TgMessage,ownerIds:
   else if(raw.startsWith("افزایش ویژه گروهی ")||raw.startsWith("extendspecialbulk ")||raw.startsWith("increase special bulk ")||raw.startsWith("special bulk extend ")){
     mode="extend";
     durationText=raw.startsWith("extendspecialbulk ")?raw.slice("extendspecialbulk ".length):raw.startsWith("increase special bulk ")?raw.slice("increase special bulk ".length):raw.startsWith("special bulk extend ")?raw.slice("special bulk extend ".length):raw.slice(raw.indexOf(" ") + 1);
-  }else if(raw.startsWith("تنظیم ویژه گروهی ")||raw.startsWith("تنظیم ویژه دسته جمعی ")||raw.startsWith("setspecialbulk ")||raw.startsWith("special bulk ")){
+  }else if(raw.startsWith("تنظیم ویژه گروهی ")||raw.startsWith("تنظیم ویژه دسته جمعی ")||raw.startsWith("setspecialbulk ")||raw.startsWith("specialbulk ")||raw.startsWith("special bulk ")){
     mode="set";
-    durationText=raw.startsWith("setspecialbulk ")?raw.slice("setspecialbulk ".length):raw.startsWith("special bulk ")?raw.slice("special bulk ".length):raw.slice(raw.indexOf(" ") + 1);
+    durationText=raw.startsWith("setspecialbulk ")?raw.slice("setspecialbulk ".length):raw.startsWith("specialbulk ")?raw.slice("specialbulk ".length):raw.startsWith("special bulk ")?raw.slice("special bulk ".length):raw.slice(raw.indexOf(" ") + 1);
   }else if(raw.startsWith("کاهش ویژه گروهی ")||raw.startsWith("reducespecialbulk ")||raw.startsWith("decrease special bulk ")||raw.startsWith("special bulk reduce ")){
     mode="reduce";
     durationText=raw.startsWith("reducespecialbulk ")?raw.slice("reducespecialbulk ".length):raw.startsWith("decrease special bulk ")?raw.slice("decrease special bulk ".length):raw.startsWith("special bulk reduce ")?raw.slice("special bulk reduce ".length):raw.slice(raw.indexOf(" ") + 1);
