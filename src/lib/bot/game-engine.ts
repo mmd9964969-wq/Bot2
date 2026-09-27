@@ -199,7 +199,7 @@ export async function engineView(pool:Pool,ctx:GameContext,sessionId:number){
     return {text:["◈ نتیجه "+g.name,"","⛂ - وضعیت : پایان‌یافته",...results.map((r:any,i:number)=>"⛂ - بازیکن "+(i+1)+" : "+r.result+" · امتیاز "+fa(+r.score)), "", "⛂ - نتیجه شما : "+(mine?.result==="win"?"برد":mine?.result==="loss"?"باخت":"مساوی"),"⛂ - جم : +"+fa(+(mine?.gems_earned||0)),"⛂ - تجربه : +"+fa(+(mine?.xp_earned||0)),"⛂ - رنک : "+((+mine?.rating_delta||0)>=0?"+":"")+fa(+mine?.rating_delta||0),"⛂ - کاپ : "+((+mine?.metadata?.cups_delta||0)>=0?"+":"")+fa(+mine?.metadata?.cups_delta||0)].join("\n"),replyMarkup:{inline_keyboard:[
       [{text:"‹ بازی دوباره",callback_data:"game:play:"+ctx.userId},{text:"‹ پروفایل",callback_data:"game:profile:"+ctx.userId}],
       [{text:"‹ مرکز بازی",callback_data:"game:center"}]
-    ]};
+    ]}};
   }
   const st=v.state;
   let detail="";
