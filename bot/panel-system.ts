@@ -13,6 +13,7 @@ import { ensureGroupConfigSchema, handleGroupConfigMessage, handleGroupConfigInp
 import { handleInviteLinkCallback, handleInviteLinkTextInput } from "../src/lib/bot/invite-links.ts";
 import { handleSpecialCallback, handleSpecialCommand, handleSpecialTextInput } from "../src/lib/bot/special-users.ts";
 import { handleSpecialBulkCallback, handleSpecialBulkCommand, handleSpecialBulkTextInput } from "../src/lib/bot/special-bulk.ts";
+import { handleMemberControlCallback, handleMemberControlTextInput, renderMemberControl } from "../src/lib/bot/member-control.ts";
 import { executeRuntimeAction, isRuntimeMaintenance } from "./runtime-control.ts";
 import {
   ensurePanelSessionSchema,
@@ -1389,6 +1390,9 @@ async function handleCustomer(pool:Pool,msg:TgMessage,ownerIds:string[]){
   if(!["panel","پنل"].includes(raw)&&!getSession(uid))return false;
   await customerEnsure(pool,uid,msg.from);
   if(["panel","پنل"].includes(raw)){
+    if(!isPrivate && msg.reply_to_message?.from?.id && (await isOwner(pool,uid,ownerIds) || await isGroupAdmin(msg.chat.id,uid))){
+      return renderMemberControl(pool,msg.chat.id,uid,msg.reply_to_message.from.id);
+    }
     if(await isOwner(pool,uid,ownerIds)){
       await audit(pool,String(uid),"owner_panel_opened",String(uid),{entry:"panel"});
       return renderOwner(pool,uid,msg.chat.id);
@@ -2350,6 +2354,7 @@ export async function dispatchPanelMessage(pool:Pool,msg:TgMessage,ownerIds:stri
     if(await handleGroupConfigInput(pool,msg))return true;
     if(await handleGroupConfigMessage(pool,msg,ownerIds))return true;
     if(await handleInviteLinkTextInput(pool,msg))return true;
+    if(await handleMemberControlTextInput(pool,msg))return true;
     if(await handleSpecialBulkTextInput(pool,msg))return true;
     if(await handleSpecialTextInput(pool,msg))return true;
     if(await handleSpecialBulkCommand(pool,msg,ownerIds))return true;
