@@ -37,17 +37,6 @@ const league=(r:number)=>r>=2600?"افسانه":r>=2300?"استاد بزرگ":r>
 const gameTitle=(code:string)=>({dice:"تاس",quiz:"کوییز",speed:"بازی سرعتی",guess:"حدس عدد",rps:"سنگ، کاغذ، قیچی",duel:"دوئل"} as Record<string,string>)[code]??code;
 const resultTitle=(value:string)=>value==="win"?"برد":value==="loss"?"باخت":value==="draw"?"مساوی":value;
 const reasonTitle=(value:string)=>({"Game reward":"پاداش بازی","Achievement reward":"پاداش دستاورد","Mission reward":"پاداش مأموریت","Daily reward":"پاداش روزانه","Shop purchase":"خرید از فروشگاه","Admin grant":"اعطای جم توسط مدیر","Admin remove":"کسر جم توسط مدیر"} as Record<string,string>)[value]??value;
-const gameTitle=(code:string)=>({dice:"تاس",quiz:"کوییز",speed:"بازی سرعتی",guess:"حدس عدد",rps:"سنگ، کاغذ، قیچی",duel:"دوئل"} as Record<string,string>)[code]??code;
-const resultTitle=(value:string)=>value==="win"?"برد":value==="loss"?"باخت":value==="draw"?"مساوی":value;
-const reasonTitle=(value:string)=>({
-  "Game reward":"پاداش بازی",
-  "Achievement reward":"پاداش دستاورد",
-  "Mission reward":"پاداش مأموریت",
-  "Daily reward":"پاداش روزانه",
-  "Shop purchase":"خرید از فروشگاه",
-  "Admin grant":"اعطای جم توسط مدیر",
-  "Admin remove":"کسر جم توسط مدیر"
-} as Record<string,string>)[value]??value;
 const lvl=(x:number)=>Math.max(1,Math.floor(Math.sqrt(Math.max(0,x)/100))+1);
 const req=(l:number)=>l*l*100;
 const bar=(x:number,l:number)=>{const p=Math.max(0,Math.min(100,Math.floor(((x-req(l-1))/Math.max(1,req(l)-req(l-1)))*100)));return "█".repeat(Math.floor(p/10))+"░".repeat(10-Math.floor(p/10));};
