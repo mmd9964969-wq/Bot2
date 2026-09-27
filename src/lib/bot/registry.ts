@@ -36,6 +36,10 @@ const defs: CommandDef[] = [
   { id:"lockall", phase:2, minRank:"admin", aliasesEn:["lockall"], aliasesFa:["قفل همه","قفل‌همه"], usageEn:"lockall", usageFa:"قفل همه", descEn:"Enable all lock rules", descFa:"فعال‌سازی همه قفل‌ها" },
   { id:"unlockall", phase:2, minRank:"admin", aliasesEn:["unlockall"], aliasesFa:["بازکردن همه","بازکردن‌همه"], usageEn:"unlockall", usageFa:"بازکردن همه", descEn:"Disable all lock rules", descFa:"خاموش‌کردن همه قفل‌ها" },
   { id:"link", phase:2, minRank:"admin", aliasesEn:["link"], aliasesFa:["لینک"], usageEn:"link", usageFa:"لینک", descEn:"Invite link management center", descFa:"مرکز مدیریت لینک‌های دعوت گروه" },
+  { id:"special", phase:2, minRank:"admin", aliasesEn:["special"], aliasesFa:["ویژه"], usageEn:"special", usageFa:"ویژه", descEn:"Open the special user center for a replied member", descFa:"بازکردن مرکز کاربران ویژه برای عضو ریپلای‌شده" },
+  { id:"special_set", phase:2, minRank:"admin", aliasesEn:["setspecial"], aliasesFa:["تنظیم ویژه"], usageEn:"setspecial [duration]", usageFa:"تنظیم ویژه [مدت]", descEn:"Set or replace a member special duration", descFa:"تنظیم یا جایگزینی مدت ویژه یک عضو" },
+  { id:"special_remove", phase:2, minRank:"admin", aliasesEn:["removespecial"], aliasesFa:["حذف ویژه"], usageEn:"removespecial", usageFa:"حذف ویژه", descEn:"Remove a member special status", descFa:"حذف وضعیت ویژه یک عضو" },
+  { id:"special_list", phase:2, minRank:"admin", aliasesEn:["speciallist"], aliasesFa:["لیست ویژه","فهرست ویژه"], usageEn:"speciallist", usageFa:"لیست ویژه", descEn:"List active special users", descFa:"فهرست کاربران ویژه فعال" },
 ];
 
 export const COMMANDS = defs;
