@@ -2400,7 +2400,20 @@ export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:str
     if(data.startsWith("cfg:")) return handleGroupConfigCallback(pool,cb as any);
     if(data.startsWith("spb:")) return handleSpecialBulkCallback(pool,cb,ownerIds);
     if(data.startsWith("sp:")) return handleSpecialCallback(pool,cb,ownerIds);
-    if(data.startsWith("mc:")) return handleMemberControlCallback(pool,cb,ownerIds);
+    if(data.startsWith("mc:")){
+      try{
+        return await handleMemberControlCallback(pool,cb,ownerIds);
+      }catch(error){
+        console.error("[member-control] callback failed",error);
+        await telegramApi("editMessageText",{
+          chat_id: cb.message!.chat.id,
+          message_id: cb.message!.message_id,
+          text: "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Mᴇᴍʙᴇʀ Cᴏɴᴛʀᴏʟ\n\n⛂ - وضعیت : ✗ عملیات اجرا نشد\n⛂ - دلیل : خطای داخلی در پردازش این بخش.\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - مسیر خطا در گزارش فنی ثبت شد.",
+          reply_markup: kb([[["‹ بازگشت","c:members"]]])
+        }).catch(()=>{});
+        return true;
+      }
+    }
     // Customer/lock panel callbacks must keep their customer context even for the bot owner.
     // Otherwise ownerCallback receives c:/cl:/clt:/cls: actions and silently ignores them.
     if(
