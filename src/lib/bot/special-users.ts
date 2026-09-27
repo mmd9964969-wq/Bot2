@@ -209,7 +209,7 @@ export async function handleSpecialCommand(pool:Pool,msg:TgMessage,ownerIds:stri
   const parts=raw.split(" "),first=parts[0],rest=parts.slice(1);
   const isSpecial=(first==="ویژه"||first==="special")&&parts.length===1;
   const isSet=raw==="تنظیم ویژه"||raw==="special set"||raw.startsWith("تنظیم ویژه ")||raw.startsWith("special set ");
-  const isRemove=raw==="حذف ویژه"||raw==="special remove";
+  const isRemove=raw==="حذف ویژه"||raw.startsWith("حذف ویژه ")||raw==="special remove"||raw.startsWith("special remove ");
   const isList=raw==="لیست ویژه"||raw==="فهرست ویژه"||raw==="special list";
   if(!isSpecial&&!isSet&&!isRemove&&!isList)return false;
   if(!(await isAdmin(msg.chat.id,msg.from.id,ownerIds)))return false;
