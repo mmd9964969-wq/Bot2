@@ -514,7 +514,7 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
         return null;
       }
       if(studioCommand.id==="lock" && ["","ها","قفل‌ها","قفل ها","وضعیت","status"].includes(normalizeCommand(commandArgs.join(" ")))){
-        const opened=await sendContentLockCenter(studioPool!,ctx.chatId,ctx.userId);
+        const opened=await sendContentLockCenter(studioPool!,ctx.chatId,ctx.userId,"command");
         await logCommandAccess(ctx,studioCommand.id,"command_executed","allowed",auth.role);
         if(!opened.ok)return ctx.lang==="fa"?"✗ بازکردن مرکز قفل ناموفق بود.":"✗ Could not open the lock center.";
         return null;
