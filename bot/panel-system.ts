@@ -14,6 +14,7 @@ import { handleInviteLinkCallback, handleInviteLinkTextInput } from "../src/lib/
 import { handleSpecialCallback, handleSpecialCommand, handleSpecialTextInput } from "../src/lib/bot/special-users.ts";
 import { handleSpecialBulkCallback, handleSpecialBulkCommand, handleSpecialBulkTextInput } from "../src/lib/bot/special-bulk.ts";
 import { handleMemberControlCallback, handleMemberControlTextInput, renderMemberControl } from "../src/lib/bot/member-control.ts";
+import { ensureMessageToolsSchema, trackMessageAndActivity, handleMessageToolsText, handleMessageToolsCallback } from "../src/lib/bot/message-tools.ts";
 import { executeRuntimeAction, isRuntimeMaintenance } from "./runtime-control.ts";
 import {
   ensurePanelSessionSchema,
@@ -1882,6 +1883,8 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     [["اخراج عضو","m:kick"],["کاربران ویژه","sp:list:0"]],
     [["ویژه دسته‌جمعی","spb:start:set"],["عملیات گروهی","m:bulk"]],
     [["تغییر نقش","m:role"]],
+    [["› تگ","mt:home"],["› پین","pin:center"]],
+    [["› پاکسازی پیام","purge:center"],["› حذف سریع","m:delete_help"]],
     [["‹ بازگشت","c:home"]]
   ]));
   if(data==="m:search"){session(uid,"member_search",{chatId:groupId});return edit(msg.chat.id,msg.message_id,panelTitle("جستجوی عضو","آیدی تلگرام یا نام کاربری را ارسال کنید."),menu([[["‹ بازگشت","c:members"]]]));}
@@ -2354,6 +2357,8 @@ export async function dispatchPanelMessage(pool:Pool,msg:TgMessage,ownerIds:stri
     // Panel throttling must never consume group messages; content-lock
     // enforcement needs to see every message, including rapid photo bursts.
     if(msg.chat.type==="private" && !allowed(msg.from.id))return false;
+    await trackMessageAndActivity(pool,msg);
+    if(await handleMessageToolsText(pool,msg,ownerIds))return true;
     if(await handleGroupConfigInput(pool,msg))return true;
     if(await handleGroupConfigMessage(pool,msg,ownerIds))return true;
     if(await handleInviteLinkTextInput(pool,msg))return true;
@@ -2400,6 +2405,13 @@ export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:str
     if(data.startsWith("cfg:")) return handleGroupConfigCallback(pool,cb as any);
     if(data.startsWith("spb:")) return handleSpecialBulkCallback(pool,cb,ownerIds);
     if(data.startsWith("sp:")) return handleSpecialCallback(pool,cb,ownerIds);
+    if(data.startsWith("mt:")||data.startsWith("pin:")||data.startsWith("purge:")){
+      try{return await handleMessageToolsCallback(pool,cb,ownerIds);}catch(error){
+        console.error("[message-tools] callback failed",error);
+        await telegramApi("editMessageText",{chat_id:cb.message!.chat.id,message_id:cb.message!.message_id,text:"◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Mᴇssᴀɢᴇ Tᴏᴏʟs\n\n⛂ - وضعیت : ✗ عملیات انجام نشد\n⛂ - دلیل : خطای داخلی در پردازش این بخش.",reply_markup:kb([[["‹ بازگشت","c:members"]]])}).catch(()=>{});
+        return true;
+      }
+    }
     if(data.startsWith("mc:")){
       try{
         return await handleMemberControlCallback(pool,cb,ownerIds);
