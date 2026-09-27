@@ -1390,10 +1390,10 @@ async function handleCustomer(pool:Pool,msg:TgMessage,ownerIds:string[]){
   if(!["panel","پنل"].includes(raw)&&!getSession(uid))return false;
   await customerEnsure(pool,uid,msg.from);
   if(["panel","پنل"].includes(raw)){
-    if(!isPrivate && msg.reply_to_message?.from?.id && (await isOwner(pool,uid,ownerIds) || await isGroupAdmin(msg.chat.id,uid))){
-      return renderMemberControl(pool,msg.chat.id,uid,msg.reply_to_message.from.id);
-    }
     if(await isOwner(pool,uid,ownerIds)){
+      if(!isPrivate && msg.reply_to_message?.from?.id){
+        return renderMemberControl(pool,msg.chat.id,uid,msg.reply_to_message.from.id);
+      }
       await audit(pool,String(uid),"owner_panel_opened",String(uid),{entry:"panel"});
       return renderOwner(pool,uid,msg.chat.id);
     }
@@ -1402,6 +1402,9 @@ async function handleCustomer(pool:Pool,msg:TgMessage,ownerIds:string[]){
       const latest=(await pool.query("SELECT * FROM bot_licenses WHERE customer_id=$1 ORDER BY id DESC LIMIT 1",[uid])).rows[0];
       const expired=latest?.expires_at && new Date(latest.expires_at).getTime()<=Date.now();
       return send(msg.chat.id,expired?"لایسنس شما منقضی شده است.":"لایسنس یا مالکیت این گروه برای شما فعال نیست.",menu([[["تماس با پشتیبانی","c:support"],["تمدید لایسنس","c:renew"]]]))&&true;
+    }
+    if(!isPrivate && msg.reply_to_message?.from?.id && (await isGroupAdmin(msg.chat.id,uid))){
+      return renderMemberControl(pool,msg.chat.id,uid,msg.reply_to_message.from.id);
     }
     session(uid,"customer",{chatId:targetGroup});return send(msg.chat.id,mainCustomerMessage(),menu(K.customerMain))&&true;
   }
