@@ -10,6 +10,7 @@ import { enforceContentLocks, runContentLockCommand, sendContentLockCenter, type
 import { isRuntimeMaintenance, startRuntimeControlServer } from "./runtime-control.ts";
 import { ensureAutomationSchema, runAutomations, tickSchedules } from "../src/lib/bot/automation-engine.ts";
 import { dispatchPanelMessage, dispatchPanelCallback, openModerationCenterFromCommand } from "./panel-system.ts";
+import { bindPanelMessage } from "../src/lib/bot/panel-session.ts";
 import { ensureGroupLanguageSchema, getGroupLanguage, normalizeBotLang, setGroupLanguage, languageChangedText, languagePickerText, SUPPORTED_LANGUAGES } from "../src/lib/bot/i18n.ts";
 import { ensureInstallationSchema, installationGate, handleInstallationCallback } from "./installation.ts";
 import { ensureModerationSchema, runModerationCommand } from "../src/lib/bot/moderation.ts";
@@ -395,23 +396,15 @@ function commandMatches(text: string, aliases: string[]) {
   return targets.some((target) => normalized === target || normalized.startsWith(target + " "));
 }
 
-function isPanelCommandInvocation(text: string) {
+function isPanelTriggerMessage(text: string) {
   const raw = String(text ?? "").trim().replace(/^[\\/!.]+/, "").trim();
   if (!raw || raw.startsWith("@") || /^-?\\d+$/.test(raw)) return false;
   const exact = normalizeCommand(raw);
-  const coreNoArg = new Set(["robot","id","admin","info","rank","me","ping","bot","status","ربات","آیدی","ادمین","اطلاعات","مقام","اطلاعات مقام","من","پینگ","بات","وضعیت"]);
-  if (coreNoArg.has(exact)) return true;
-  const knownStudio = studio.commands.some(item =>
-    item.enabled && item.phase <= 2 && [...item.aliasesFa, ...item.aliasesEn].some(alias => normalizeCommand(alias) === exact)
-  );
-  const knownPanel = panelCommands.some(item =>
-    item.enabled && [item.command_key, item.fa_name, item.en_name].some(alias => normalizeCommand(alias) === exact)
-  );
-  return knownStudio || knownPanel || ["owner","مالک","panel","پنل","config","پیکربندی"].includes(exact);
+  return new Set(["panel","پنل","owner","مالک","config","پیکربندی"]).has(exact);
 }
 
-async function deleteCommandMessage(msg: TgMessage) {
-  if (!msg.message_id || !msg.chat?.id || !isPanelCommandInvocation(msg.text || msg.caption || "")) return;
+async function deletePanelTriggerMessage(msg: TgMessage) {
+  if (!msg.message_id || !msg.chat?.id || !isPanelTriggerMessage(msg.text || msg.caption || "")) return;
   await telegramApi("deleteMessage", {
     chat_id: msg.chat.id,
     message_id: msg.message_id,
@@ -494,16 +487,29 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
     await logCommandAccess(ctx,"lang","command_executed","allowed","ADMIN");
     return languageChangedText(selected);
   }
-  const firstToken=normalizeCommand(commandText.split(/\\s+/)[0]||"");
   const coreNoArgIds=new Set(["robot","id","admin","info","rank","me","ping","bot","status"]);
+  const coreNoArgAliases=new Set([
+    "robot","id","admin","info","rank","me","ping","bot","status",
+    "ربات","آیدی","ادمین","اطلاعات","مقام","اطلاعات مقام","من","پینگ","بات","وضعیت"
+  ]);
   const studioCommand=studio.commands.find(item=>{
     if(!item.enabled||item.phase>2)return false;
     const aliases=[...item.aliasesFa,...item.aliasesEn].map(normalizeCommand);
     if(coreNoArgIds.has(item.id))return aliases.includes(token);
     return commandMatches(token,aliases);
   });
-  const panelCommand=panelCommands.find(item=>commandMatches(token,[item.command_key,item.fa_name,item.en_name]));
+  const panelCommand=panelCommands.find(item=>{
+    const aliases=[item.command_key,item.fa_name,item.en_name].map(normalizeCommand);
+    const isCoreNoArgAlias=aliases.some(alias=>coreNoArgAliases.has(alias));
+    return isCoreNoArgAlias ? aliases.includes(token) : commandMatches(token,aliases);
+  });
   if(!studioCommand && !panelCommand)return null;
+
+  // «من» is an admin-only identity command and must match exactly with no arguments.
+  if(studioCommand?.id==="me" && !rankAtLeast(ctx.userRank,"admin")){
+    await logCommandAccess(ctx,"me","permission_denied","admin_only",panelRoleForRank(ctx.userRank));
+    return ctx.lang==="fa" ? "✗ دستور «من» فقط برای مدیران گروه و مالک قابل استفاده است." : "✗ The «me» command is available only to group admins and the owner.";
+  }
 
   if(studioCommand){
     const auth=await authorizeStudioCommand(ctx,studioCommand);
@@ -807,7 +813,11 @@ async function processMessage(msg: TgMessage, edited = false) {
   };
 
   if (studioPool && await dispatchPanelMessage(studioPool, msg, config.ownerIds)) {
-    if (!edited) await deleteCommandMessage(msg);
+    // The panel entry message belongs to the temporary panel session.
+    // Normal bot commands remain in the chat for manual cleanup by admins.
+    if (!edited && isPanelTriggerMessage(msg.text || msg.caption || "")) {
+      await bindPanelMessage(studioPool, chat.id, msg.message_id, msg.from.id, "panel").catch(() => {});
+    }
     return;
   }
 
@@ -846,16 +856,7 @@ async function processMessage(msg: TgMessage, edited = false) {
   const studioResult = await studioReplyLive(ctx);
   if (studioResult !== null) {
     await telegramApi("sendMessage", { chat_id: chat.id, text: studioResult, reply_to_message_id: msg.message_id });
-    if (!edited) await deleteCommandMessage(msg);
     return;
-  }
-
-  // Commands that open an interactive panel (moderation/lock/link) or handle
-  // a special live response may intentionally return null because they already
-  // sent/edited their own panel. The command message itself must still be
-  // removed, while ordinary sentences must never be removed.
-  if (!edited && isPanelCommandInvocation(msg.text || msg.caption || "")) {
-    await deleteCommandMessage(msg);
   }
 
   // Studio commands are authoritative. Legacy slash/prefix commands are disabled.
