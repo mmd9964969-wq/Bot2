@@ -531,6 +531,55 @@ export async function handleGameCallback(ctx:GameContext,data:string):Promise<{t
 
   if(action==="center")return {text:await center(ctx.pool,ctx),replyMarkup:gameCenterKeyboard(ctx.userId)};
 
+  if(action==="room"){
+    const sub=parts[2]??"";
+    if(sub==="locked")return {text:"⛂ - این بازی هنوز به موتور اتاق آنلاین متصل نشده است.",replyMarkup:gameMultiKeyboard(ctx.userId)};
+    if(sub==="new"){
+      const owner=Number(parts[3]??0);
+      if(owner!==ctx.userId)return {text:"⛂ - این پنل متعلق به بازیکن دیگری است.",replyMarkup:{inline_keyboard:[]}};
+      return {text:"◈ ساخت اتاق آنلاین\n\nبازی موردنظر را انتخاب کنید.\n\n⛂ - اتاق به همین گروه محدود است.\n⛂ - بازیکن دوم از همین فهرست می‌تواند وارد شود.\n⛂ - پس از تکمیل ظرفیت، سازنده دکمه «شروع بازی» را می‌زند.",replyMarkup:roomSelectKeyboard(ctx.userId)};
+    }
+    if(sub==="create"){
+      const code=parts[3]??"";
+      const owner=Number(parts[4]??0);
+      if(owner!==ctx.userId)return {text:"⛂ - این پنل متعلق به بازیکن دیگری است.",replyMarkup:{inline_keyboard:[]}};
+      return await createGameRoom(ctx,code,2);
+    }
+    if(sub==="list"){
+      const owner=Number(parts[3]??0);
+      if(owner!==ctx.userId)return {text:"⛂ - این پنل متعلق به بازیکن دیگری است.",replyMarkup:{inline_keyboard:[]}};
+      return await listGameRooms(ctx);
+    }
+    if(sub==="view"||sub==="refresh"){
+      const roomId=Number(parts[3]??0);
+      const owner=Number(parts[4]??0);
+      if(owner!==ctx.userId)return {text:"⛂ - این پنل متعلق به بازیکن دیگری است.",replyMarkup:{inline_keyboard:[]}};
+      return await roomView(ctx.pool,ctx,roomId);
+    }
+    if(sub==="join"){
+      const roomId=Number(parts[3]??0);
+      return await joinGameRoom(ctx,roomId);
+    }
+    if(sub==="start"){
+      const roomId=Number(parts[3]??0);
+      const owner=Number(parts[4]??0);
+      if(owner!==ctx.userId)return {text:"⛂ - این دکمه فقط برای سازنده اتاق است.",replyMarkup:{inline_keyboard:[]}};
+      return await startGameRoom(ctx,roomId);
+    }
+    if(sub==="leave"){
+      const roomId=Number(parts[3]??0);
+      const owner=Number(parts[4]??0);
+      if(owner!==ctx.userId)return {text:"⛂ - این دکمه متعلق به بازیکن دیگری است.",replyMarkup:{inline_keyboard:[]}};
+      return await leaveGameRoom(ctx,roomId);
+    }
+    if(sub==="cancel"){
+      const roomId=Number(parts[3]??0);
+      const owner=Number(parts[4]??0);
+      if(owner!==ctx.userId)return {text:"⛂ - فقط سازنده اتاق می‌تواند آن را لغو کند.",replyMarkup:{inline_keyboard:[]}};
+      return await cancelGameRoom(ctx,roomId);
+    }
+  }
+
   if(action==="duel"){
     const sub=parts[2]??"";
     if(sub==="join")return await joinMultiplayerDice(ctx,Number(parts[3]??0));
@@ -581,7 +630,7 @@ export async function handleGameCallback(ctx:GameContext,data:string):Promise<{t
     return {text:"◈ بازی‌های تک‌نفره\n\n⛂ - تاس : فعال\n⛂ - کوییز : فعال\n⛂ - پاداش : پایه\n⛂ - امتیاز : پایه\n\nاین بخش برای بازی سریع و پیشرفت تدریجی طراحی شده است.",replyMarkup:gameSingleKeyboard(ctx.userId)};
   }
   if(action==="multi"){
-    return {text:"◈ بازی‌های چندنفره\n\n⛂ - دوئل تاس : فعال\n⛂ - بازی‌های نوبتی : به‌زودی\n⛂ - تورنمنت : به‌زودی\n\nدر چندنفره، پاداش و امتیاز از تک‌نفره بالاتر است.",replyMarkup:gameMultiKeyboard(ctx.userId)};
+    return {text:"◈ بازی‌های چندنفره\n\n⛂ - اتاق آنلاین : فعال\n⛂ - دوئل تاس : فعال\n⛂ - اتاق‌های گروهی : فعال\n⛂ - بازی‌های نوبتی : به‌زودی\n⛂ - تورنمنت : به‌زودی\n\nهر اتاق به همین گروه محدود است؛ بازیکن وارد اتاق می‌شود و پس از تکمیل ظرفیت، سازنده آن را شروع می‌کند.",replyMarkup:gameMultiKeyboard(ctx.userId)};
   }
   if(action==="dice")return {text:await dice(ctx.pool,ctx),replyMarkup:gameResultKeyboard(ctx.userId)};
   if(action==="quiz")return {text:await startQuiz(ctx.pool,ctx),replyMarkup:gameSectionKeyboard("single",ctx.userId)};
