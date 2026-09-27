@@ -735,11 +735,23 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
             menu([[["‹ بازگشت","o:subscriptions"]]])
           )&&true;
         }
-        s.data.groupId=checked.group.id;s.data.groupTitle=checked.group.title;s.data.groupRef=inputText;s.data.step=3;s.data.mode="renew";
+        s.data.groupId=checked.group.id;
+        s.data.groupTitle=checked.group.title;
+        s.data.groupType=checked.group.type;
+        s.data.groupUsername=checked.group.username||"";
+        s.data.groupRef=inputText;
+        s.data.step=3;
+        s.data.mode="renew";
         session(uid,s.flow,s.data);
         return send(msg.chat.id,"◈ تمدید اشتراک\n\n⛂ گروه : "+checked.group.title+"\n⛂ مدت جدید را انتخاب کنید.",subscriptionPlansKeyboard("o:sub_renew:"))&&true;
       }
-      s.data.groupId=checked.group.id;s.data.groupTitle=checked.group.title;s.data.groupRef=inputText;s.data.step=3;s.data.mode="create";
+      s.data.groupId=checked.group.id;
+      s.data.groupTitle=checked.group.title;
+      s.data.groupType=checked.group.type;
+      s.data.groupUsername=checked.group.username||"";
+      s.data.groupRef=inputText;
+      s.data.step=3;
+      s.data.mode="create";
       session(uid,s.flow,s.data);
       return send(msg.chat.id,"◈ انتخاب مدت اشتراک\n\n⛂ گروه : "+checked.group.title+"\n\n⛂ مدت را انتخاب کنید.",subscriptionPlansKeyboard("o:sub_plan:"))&&true;
     }
@@ -898,9 +910,12 @@ function subscriptionDate(value:unknown){
 function subscriptionStatusFa(status:string){
   return status==="ACTIVE"?"فعال":status==="EXPIRING"?"در حال انقضا":status==="EXPIRED"?"منقضی":status==="LIFETIME"?"مادام‌العمر":status==="CANCELLED"?"لغوشده":"ثبت نشده";
 }
+function groupTypeLabel(type:string){
+  return type==="supergroup"?"سوپرگروه":type==="group"?"گروه":"—";
+}
 function subscriptionConfirmMarkup(callbackData:string){
   return {inline_keyboard:[
-    [subscriptionActionButton("› تأیید اشتراک",callbackData,"success")],
+    [subscriptionActionButton("› ✓ تأیید ساخت اشتراک",callbackData,"success")],
     [{text:"‹ بازگشت",callback_data:"o:subscriptions",style:"primary"}]
   ]};
 }
@@ -1079,12 +1094,18 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     s.data.plan=plan;session(uid,s.flow,s.data);
     const start=new Date(),end=plan.days===null?null:new Date(start.getTime()+plan.days*86400000);
     return edit(msg.chat.id,msg.message_id,
-      "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴜʙsᴄʀɪᴘᴛɪᴏɴ\n\n⛂ مشتری : "+(s.data.customerUsername?"@"+s.data.customerUsername:customerId)+
+      "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴜʙsᴄʀɪᴘᴛɪᴏɴ · تأیید نهایی\n\n"+
+      "● خلاصه ساخت اشتراک\n\n"+
+      "⛂ فروشنده : "+(s.data.customerUsername?"@"+s.data.customerUsername:customerId)+
+      "\n⛂ آیدی فروشنده : <code>"+customerId+"</code>"+
       "\n⛂ گروه : "+String(s.data.groupTitle||"—")+
-      "\n⛂ مدت : "+plan.label+
+      "\n⛂ نوع گروه : "+groupTypeLabel(String(s.data.groupType||"—"))+
+      "\n⛂ لینک/شناسه گروه : "+String(s.data.groupRef||groupId)+
+      "\n⛂ مدت اشتراک : "+plan.label+
       "\n⛂ شروع : "+subscriptionDate(start)+
       "\n⛂ پایان : "+subscriptionDate(end)+
-      "\n\n─────━━───── ◈ ─────━━─────",
+      "\n\n─────━━───── ◈ ─────━━─────"+
+      "\n\n⛂ تا قبل از تأیید شما هیچ اشتراکی ثبت نمی‌شود.",
       subscriptionConfirmMarkup("o:sub_confirm")
     );
   }
@@ -2344,6 +2365,15 @@ export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:str
     if(!owned){
       // Keep old panels interactive; refresh their session ownership for this user.
       await bindPanelMessage(pool,cb.message!.chat.id,cb.message!.message_id,cb.from.id).catch(()=>{});
+    }else{
+      // Every real button click refreshes the inactivity window, even when
+      // the callback handler performs an action without editing the panel.
+      await touchPanelMessage(
+        pool,
+        cb.message!.chat.id,
+        cb.message!.message_id,
+        cb.from.id,
+      ).catch(()=>{});
     }
     if(!allowed(cb.from.id))return;
     const data=String(cb.data||"");
