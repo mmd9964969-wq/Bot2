@@ -636,25 +636,34 @@ export async function handleMessageToolsText(pool:Pool,msg:TgMessage,ownerIds:st
     }
     if(s.kind==="purge"){
       const text=String(msg.text||"").trim();
+
+      // A purge session may never consume/delete an unrelated group message.
+      // Only a syntactically valid value for the currently requested step
+      // is considered purge input.
       if(s.data.step==="count"){
+        if(!/^\d+$/.test(text))return false;
+        const limit=Number(text);
+        if(!Number.isInteger(limit)||limit<1||limit>100)return false;
         await del(chatId,msg.message_id);
-        const limit=Math.max(1,Math.min(100,Number(text)||0));if(!limit)return true;
-        s.data.filter={...(s.data.filter||{})};
-        s.data.filter.limit=limit;s.data.step="confirm";
+        s.data.filter={...(s.data.filter||{}),limit};
+        s.data.step="confirm";
       }else if(s.data.step==="user"){
+        const users=await parseUsers(pool,chatId,text);
+        if(!users.length)return false;
         await del(chatId,msg.message_id);
-        const users=await parseUsers(pool,chatId,text);if(!users.length)return true;
-        s.data.filter={...(s.data.filter||{})};
-        s.data.filter.userId=users[0].id;s.data.step="confirm";
+        s.data.filter={...(s.data.filter||{}),userId:users[0].id};
+        s.data.step="confirm";
       }else if(s.data.step==="time"){
-        await del(chatId,msg.message_id);
         const m=text.match(/^(\d+)\s*(m|min|minute|دقیقه|h|hour|ساعت|d|day|روز)$/i);
-        if(!m)return true;
-        const n=Number(m[1]);const mult=/^(m|min|minute|دقیقه)$/i.test(m[2])?60000:/^(h|hour|ساعت)$/i.test(m[2])?3600000:86400000;
-        s.data.filter={...(s.data.filter||{})};
-        s.data.filter.since=new Date(Date.now()-n*mult);s.data.step="confirm";
+        if(!m)return false;
+        const n=Number(m[1]);
+        if(!Number.isInteger(n)||n<1)return false;
+        const mult=/^(m|min|minute|دقیقه)$/i.test(m[2])?60000:/^(h|hour|ساعت)$/i.test(m[2])?3600000:86400000;
+        await del(chatId,msg.message_id);
+        s.data.filter={...(s.data.filter||{}),since:new Date(Date.now()-n*mult)};
+        s.data.step="confirm";
       }else{
-        // Confirmation state: ordinary user messages are not purge input.
+        // Confirmation state: ordinary user messages are never purge input.
         return false;
       }
       const ids=await purgePreview(pool,chatId,s.data.filter||{});
@@ -832,8 +841,10 @@ export async function handleMessageToolsCallback(pool:Pool,cb:TgCallback,ownerId
     if(a==="recent"){setSession(uid,{kind:"purge",chatId,actorId:uid,data:{step:"confirm",filter:{since:new Date(Date.now()-15*60000),limit:100}}});const ids=await purgePreview(pool,chatId,{since:new Date(Date.now()-15*60000),limit:100});return sendPanel(pool,chatId,uid,"◈ Pᴜʀɢᴇ · ۱۵ دقیقه اخیر\n\n⛂ - قابل حذف : "+ids.length,[[["✓ تأیید","purge:confirm"],["✕ لغو","purge:cancel"]]],cb.message.message_id).then(()=>true);}
     if(a==="time"){setSession(uid,{kind:"purge",chatId,actorId:uid,data:{step:"time",filter:{}}});return sendPanel(pool,chatId,uid,"◈ پاکسازی بر اساس بازه\n\nنمونه: 30 دقیقه / 2 ساعت / 1 روز",[[["‹ لغو","purge:cancel"]]],cb.message.message_id).then(()=>true);}
     if(a==="preview"){
-      const ids=await purgePreview(pool,chatId,{limit:100});
-      return sendPanel(pool,chatId,uid,"◈ Pᴜʀɢᴇ · Pʀᴇᴠɪᴇᴡ\n\n⛂ - پیام‌های قابل حذف : "+ids.length+"\n⛂ - این فقط پیش‌نمایش است.",[[["✓ تأیید حذف 100 مورد","purge:confirm"],["‹ بازگشت","purge:center"]]],cb.message.message_id).then(()=>true);
+      const filter={limit:100};
+      const ids=await purgePreview(pool,chatId,filter);
+      setSession(uid,{kind:"purge",chatId,actorId:uid,data:{step:"confirm",filter}});
+      return sendPanel(pool,chatId,uid,"◈ Pᴜʀɢᴇ · Pʀᴇᴠɪᴇᴡ\n\n⛂ - پیام‌های قابل حذف : "+ids.length+"\n⛂ - این فقط پیش‌نمایش است؛ حذف بدون تأیید انجام نمی‌شود.",[[["✓ تأیید حذف 100 مورد","purge:confirm"],["✕ لغو","purge:cancel"]]],cb.message.message_id).then(()=>true);
     }
     if(a==="center")return renderPurgeCenter(pool,chatId,uid,cb.message.message_id).then(()=>true);
     if(a==="auto_toggle"){
@@ -841,8 +852,10 @@ export async function handleMessageToolsCallback(pool:Pool,cb:TgCallback,ownerId
       return renderPurgeCenter(pool,chatId,uid,cb.message.message_id).then(()=>true);
     }
     if(a==="confirm"){
-      const s=getSession(uid);if(!s||s.kind!=="purge")return true;
-      const result=await executePurge(pool,chatId,uid,s.data.filter||{limit:100});
+      const s=getSession(uid);
+      if(!s||s.kind!=="purge"||s.chatId!==chatId||s.data.step!=="confirm")return true;
+      const filter={...(s.data.filter||{})};
+      const result=await executePurge(pool,chatId,uid,filter);
       clearSession(uid);
       return sendPanel(pool,chatId,uid,"◈ Pᴜʀɢᴇ · Rᴇsᴜʟᴛ\n\n⛂ - بررسی‌شده : "+result.total+"\n⛂ - حذف موفق : "+result.ok+"\n⛂ - ناموفق : "+result.failed,[[["› پاکسازی جدید","purge:center"],["‹ بازگشت","c:members"]]],cb.message.message_id).then(()=>true);
     }
