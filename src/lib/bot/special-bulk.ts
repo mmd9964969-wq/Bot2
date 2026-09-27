@@ -356,9 +356,15 @@ async function applyBulkItem(pool:Pool,s:BulkSession,item:BulkItem){
   const previous=cur?.expires_at??null;
 
   if(s.mode==="set"&&s.policy==="extend"&&active){
-    if(!cur?.expires_at)return {status:"skipped" as const,error:"ویژه فعلی دائمی است."};
-    next=new Date(new Date(cur.expires_at).getTime()+sec*1000);
-    action="extend";
+    if(sec===0){
+      if(!cur?.expires_at)return {status:"skipped" as const,error:"ویژه فعلی دائمی است."};
+      next=null;
+      action="set";
+    }else{
+      if(!cur?.expires_at)return {status:"skipped" as const,error:"ویژه فعلی دائمی است."};
+      next=new Date(new Date(cur.expires_at).getTime()+sec*1000);
+      action="extend";
+    }
   }else if(s.mode==="extend"){
     if(!cur?.expires_at)return {status:"skipped" as const,error:"ویژه فعلی دائمی است."};
     next=new Date(new Date(cur.expires_at).getTime()+sec*1000);
@@ -467,13 +473,13 @@ export async function handleSpecialBulkCommand(pool:Pool,msg:TgMessage,ownerIds:
   else if(exactExtend.has(raw)){mode="extend";}
   else if(exactReduce.has(raw)){mode="reduce";}
   else if(exactRemove.has(raw)){mode="remove";}
-  else if(raw.startsWith("تنظیم ویژه گروهی ")||raw.startsWith("تنظیم ویژه دسته جمعی ")||raw.startsWith("setspecialbulk ")||raw.startsWith("special bulk ")){
-    mode="set";
-    durationText=raw.startsWith("setspecialbulk ")?raw.slice("setspecialbulk ".length):raw.startsWith("special bulk ")?raw.slice("special bulk ".length):raw.slice(raw.indexOf(" ") + 1);
-  }else if(raw.startsWith("افزایش ویژه گروهی ")||raw.startsWith("extendspecialbulk ")||raw.startsWith("increase special bulk ")||raw.startsWith("special bulk extend ")){
+  else if(raw.startsWith("افزایش ویژه گروهی ")||raw.startsWith("extendspecialbulk ")||raw.startsWith("increase special bulk ")||raw.startsWith("special bulk extend ")){
     mode="extend";
     durationText=raw.startsWith("extendspecialbulk ")?raw.slice("extendspecialbulk ".length):raw.startsWith("increase special bulk ")?raw.slice("increase special bulk ".length):raw.startsWith("special bulk extend ")?raw.slice("special bulk extend ".length):raw.slice(raw.indexOf(" ") + 1);
-  }else if(raw.startsWith("کاهش ویژه گروهی ")||raw.startsWith("reducespecialbulk ")||raw.startsWith("decrease special bulk ")||raw.startsWith("special bulk reduce ")){
+  }else if(raw.startsWith("تنظیم ویژه گروهی ")||raw.startsWith("تنظیم ویژه دسته جمعی ")||raw.startsWith("setspecialbulk ")||raw.startsWith("special bulk ")){
+    mode="set";
+    durationText=raw.startsWith("setspecialbulk ")?raw.slice("setspecialbulk ".length):raw.startsWith("special bulk ")?raw.slice("special bulk ".length):raw.slice(raw.indexOf(" ") + 1);
+  }  }else if(raw.startsWith("کاهش ویژه گروهی ")||raw.startsWith("reducespecialbulk ")||raw.startsWith("decrease special bulk ")||raw.startsWith("special bulk reduce ")){
     mode="reduce";
     durationText=raw.startsWith("reducespecialbulk ")?raw.slice("reducespecialbulk ".length):raw.startsWith("decrease special bulk ")?raw.slice("decrease special bulk ".length):raw.startsWith("special bulk reduce ")?raw.slice("special bulk reduce ".length):raw.slice(raw.indexOf(" ") + 1);
   }
@@ -496,11 +502,12 @@ export async function handleSpecialBulkTextInput(pool:Pool,msg:TgMessage){
   const s=sessions.get(msg.from.id);
   if(!s||s.expires<Date.now()){if(s) sessions.delete(msg.from.id);return false;}
   if(s.groupId!==msg.chat.id)return false;
-  const raw=strip(msg.text||msg.caption||"");
-  if(!raw)return true;
+  const messageText=String(msg.text||msg.caption||"");
+  if(!messageText.trim())return true;
   s.expires=Date.now()+TTL;
 
   if(s.step==="users"){
+    const raw=messageText.replace(/\\r/g,"").trim();
     const resolved=await resolveItems(pool,s.groupId,raw);
     if(resolved.error){
       await telegramApi("sendMessage",{chat_id:s.groupId,text:"✗ "+resolved.error,reply_to_message_id:msg.message_id});
