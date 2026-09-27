@@ -656,11 +656,17 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
       s.data.customerId=Number(customer.user_id);
       s.data.customerUsername=customer.username||"";
       s.data.customerName=customer.first_name||"";
-      s.data.step=2;
+      s.data.step=1.5;
       session(uid,s.flow,s.data);
       return send(msg.chat.id,
-        "◈ انتخاب گروه\n\n⛂ مشتری : "+(customer.username?"@"+customer.username:String(customer.user_id))+"\n⛂ آیدی : "+customer.user_id+"\n\n⛂ لینک گروه را ارسال کنید\n\nمثال:\nhttps://t.me/...",
-        menu([[["‹ بازگشت","o:subscriptions"]]])
+        "◈ تأیید فروشنده\n\n⛂ یوزرنیم : "+(customer.username?"@"+customer.username:"ثبت نشده")+"\n⛂ آیدی : <code>"+customer.user_id+"</code>"+
+        (customer.first_name?"\n⛂ نام : "+String(customer.first_name):"")+
+        "\n\n✓ شناسه فروشنده با موفقیت شناسایی شد.\n\n⛂ برای ادامه ساخت اشتراک، تأیید کنید.",
+        {inline_keyboard:[
+          [{text:"✓ تأیید فروشنده",callback_data:"o:sub_customer_confirm",style:"success"}],
+          [{text:"× تغییر شناسه",callback_data:"o:sub_customer_change",style:"danger"}],
+          [{text:"‹ بازگشت",callback_data:"o:subscriptions",style:"primary"}]
+        ]}
       )&&true;
     }
     if(step===2){
@@ -958,6 +964,40 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     clearSession(uid);
     return edit(msg.chat.id,msg.message_id,"◈ Sᴜʙsᴄʀɪᴘᴛɪᴏɴ\n\n✓ اشتراک لغو شد.\n⛂ گروه : "+String(result.row.group_title||"—"),menu([[["‹ بازگشت","o:subscriptions"]]]));
   }
+  if(data==="o:sub_customer_confirm"){
+    const s=getSession(uid);
+    if(!s||s.flow!=="owner_subscription_create"||Number(s.data.step)!==1.5)return;
+    const customerId=Number(s.data.customerId);
+    if(!Number.isSafeInteger(customerId)||customerId<=0)return;
+    const customer=(await pool.query(
+      "SELECT user_id,username,first_name,status FROM bot_customers WHERE user_id=$1 LIMIT 1",
+      [customerId],
+    )).rows[0];
+    if(!customer)return edit(msg.chat.id,msg.message_id,"✗ اطلاعات فروشنده دیگر در سامانه موجود نیست.",menu([[["‹ بازگشت","o:subscriptions"]]]));
+    if(String(customer.status||"active")==="blocked")return edit(msg.chat.id,msg.message_id,"✗ این فروشنده در سامانه مسدود است.",menu([[["‹ بازگشت","o:subscriptions"]]]));
+    s.data.customerId=Number(customer.user_id);
+    s.data.customerUsername=customer.username||s.data.customerUsername||"";
+    s.data.customerName=customer.first_name||s.data.customerName||"";
+    s.data.step=2;
+    session(uid,s.flow,s.data);
+    return edit(msg.chat.id,msg.message_id,
+      "◈ انتخاب گروه\n\n✓ فروشنده تأیید شد\n⛂ آیدی : <code>"+customer.user_id+"</code>"+
+      "\n⛂ یوزرنیم : "+(customer.username?"@"+customer.username:"ثبت نشده")+
+      "\n\n⛂ لینک گروه را ارسال کنید\n\nعمومی و خصوصی هر دو قابل بررسی هستند."+
+      "\n\nمثال عمومی:\nhttps://t.me/GroupName\nمثال خصوصی:\nhttps://t.me/+XXXXXXXX",
+      menu([[["‹ بازگشت","o:subscriptions"]]])
+    );
+  }
+  if(data==="o:sub_customer_change"){
+    const s=getSession(uid);
+    if(!s||s.flow!=="owner_subscription_create")return;
+    session(uid,"owner_subscription_create",{step:1});
+    return edit(msg.chat.id,msg.message_id,
+      "◈ تغییر فروشنده\n\n⛂ آیدی عددی یا @username فروشنده را ارسال کنید.",
+      menu([[["‹ بازگشت","o:subscriptions"]]])
+    );
+  }
+
   if(data.startsWith("o:sub_plan:")){
     const planKey=data.slice("o:sub_plan:".length);
     const s=getSession(uid);
