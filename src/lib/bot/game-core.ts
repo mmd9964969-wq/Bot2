@@ -39,7 +39,8 @@ const resultTitle=(value:string)=>value==="win"?"برد":value==="loss"?"باخ�
 const reasonTitle=(value:string)=>({"Game reward":"پاداش بازی","Achievement reward":"پاداش دستاورد","Mission reward":"پاداش مأموریت","Daily reward":"پاداش روزانه","Shop purchase":"خرید از فروشگاه","Admin grant":"اعطای جم توسط مدیر","Admin remove":"کسر جم توسط مدیر"} as Record<string,string>)[value]??value;
 const lvl=(x:number)=>Math.max(1,Math.floor(Math.sqrt(Math.max(0,x)/100))+1);
 const req=(l:number)=>l*l*100;
-const bar=(x:number,l:number)=>{const p=Math.max(0,Math.min(100,Math.floor(((x-req(l-1))/Math.max(1,req(l)-req(l-1)))*100)));return "█".repeat(Math.floor(p/10))+"░".repeat(10-Math.floor(p/10));};
+const progressPercent=(x:number,l:number)=>Math.max(0,Math.min(100,Math.floor(((x-req(l-1))/Math.max(1,req(l)-req(l-1)))*100)));
+const bar=(x:number,l:number)=>{const p=progressPercent(x,l),filled=Math.floor(p/100*12);return "▰".repeat(filled)+"▱".repeat(12-filled);};
 const period=(p:string)=>{const d=new Date();return p==="daily"?d.toISOString().slice(0,10):d.getUTCFullYear()+"-"+String(d.getUTCMonth()+1).padStart(2,"0")+"-W"+Math.ceil(d.getUTCDate()/7);};
 
 export function isGameCenterCommand(text:string){
@@ -61,10 +62,24 @@ export function gameCenterKeyboard(userId?:number){
 export function gamePlayKeyboard(userId:number){
   const s=String(userId);
   return {inline_keyboard:[
-    [{text:"‹ بازی سریع",callback_data:"game:quick:"+s},{text:"‹ تک‌نفره",callback_data:"game:single:"+s}],
+    [{text:"‹ تک‌نفره",callback_data:"game:single:"+s},{text:"‹ چندنفره",callback_data:"game:multi:"+s}],
+    [{text:"‹ بازی سریع",callback_data:"game:quick:"+s},{text:"‹ بازگشت",callback_data:"game:back:"+s}],
+  ]};
+}
+
+export function gameSingleKeyboard(userId:number){
+  const s=String(userId);
+  return {inline_keyboard:[
     [{text:"‹ تاس",callback_data:"game:dice:"+s},{text:"‹ کوییز",callback_data:"game:quiz:"+s}],
-    [{text:"‹ رقابتی",callback_data:"game:competitive:"+s},{text:"‹ بازی‌های آینده",callback_data:"game:future:"+s}],
-    [{text:"‹ بازگشت به مرکز",callback_data:"game:back:center:"+s}],
+    [{text:"‹ بازی سریع",callback_data:"game:quick:"+s},{text:"‹ بازگشت",callback_data:"game:play:"+s}],
+  ]};
+}
+
+export function gameMultiKeyboard(userId:number){
+  const s=String(userId);
+  return {inline_keyboard:[
+    [{text:"‹ دوئل تاس",callback_data:"game:duel:new:"+s},{text:"‹ بازی‌های در انتظار",callback_data:"game:duel:list:"+s}],
+    [{text:"‹ قوانین چندنفره",callback_data:"game:multi:rules:"+s},{text:"‹ بازگشت",callback_data:"game:play:"+s}],
   ]};
 }
 
@@ -73,7 +88,7 @@ export function gameProfileKeyboard(userId:number){
   return {inline_keyboard:[
     [{text:"‹ نمای کلی",callback_data:"game:profile:"+s},{text:"‹ پیشرفت",callback_data:"game:progress:"+s}],
     [{text:"‹ آمار",callback_data:"game:stats:"+s},{text:"‹ دستاوردها",callback_data:"game:achievements:"+s}],
-    [{text:"‹ انبار",callback_data:"game:inventory:"+s},{text:"‹ بازگشت به مرکز",callback_data:"game:back:center:"+s}],
+    [{text:"‹ انبار",callback_data:"game:inventory:"+s},{text:"‹ بازگشت به مرکز",callback_data:"game:back:"+s}],
   ]};
 }
 
@@ -81,26 +96,45 @@ export function gameResultKeyboard(userId:number){
   const s=String(userId);
   return {inline_keyboard:[
     [{text:"‹ بازی دوباره",callback_data:"game:quick:"+s},{text:"‹ انتخاب بازی",callback_data:"game:play:"+s}],
-    [{text:"‹ پروفایل",callback_data:"game:profile:"+s},{text:"‹ بازگشت به مرکز",callback_data:"game:back:center:"+s}],
+    [{text:"‹ پروفایل",callback_data:"game:profile:"+s},{text:"‹ بازگشت به مرکز",callback_data:"game:back:"+s}],
   ]};
 }
 
 export function gameSectionKeyboard(section:string,userId:number){
   const s=String(userId);
   if(section==="profile")return gameProfileKeyboard(userId);
-  if(section==="play")return {inline_keyboard:[
-    [{text:"‹ تاس",callback_data:"game:dice:"+s},{text:"‹ کوییز",callback_data:"game:quiz:"+s}],
-    [{text:"‹ بازی سریع",callback_data:"game:quick:"+s},{text:"‹ بازگشت",callback_data:"game:play:"+s}],
-  ]};
-  return {inline_keyboard:[
-    [{text:"‹ بازگشت به مرکز",callback_data:"game:back:center:"+s}],
-  ]};
+  if(section==="single")return gameSingleKeyboard(userId);
+  if(section==="multi")return gameMultiKeyboard(userId);
+  return {inline_keyboard:[[ {text:"‹ بازگشت به مرکز",callback_data:"game:back:"+s} ]]};
 }
 
 export async function handleGameCallback(ctx:GameContext,data:string):Promise<{text:string;replyMarkup:any}|null>{
   const parts=String(data).split(":");
   if(parts[0]!=="game")return null;
   const action=parts[1]??"";
+
+  // Public multiplayer actions intentionally do not require the original panel owner.
+  if(action==="duel"){
+    const sub=parts[2]??"";
+    const sessionId=Number(parts[3]??0);
+    if(sub==="join")return await joinMultiplayerDice(ctx,sessionId);
+    if(sub==="cancel"){
+      const creatorId=Number(parts[3]??0);
+      if(creatorId!==ctx.userId)return {text:"⛂ - فقط سازنده‌ی این دوئل می‌تواند آن را لغو کند.",replyMarkup:{inline_keyboard:[]}};
+      return await cancelMultiplayerDice(ctx,sessionId);
+    }
+    if(sub==="new"){
+      const owner=Number(parts[3]??0);
+      if(owner!==ctx.userId)return {text:"⛂ - این پنل متعلق به بازیکن دیگری است.",replyMarkup:{inline_keyboard:[]}};
+      return await createMultiplayerDice(ctx);
+    }
+    if(sub==="list"){
+      const owner=Number(parts[3]??0);
+      if(owner!==ctx.userId)return {text:"⛂ - این پنل متعلق به بازیکن دیگری است.",replyMarkup:{inline_keyboard:[]}};
+      return await listMultiplayerDice(ctx);
+    }
+  }
+
   const ownerId=Number(parts[2]??0);
   if(!Number.isSafeInteger(ownerId)||ownerId<=0||ownerId!==ctx.userId){
     return {text:"⛂ - این پنل متعلق به بازیکن دیگری است. برای مشاهده پنل خود، دستور «بازی» را ارسال کنید.",replyMarkup:{inline_keyboard:[]}};
@@ -109,47 +143,30 @@ export async function handleGameCallback(ctx:GameContext,data:string):Promise<{t
   await ensurePlayer(ctx.pool,ctx);
 
   if(action==="play"){
-    return {
-      text:"◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · انتخاب بازی\n\nحالت و بازی موردنظر خود را انتخاب کنید.\n\n⛂ - بازی‌های فعال : ۲\n⛂ - حالت سریع : فعال\n⛂ - بازی رقابتی : در حال آماده‌سازی",
-      replyMarkup:gamePlayKeyboard(ctx.userId)
-    };
+    return {text:"◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · بازی کردن\n\nحالت بازی خود را انتخاب کنید.\n\n⛂ - تک‌نفره : پاداش پایه\n⛂ - چندنفره : پاداش و امتیاز بالاتر\n⛂ - بازی سریع : انتخاب خودکار بازی تک‌نفره",replyMarkup:gamePlayKeyboard(ctx.userId)};
   }
   if(action==="quick"){
     const result=Math.random()<0.5?await dice(ctx.pool,ctx):await startQuiz(ctx.pool,ctx);
     return {text:result,replyMarkup:gameResultKeyboard(ctx.userId)};
   }
   if(action==="single"){
-    return {
-      text:"◈ بازی‌های تک‌نفره\n\n⛂ - بازی تاس : فعال\n⛂ - بازی کوییز : فعال\n⛂ - حدس عدد : به‌زودی\n⛂ - سنگ، کاغذ، قیچی : به‌زودی\n⛂ - بازی سرعتی : به‌زودی",
-      replyMarkup:gamePlayKeyboard(ctx.userId)
-    };
+    return {text:"◈ بازی‌های تک‌نفره\n\nبازی‌های سریع برای تمرین و افزایش تدریجی تجربه طراحی شده‌اند.\n\n⛂ - تاس : فعال\n⛂ - کوییز : فعال\n\nضریب پاداش و امتیاز این بخش کمتر از بازی‌های چندنفره است.",replyMarkup:gameSingleKeyboard(ctx.userId)};
   }
-  if(action==="competitive"){
-    return {
-      text:"◈ بازی رقابتی\n\nاین بخش برای بازی‌های دونفره و چندنفره طراحی شده است.\n\n⛂ - دوئل : به‌زودی\n⛂ - بازی نوبتی : به‌زودی\n⛂ - تورنمنت : به‌زودی\n⛂ - رتبه رقابتی : فعال",
-      replyMarkup:gamePlayKeyboard(ctx.userId)
-    };
+  if(action==="multi"){
+    return {text:"◈ بازی‌های چندنفره\n\nدر این بخش با بازیکنان دیگر رقابت می‌کنید.\n\n⛂ - دوئل تاس : فعال\n⛂ - پاداش : بالاتر از تک‌نفره\n⛂ - امتیاز رقابتی : اعمال می‌شود\n⛂ - بازی نوبتی : به‌زودی\n⛂ - تورنمنت : به‌زودی",replyMarkup:gameMultiKeyboard(ctx.userId)};
   }
   if(action==="dice")return {text:await dice(ctx.pool,ctx),replyMarkup:gameResultKeyboard(ctx.userId)};
-  if(action==="quiz")return {text:await startQuiz(ctx.pool,ctx),replyMarkup:gameSectionKeyboard("play",ctx.userId)};
-  if(action==="future"){
-    return {
-      text:"◈ بازی‌های آینده\n\n⛂ - حدس عدد\n⛂ - سنگ، کاغذ، قیچی\n⛂ - بازی سرعتی\n⛂ - دوئل\n⛂ - بازی نوبتی\n⛂ - تورنمنت\n\nهمه این بازی‌ها روی همان حساب بازیکن، تجربه، جم، امتیاز و تاریخچه مشترک اجرا خواهند شد.",
-      replyMarkup:gamePlayKeyboard(ctx.userId)
-    };
-  }
-
+  if(action==="quiz")return {text:await startQuiz(ctx.pool,ctx),replyMarkup:gameSectionKeyboard("single",ctx.userId)};
+  if(action==="multi" && parts[2]==="rules")return {text:"◈ قوانین چندنفره\n\n⛂ - هر دو بازیکن یک نوبت ثبت می‌کنند.\n⛂ - برنده جم، تجربه و امتیاز رقابتی بیشتری دریافت می‌کند.\n⛂ - نتیجه هر دو بازیکن در سابقه بازی ثبت می‌شود.\n⛂ - نتیجه بازی با شناسه جلسه ذخیره می‌شود.\n⛂ - در صورت لغو، پاداشی ثبت نمی‌شود.",replyMarkup:gameMultiKeyboard(ctx.userId)};
   if(action==="profile")return {text:await profile(ctx.pool,ctx,ctx.userId),replyMarkup:gameProfileKeyboard(ctx.userId)};
   if(action==="progress"){
     const p=(await ctx.pool.query<any>("SELECT level,xp FROM game_players WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId])).rows[0];
-    const level=Number(p?.level??1),xp=Number(p?.xp??0),next=req(level),previous=req(level-1),current=Math.max(0,xp-previous),needed=Math.max(1,next-previous);
-    const percent=Math.min(100,Math.floor(current*100/needed));
-    return {text:["◈ پیشرفت بازیکن","","⛂ - سطح فعلی : "+fa(level),"⛂ - تجربه کل : "+fa(xp),"⛂ - تجربه این سطح : "+fa(current)+" / "+fa(needed),"⛂ - پیشرفت : "+bar(xp,level)+" "+fa(percent)+"٪","⛂ - تجربه لازم برای سطح بعد : "+fa(next-xp)].join("\n"),replyMarkup:gameProfileKeyboard(ctx.userId)};
+    const level=Number(p?.level??1),xp=Number(p?.xp??0),next=req(level),previous=req(level-1),current=Math.max(0,xp-previous),needed=Math.max(1,next-previous),percent=progressPercent(xp,level);
+    return {text:["◈ پیشرفت بازیکن","","⛂ - سطح فعلی : "+fa(level),"⛂ - تجربه کل : "+fa(xp),"⛂ - تجربه این سطح : "+fa(current)+" / "+fa(needed),"","["+bar(xp,level)+"] "+fa(percent)+"٪","⛂ - تجربه باقی‌مانده تا سطح بعد : "+fa(Math.max(0,next-xp))].join("\n"),replyMarkup:gameProfileKeyboard(ctx.userId)};
   }
   if(action==="stats")return {text:await stats(ctx.pool,ctx),replyMarkup:gameProfileKeyboard(ctx.userId)};
   if(action==="achievements")return {text:await achievementsText(ctx.pool,ctx),replyMarkup:gameProfileKeyboard(ctx.userId)};
   if(action==="inventory")return {text:await inventory(ctx.pool,ctx),replyMarkup:gameProfileKeyboard(ctx.userId)};
-
   if(action==="wallet"){
     const p=(await ctx.pool.query<any>("SELECT p.gems,p.level,p.xp,p.rating,COALESCE(w.lifetime_earned,0) lifetime_earned,COALESCE(w.lifetime_spent,0) lifetime_spent FROM game_players p LEFT JOIN game_wallets w ON w.group_id=p.group_id AND w.user_id=p.user_id WHERE p.group_id=$1 AND p.user_id=$2",[ctx.chatId,ctx.userId])).rows[0];
     return {text:["◈ کیف پول بازی","","⛂ - موجودی جم : "+fa(+p.gems),"⛂ - سطح : "+fa(+p.level),"⛂ - تجربه : "+fa(+p.xp),"⛂ - جم دریافت‌شده : "+fa(+p.lifetime_earned),"⛂ - جم مصرف‌شده : "+fa(+p.lifetime_spent),"⛂ - لیگ : "+league(+p.rating)].join("\n"),replyMarkup:gameSectionKeyboard("wallet",ctx.userId)};
@@ -159,7 +176,7 @@ export async function handleGameCallback(ctx:GameContext,data:string):Promise<{t
   if(action==="leaderboard")return {text:await rank(ctx.pool,ctx),replyMarkup:gameSectionKeyboard("rank",ctx.userId)};
   if(action==="rewards")return {text:"◈ جوایز بازی\n\n⛂ - جایزه روزانه : از پاداش روزانه دریافت کنید.\n⛂ - جوایز مأموریت : از بخش مأموریت‌ها دریافت کنید.\n⛂ - جوایز دستاورد : پس از تکمیل دستاورد فعال می‌شوند.\n⛂ - جوایز سطح و فصل : در مراحل بعدی فعال می‌شوند.",replyMarkup:gameSectionKeyboard("rewards",ctx.userId)};
   if(action==="history")return {text:await history(ctx.pool,ctx),replyMarkup:gameSectionKeyboard("history",ctx.userId)};
-  if(action==="help")return {text:"◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · راهنمای بازی\n\n⛂ - دستور اصلی : بازی\n⛂ - بازی سریع : شروع تصادفی یک بازی فعال\n⛂ - تاس : اجرای بازی تاس\n⛂ - کوییز : اجرای بازی کوییز\n⛂ - پروفایل بازی : نمایش اطلاعات بازیکن\n⛂ - جم : نمایش کیف پول\n⛂ - رتبه بازی : نمایش رتبه‌بندی\n⛂ - تاریخچه بازی : نمایش سوابق\n⛂ - مأموریت‌های بازی : نمایش مأموریت‌ها\n⛂ - فروشگاه بازی : نمایش فروشگاه",replyMarkup:gameSectionKeyboard("help",ctx.userId)};
+  if(action==="help")return {text:"◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · راهنمای بازی\n\n⛂ - دستور اصلی : بازی\n⛂ - بازی سریع : شروع تصادفی یک بازی فعال\n⛂ - تاس : اجرای بازی تاس\n⛂ - کوییز : اجرای بازی کوییز\n⛂ - پروفایل بازی : نمایش اطلاعات بازیکن\n⛂ - جم : نمایش کیف پول\n⛂ - رتبه بازی : نمایش رتبه‌بندی\n⛂ - تاریخچه بازی : نمایش سوابق",replyMarkup:gameSectionKeyboard("help",ctx.userId)};
   if(action==="settings")return {text:"◈ تنظیمات بازی\n\n⛂ - سیستم بازی : "+(await enabled(ctx.pool,ctx.chatId)?"فعال":"خاموش")+"\n⛂ - اعلان‌ها : پیش‌فرض\n⛂ - نمایش پروفایل : عمومی\n⛂ - زبان پاسخ‌ها : فارسی",replyMarkup:gameSectionKeyboard("settings",ctx.userId)};
   if(action==="back")return {text:await center(ctx.pool,ctx),replyMarkup:gameCenterKeyboard(ctx.userId)};
   return null;
@@ -261,7 +278,7 @@ async function profile(pool:Pool,ctx:GameContext,id:number,name?:string){
   await ensurePlayer(pool,ctx,id,id===ctx.userId?ctx.user:{id,firstName:name});const p=(await pool.query<any>("SELECT * FROM game_players WHERE group_id=$1 AND user_id=$2",[ctx.chatId,id])).rows[0];
   const l=+p.level,x=+p.xp,g=+p.gems,r=+p.rating,w=+p.wins,lo=+p.losses,ga=+p.total_games,rate=ga?((w/ga)*100).toFixed(1):"0.0",ac=Number((await pool.query("SELECT COUNT(*)::int n FROM game_player_achievements WHERE group_id=$1 AND user_id=$2",[ctx.chatId,id])).rows[0]?.n||0);
   const inv=Number((await pool.query("SELECT COALESCE(SUM(quantity),0)::int n FROM game_inventory WHERE group_id=$1 AND user_id=$2",[ctx.chatId,id])).rows[0]?.n||0);
-  const nameOut=p.first_name||name||String(id);return ["◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · پروفایل بازی","","⛂ - نام : "+nameOut,"⛂ - نام کاربری : "+(p.username?"@"+p.username:"—"),"⛂ - شناسه : "+id,"","─────━━───── ◈ ─────━━─────","","⛂ - سطح : "+fa(l),"⛂ - تجربه : "+fa(x),"⛂ - پیشرفت : "+bar(x,l),"⛂ - جم : "+fa(g),"⛂ - لیگ : "+league(r),"⛂ - امتیاز رقابتی : "+fa(r),"","⛂ - بازی‌ها : "+fa(ga),"⛂ - برد : "+fa(w),"⛂ - باخت : "+fa(lo),"⛂ - درصد برد : "+fa(Number(rate))+"٪","⛂ - زنجیره فعلی : "+fa(+p.current_streak),"⛂ - بهترین زنجیره : "+fa(+p.best_streak),"","⛂ - دستاوردها : "+fa(ac),"⛂ - آیتم‌ها : "+fa(inv)].join("\n");
+  const nameOut=p.first_name||name||String(id);return ["◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · پروفایل بازی","","⛂ - نام : "+nameOut,"⛂ - نام کاربری : "+(p.username?"@"+p.username:"—"),"⛂ - شناسه : "+id,"","─────━━───── ◈ ─────━━─────","","⛂ - سطح : "+fa(l),"⛂ - تجربه : "+fa(x),"⛂ - پیشرفت : ["+bar(x,l)+"] "+fa(progressPercent(x,l))+"٪","⛂ - جم : "+fa(g),"⛂ - لیگ : "+league(r),"⛂ - امتیاز رقابتی : "+fa(r),"","⛂ - بازی‌ها : "+fa(ga),"⛂ - برد : "+fa(w),"⛂ - باخت : "+fa(lo),"⛂ - درصد برد : "+fa(Number(rate))+"٪","⛂ - زنجیره فعلی : "+fa(+p.current_streak),"⛂ - بهترین زنجیره : "+fa(+p.best_streak),"","⛂ - دستاوردها : "+fa(ac),"⛂ - آیتم‌ها : "+fa(inv)].join("\n");
 }
 async function center(pool:Pool,ctx:GameContext){
   await ensurePlayer(pool,ctx);
@@ -343,7 +360,7 @@ async function seasonText(pool:Pool,ctx:GameContext){
 async function enabled(pool:Pool,g:number){const r=await pool.query<{enabled:boolean}>("SELECT enabled FROM game_group_settings WHERE group_id=$1",[g]).catch(()=>({rows:[] as Array<{enabled:boolean}>}));return r.rows[0]?.enabled!==false;}
 async function daily(pool:Pool,ctx:GameContext){await ensurePlayer(pool,ctx);const d=new Date().toISOString().slice(0,10);const q=await pool.query("INSERT INTO game_daily_claims(group_id,user_id,claim_key) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",[ctx.chatId,ctx.userId,d]);if(!q.rowCount)return "⛂ - جایزه روزانه امروز قبلاً دریافت شده است.";const s=(await pool.query<{daily_reward:number}>("SELECT daily_reward FROM game_group_settings WHERE group_id=$1",[ctx.chatId])).rows[0];const g=Number(s?.daily_reward??50);const gr=await changeGems(pool,ctx.chatId,ctx.userId,g,"Daily reward","daily");await addXp(pool,ctx.chatId,ctx.userId,80);return gr.ok?"✓ جایزه روزانه دریافت شد.\n⛂ - جم : +"+fa(g)+"\n⛂ - تجربه : +"+fa(80):"✗ دریافت جایزه انجام نشد."}
 async function dice(pool:Pool,ctx:GameContext){
-  await ensurePlayer(pool,ctx);if(!(await enabled(pool,ctx.chatId)))return "✗ سیستم بازی در این گروه خاموش است.";const r=1+Math.floor(Math.random()*6),win=r>=5,g=win?(r===6?80:45):10,x=win?70:25,rd=win?20:-10,res=await record(pool,ctx,"dice",win,x,g,rd,{roll:r});
+  await ensurePlayer(pool,ctx);if(!(await enabled(pool,ctx.chatId)))return "✗ سیستم بازی در این گروه خاموش است.";const r=1+Math.floor(Math.random()*6),win=r>=5,g=win?(r===6?35:22):5,x=win?50:15,rd=win?8:-4,res=await record(pool,ctx,"dice",win,x,g,rd,{roll:r,mode:"single"});
   if(r===6){const q=await pool.query("INSERT INTO game_player_achievements(group_id,user_id,code) VALUES($1,$2,'high_roller') ON CONFLICT DO NOTHING",[ctx.chatId,ctx.userId]);if(q.rowCount){await changeGems(pool,ctx.chatId,ctx.userId,120,"Achievement reward","high_roller");res.a.push("بازیکن خوش‌شانس");}}
   return ["◈ بازی تاس","","⛂ - عدد تاس : "+fa(r),"⛂ - نتیجه : "+(win?"برد":"باخت"),"⛂ - پاداش : +"+fa(g)+" جم","⛂ - تجربه : +"+fa(x),"⛂ - تغییر امتیاز : "+(rd>=0?"+":"")+fa(rd),res.xr.up?"⛂ - سطح جدید : "+fa(res.xr.level):"",res.a.length?"⛂ - دستاورد جدید : "+res.a.join(" · "):""].filter(Boolean).join("\n");
 }
@@ -351,8 +368,8 @@ async function startQuiz(pool:Pool,ctx:GameContext){
   await ensurePlayer(pool,ctx);if(!(await enabled(pool,ctx.chatId)))return "✗ سیستم بازی در این گروه خاموش است.";const q=QUESTIONS[Math.floor(Math.random()*QUESTIONS.length)];quiz.set(key(ctx.chatId,ctx.userId),{answer:q.a,question:q.q,expires:Date.now()+45000});return ["◈ بازی کوییز","",q.q,"","۱) "+q.o[0],"۲) "+q.o[1],"۳) "+q.o[2],"۴) "+q.o[3],"","⛂ - زمان پاسخ : ۴۵ ثانیه","⛂ - فقط عدد ۱ تا ۴ را به‌عنوان پاسخ ارسال کنید."].join("\n");
 }
 async function answerQuiz(pool:Pool,ctx:GameContext,value:string){
-  const s=quiz.get(key(ctx.chatId,ctx.userId));if(!s)return null;if(s.expires<Date.now()){quiz.delete(key(ctx.chatId,ctx.userId));return "⛂ - زمان پاسخ به کوییز به پایان رسید.";}if(!/^[1-4۰-۹]$/.test(value))return null;const a=Number(value.replace(/[۰-۹]/g,d=>String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))))-1;quiz.delete(key(ctx.chatId,ctx.userId));const win=a===s.answer,res=await record(pool,ctx,"quiz",win,win?100:30,win?70:5,win?35:-15,{question:s.question,answer:a});if(win){await pool.query("UPDATE game_players SET quiz_wins=quiz_wins+1 WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId]);await updateMission(pool,ctx.chatId,ctx.userId,"quiz_3",1);}
-  return ["◈ بازی کوییز · نتیجه","","⛂ - پاسخ شما : "+fa(a+1),"⛂ - پاسخ صحیح : "+fa(s.answer+1),"⛂ - نتیجه : "+(win?"پاسخ صحیح · برد":"پاسخ نادرست · باخت"),"⛂ - پاداش : +"+fa(win?70:5)+" جم","⛂ - تجربه : +"+fa(win?100:30),res.xr.up?"⛂ - سطح جدید : "+fa(res.xr.level):"",res.a.length?"⛂ - دستاورد جدید : "+res.a.join(" · "):""].filter(Boolean).join("\n");
+  const s=quiz.get(key(ctx.chatId,ctx.userId));if(!s)return null;if(s.expires<Date.now()){quiz.delete(key(ctx.chatId,ctx.userId));return "⛂ - زمان پاسخ به کوییز به پایان رسید.";}if(!/^[1-4۰-۹]$/.test(value))return null;const a=Number(value.replace(/[۰-۹]/g,d=>String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))))-1;quiz.delete(key(ctx.chatId,ctx.userId));const win=a===s.answer,res=await record(pool,ctx,"quiz",win,win?65:20,win?45:3,win?10:-5,{question:s.question,answer:a,mode:"single"});if(win){await pool.query("UPDATE game_players SET quiz_wins=quiz_wins+1 WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId]);await updateMission(pool,ctx.chatId,ctx.userId,"quiz_3",1);}
+  return ["◈ بازی کوییز · نتیجه","","⛂ - پاسخ شما : "+fa(a+1),"⛂ - پاسخ صحیح : "+fa(s.answer+1),"⛂ - نتیجه : "+(win?"پاسخ صحیح · برد":"پاسخ نادرست · باخت"),"⛂ - پاداش : +"+fa(win?45:3)+" جم","⛂ - تجربه : +"+fa(win?65:20),res.xr.up?"⛂ - سطح جدید : "+fa(res.xr.level):"",res.a.length?"⛂ - دستاورد جدید : "+res.a.join(" · "):""].filter(Boolean).join("\n");
 }
 
 export async function handleGameText(ctx:GameContext,text:string):Promise<string|null>{
