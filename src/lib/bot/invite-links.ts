@@ -110,10 +110,11 @@ function isExpired(link: any) {
 }
 
 function computedStatus(link: Partial<InviteRow>) {
+  if (link.is_one_time && (link.is_consumed || Number(link.usage_count || 0) >= 1)) return "consumed";
   if (link.is_revoked) return "revoked";
   if (link.is_expired || isExpired(link)) return "expired";
   if (link.member_limit != null && Number(link.member_limit) > 0 && Number(link.usage_count || 0) >= Number(link.member_limit)) return "exhausted";
-  if (link.is_consumed || (link.is_one_time && Number(link.usage_count || 0) >= 1)) return "consumed";
+  if (link.is_consumed) return "consumed";
   return "active";
 }
 
@@ -310,9 +311,14 @@ async function syncInviteLinks(pool: Pool, groupId: number) {
   await ensureInviteLinkSchema(pool);
   const chat = await telegramApi<any>("getChat", { chat_id: groupId });
   if (chat.ok && chat.result?.invite_link) {
+    const primaryLink = String(chat.result.invite_link);
+    await pool.query(
+      "UPDATE group_invite_links SET is_primary=FALSE,is_revoked=TRUE,is_active=FALSE,revoked_at=COALESCE(revoked_at,NOW()),updated_at=NOW() WHERE group_id=$1 AND is_primary=TRUE AND telegram_invite_link<>$2 AND is_revoked=FALSE",
+      [groupId,primaryLink],
+    );
     const botId = await getBotId();
     await upsertTelegramLink(pool, groupId, {
-      invite_link: String(chat.result.invite_link),
+      invite_link: primaryLink,
       is_primary: true,
       is_revoked: false,
       creates_join_request: false,
@@ -685,54 +691,86 @@ async function renderHistory(pool: Pool, groupId: number, messageId: number, act
   ]));
 }
 
+async function withInviteLinkActionLock<T>(pool: Pool, id: number, action: (client: PoolClient) => Promise<T>): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["invite-link:"+id]);
+    const result = await action(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function rebuildLink(pool: Pool, groupId: number, actorId: number, id: number) {
   const permission = await canManageInviteLinks(groupId, actorId);
   if (!permission.allowed) return { ok: false, error: "permission" as const };
-  const old = await getById(pool, groupId, id);
-  if (!old || computedStatus(old) !== "active") return { ok: false, error: "inactive" as const };
+  return withInviteLinkActionLock(pool,id,async(client)=>{
+    const old = (await client.query("SELECT * FROM group_invite_links WHERE id=$1 AND group_id=$2 LIMIT 1",[id,groupId])).rows[0] as InviteRow | undefined;
+    if (!old || computedStatus(old) !== "active") return { ok: false, error: "inactive" as const };
 
-  if (old.is_primary) {
-    const created = await telegramApi<any>("exportChatInviteLink", { chat_id: groupId });
-    if (!created.ok || !created.result) return { ok: false, error: "telegram" as const };
-    const newRow = await upsertTelegramLink(pool, groupId, {
-      invite_link: String(created.result),
-      is_primary: true,
-      is_revoked: false,
-      creator: { id: await getBotId() },
+    if (old.is_primary) {
+      const created = await telegramApi<any>("exportChatInviteLink", { chat_id: groupId });
+      if (!created.ok || !created.result) return { ok: false, error: "telegram" as const };
+      const newRow = await upsertTelegramLink(pool, groupId, {
+        invite_link: String(created.result),
+        is_primary: true,
+        is_revoked: false,
+        creator: { id: await getBotId() },
+      });
+      await client.query(
+        "UPDATE group_invite_links SET is_active=FALSE,is_revoked=TRUE,revoked_at=NOW(),updated_at=NOW() WHERE id=$1 AND group_id=$2",
+        [old.id,groupId],
+      );
+      await client.query(
+        "INSERT INTO invite_link_events(group_id,invite_link_id,actor_user_id,event_type,metadata) VALUES($1,$2,$3,$4,$5::jsonb)",
+        [groupId,old.id,actorId,"revoked",JSON.stringify({reason:"rebuild"})],
+      );
+      await client.query(
+        "INSERT INTO invite_link_events(group_id,invite_link_id,actor_user_id,event_type,metadata) VALUES($1,$2,$3,$4,$5::jsonb)",
+        [groupId,newRow.id,actorId,"rebuilt",JSON.stringify({replaced_link_id:old.id,primary:true})],
+      );
+      return { ok: true, row: newRow };
+    }
+
+    const revoke = await telegramApi("revokeChatInviteLink", { chat_id: groupId, invite_link: old.telegram_invite_link });
+    if (!revoke.ok) return { ok: false, error: "telegram" as const };
+    const created = await telegramApi<any>("createChatInviteLink", { chat_id: groupId });
+    if (!created.ok || !created.result?.invite_link) return { ok: false, error: "telegram" as const };
+    const newRow = await upsertTelegramLink(pool, groupId, { ...created.result, is_primary: false });
+    await client.query("UPDATE group_invite_links SET is_active=FALSE,is_revoked=TRUE,revoked_at=NOW(),updated_at=NOW() WHERE id=$1 AND group_id=$2",[old.id,groupId]);
+    await client.query("INSERT INTO invite_link_events(group_id,invite_link_id,actor_user_id,event_type,metadata) VALUES($1,$2,$3,$4,$5::jsonb)",[groupId,old.id,actorId,"revoked",JSON.stringify({reason:"rebuild"})]);
+    await client.query("INSERT INTO invite_link_events(group_id,invite_link_id,actor_user_id,event_type,metadata) VALUES($1,$2,$3,$4::jsonb)",[groupId,newRow.id,actorId,"rebuilt",JSON.stringify({replaced_link_id:old.id})]).catch(async()=>{
+      await client.query("INSERT INTO invite_link_events(group_id,invite_link_id,actor_user_id,event_type,metadata) VALUES($1,$2,$3,$4,$5::jsonb)",[groupId,newRow.id,actorId,"rebuilt",JSON.stringify({replaced_link_id:old.id})]);
     });
-    await pool.query(
-      "UPDATE group_invite_links SET is_active=FALSE,is_revoked=TRUE,revoked_at=NOW(),updated_at=NOW() WHERE id=$1 AND group_id=$2",
-      [old.id,groupId],
-    );
-    await event(pool,old.id,groupId,actorId,"revoked",{reason:"rebuild"});
-    await event(pool,newRow.id,groupId,actorId,"rebuilt",{replaced_link_id:old.id,primary:true});
     return { ok: true, row: newRow };
-  }
-
-  const revoke = await telegramApi("revokeChatInviteLink", { chat_id: groupId, invite_link: old.telegram_invite_link });
-  if (!revoke.ok) return { ok: false, error: "telegram" as const };
-  const created = await telegramApi<any>("createChatInviteLink", { chat_id: groupId });
-  if (!created.ok || !created.result?.invite_link) return { ok: false, error: "telegram" as const };
-  const newRow = await upsertTelegramLink(pool, groupId, { ...created.result, is_primary: false });
-  await pool.query("UPDATE group_invite_links SET is_active=FALSE,is_revoked=TRUE,revoked_at=NOW(),updated_at=NOW() WHERE id=$1 AND group_id=$2",[old.id,groupId]);
-  await event(pool,old.id,groupId,actorId,"revoked",{reason:"rebuild"});
-  await event(pool,newRow.id,groupId,actorId,"rebuilt",{replaced_link_id:old.id});
-  return { ok: true, row: newRow };
+  });
 }
+
 
 async function revokeLink(pool: Pool, groupId: number, actorId: number, id: number) {
   const permission = await canManageInviteLinks(groupId, actorId);
   if (!permission.allowed) return { ok: false, error: "permission" as const };
-  const row = await getById(pool, groupId, id);
-  if (!row) return { ok: false, error: "not_found" as const };
-  if (row.is_revoked) return { ok: false, error: "already_revoked" as const };
-  const result = await telegramApi("revokeChatInviteLink", { chat_id: groupId, invite_link: row.telegram_invite_link });
-  if (!result.ok) return { ok: false, error: "telegram" as const };
-  await pool.query("UPDATE group_invite_links SET is_active=FALSE,is_revoked=TRUE,revoked_at=NOW(),updated_at=NOW() WHERE id=$1 AND group_id=$2",[id,groupId]);
-  await event(pool,id,groupId,actorId,"revoked");
-  await syncInviteLinks(pool,groupId);
-  return { ok: true };
+  return withInviteLinkActionLock(pool,id,async(client)=>{
+    const row = (await client.query("SELECT * FROM group_invite_links WHERE id=$1 AND group_id=$2 LIMIT 1",[id,groupId])).rows[0] as InviteRow | undefined;
+    if (!row) return { ok: false, error: "not_found" as const };
+    if (row.is_revoked) return { ok: false, error: "already_revoked" as const };
+    const result = await telegramApi("revokeChatInviteLink", { chat_id: groupId, invite_link: row.telegram_invite_link });
+    if (!result.ok) return { ok: false, error: "telegram" as const };
+    await client.query("UPDATE group_invite_links SET is_active=FALSE,is_revoked=TRUE,revoked_at=NOW(),updated_at=NOW() WHERE id=$1 AND group_id=$2",[id,groupId]);
+    await client.query("INSERT INTO invite_link_events(group_id,invite_link_id,actor_user_id,event_type,metadata) VALUES($1,$2,$3,$4,$5::jsonb)",[groupId,id,actorId,"revoked",JSON.stringify({})]);
+    return { ok: true };
+  }).then(async(result)=>{
+    if ((result as any)?.ok) await syncInviteLinks(pool,groupId);
+    return result;
+  });
 }
+
 
 async function renderRequests(pool: Pool, groupId: number, messageId: number, actorId: number, id: number) {
   const row = await getById(pool, groupId, id);
@@ -865,6 +903,14 @@ async function handleCallback(pool: Pool, cb: InviteLinkCallback) {
   if (data.startsWith("link:list:")) {
     const parts = data.split(":");
     return renderList(pool, groupId, message.message_id, actorId, parts[2] || "all", Number(parts[3] || 1));
+  }
+  if (data.startsWith("link:filter:")) {
+    const filter = data.slice("link:filter:".length);
+    return renderList(pool,groupId,message.message_id,actorId,filter,1);
+  }
+  if (data.startsWith("link:page:")) {
+    const page = Number(data.slice("link:page:".length) || 1);
+    return renderList(pool,groupId,message.message_id,actorId,"all",page);
   }
   if (data === "link:stats") return renderStats(pool, groupId, message.message_id, actorId);
   if (data === "link:stats:creators") {
@@ -1031,7 +1077,13 @@ async function recordInviteUsage(pool: Pool, update: any) {
   const oneTime = row.is_one_time === true;
   await pool.query("UPDATE group_invite_links SET usage_count=usage_count+1,is_consumed=CASE WHEN is_one_time AND usage_count+1>=1 THEN TRUE ELSE is_consumed END,consumed_at=CASE WHEN is_one_time AND usage_count+1>=1 THEN COALESCE(consumed_at,NOW()) ELSE consumed_at END,is_active=CASE WHEN member_limit IS NOT NULL AND usage_count+1>=member_limit THEN FALSE ELSE is_active END,updated_at=NOW() WHERE id=$1",[row.id]);
   await event(pool,row.id,groupId,Number(user.id),"used",{user_id:Number(user.id)});
-  if (oneTime) await event(pool,row.id,groupId,Number(user.id),"consumed",{user_id:Number(user.id)});
+  if (oneTime) {
+    await event(pool,row.id,groupId,Number(user.id),"consumed",{user_id:Number(user.id)});
+    const revoked = await telegramApi("revokeChatInviteLink",{chat_id:groupId,invite_link:row.telegram_invite_link});
+    if (revoked.ok) {
+      await pool.query("UPDATE group_invite_links SET is_active=FALSE,is_revoked=TRUE,is_consumed=TRUE,consumed_at=COALESCE(consumed_at,NOW()),revoked_at=COALESCE(revoked_at,NOW()),updated_at=NOW() WHERE id=$1",[row.id]);
+    }
+  }
   return true;
 }
 
