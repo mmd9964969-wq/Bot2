@@ -314,6 +314,21 @@ async function ensureOwners(pool:Pool,ids:string[]){for(const id of ids){if(/^\d
 async function isOwner(pool:Pool,uid:number,envOwners:string[]){const all=new Set([...BUILTIN_OWNER_IDS,...envOwners]);if(all.has(String(uid)))return true;const r=await pool.query("SELECT 1 FROM bot_panel_owners WHERE user_id=$1 LIMIT 1",[uid]);return !!r.rowCount;}
 async function customerEnsure(pool:Pool,uid:number,u:TgUser){await pool.query("INSERT INTO bot_customers(user_id,username,first_name,last_active_at) VALUES($1,$2,$3,NOW()) ON CONFLICT(user_id) DO UPDATE SET username=EXCLUDED.username,first_name=EXCLUDED.first_name,last_active_at=NOW()",[uid,u.username||null,u.first_name||""]);}
 
+async function resolveOrRegisterCustomer(pool:Pool,value:unknown){
+  const raw=String(value??"").trim();
+  const found=await resolveCustomer(pool,raw);
+  if(found)return found;
+  const key=raw.replace(/^@/,"");
+  if(!/^\d+$/.test(key))return null;
+  const customerId=Number(key);
+  if(!Number.isSafeInteger(customerId)||customerId<=0)return null;
+  await pool.query(
+    "INSERT INTO bot_customers(user_id,status,last_active_at) VALUES($1,'active',NOW()) ON CONFLICT(user_id) DO UPDATE SET status=CASE WHEN bot_customers.status='blocked' THEN bot_customers.status ELSE 'active' END,last_active_at=NOW()",
+    [customerId]
+  );
+  return (await pool.query("SELECT user_id,username,first_name,status FROM bot_customers WHERE user_id=$1 LIMIT 1",[customerId])).rows[0]??null;
+}
+
 async function validLicense(pool:Pool,uid:number){
   const r=await pool.query("SELECT * FROM bot_licenses WHERE customer_id=$1 AND status='active' AND (expires_at IS NULL OR expires_at>NOW()) ORDER BY expires_at NULLS LAST, id DESC LIMIT 1",[uid]);
   return r.rows[0]||null;
@@ -626,35 +641,16 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
   if(s&&s.flow==="owner_subscription_create"){
     const step=Number(s.data.step||1);
     if(step===1){
-      const customer=await resolveCustomer(pool,raw);
+      const customer=await resolveOrRegisterCustomer(pool,raw);
       if(!customer){
-        if(/^[0-9]+$/.test(raw)){
-          const customerId=Number(raw);
-          if(!Number.isSafeInteger(customerId)||customerId<=0)return send(msg.chat.id,"✗ آیدی مشتری معتبر نیست.",menu([[["‹ بازگشت","o:subscriptions"]]]))&&true;
-          await pool.query(
-            "INSERT INTO bot_customers(user_id,status,last_active_at) VALUES($1,'active',NOW()) ON CONFLICT(user_id) DO UPDATE SET status=CASE WHEN bot_customers.status='blocked' THEN bot_customers.status ELSE 'active' END,last_active_at=NOW()",
-            [customerId]
-          );
-          const created=(await pool.query("SELECT user_id,username,first_name FROM bot_customers WHERE user_id=$1 LIMIT 1",[customerId])).rows[0];
-          s.data.customerId=customerId;
-          s.data.customerUsername=created?.username||"";
-          s.data.customerName=created?.first_name||"";
-          s.data.step=2;
-          session(uid,s.flow,s.data);
-          return send(msg.chat.id,
-            "◈ انتخاب گروه\n\n⛂ مشتری ثبت شد\n⛂ آیدی : "+customerId+"\n\n⛂ لینک گروه را ارسال کنید\n\nمثال:\nhttps://t.me/...",
-            menu([[["‹ بازگشت","o:subscriptions"]]])
-          )&&true;
+        const key=raw.replace(/^@/,"");
+        if(/^@/.test(raw)){
+          return send(msg.chat.id,"✗ این @username در سامانه ثبت نشده است. کاربر باید حداقل یک‌بار با ربات تعامل کرده باشد تا یوزرنیم او قابل شناسایی باشد.",menu([[["‹ بازگشت","o:subscriptions"]]]))&&true;
         }
-        const requestedUsername=raw.replace(/^@/,"");
-        if(!/^[A-Za-z0-9_]{5,32}$/.test(requestedUsername)){
-          return send(msg.chat.id,"✗ آیدی عددی یا @username معتبر وارد کنید.",menu([[["‹ بازگشت","o:subscriptions"]]]))&&true;
+        if(/^\d+$/.test(key)){
+          return send(msg.chat.id,"✗ آیدی عددی مشتری معتبر نیست.",menu([[["‹ بازگشت","o:subscriptions"]]]))&&true;
         }
-        session(uid,"owner_customer_register",{step:1,username:requestedUsername,returnTo:"subscription"});
-        return send(msg.chat.id,
-          "◈ ثبت مشتری جدید\n\n⛂ یوزرنیم : @"+requestedUsername+"\n\nاین مشتری هنوز در سامانه ثبت نشده است. برای ساخت اشتراک، آیدی عددی همان حساب تلگرام را ارسال کنید.",
-          menu([[["‹ بازگشت","o:subscriptions"]]])
-        )&&true;
+        return send(msg.chat.id,"✗ آیدی عددی یا @username معتبر وارد کنید.",menu([[["‹ بازگشت","o:subscriptions"]]]))&&true;
       }
       s.data.customerId=Number(customer.user_id);
       s.data.customerUsername=customer.username||"";
@@ -662,7 +658,7 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
       s.data.step=2;
       session(uid,s.flow,s.data);
       return send(msg.chat.id,
-        "◈ انتخاب گروه\n\n⛂ لینک گروه را ارسال کنید\n\nمثال:\nhttps://t.me/...",
+        "◈ انتخاب گروه\n\n⛂ مشتری : "+(customer.username?"@"+customer.username:String(customer.user_id))+"\n⛂ آیدی : "+customer.user_id+"\n\n⛂ لینک گروه را ارسال کنید\n\nمثال:\nhttps://t.me/...",
         menu([[["‹ بازگشت","o:subscriptions"]]])
       )&&true;
     }
@@ -789,10 +785,22 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
   }
   if(s&&s.flow==="owner_license_create"){
     const step=Number(s.data.step||1),v=raw;
-    if(step===1){const t=LICENSE_TYPES.find(x=>x.key===v)||LICENSE_TYPES.find(x=>x.label===v);if(!t)return send(msg.chat.id,"نوع لایسنس معتبر نیست. از دکمه‌های پنل انتخاب کنید.")&&true;s.data.type=t; s.data.step=2;session(uid,s.flow,s.data);return send(msg.chat.id,"حداکثر تعداد گروه این لایسنس را به عدد ارسال کنید.");}
+    if(step===1){const t=LICENSE_TYPES.find(x=>x.key===v)||LICENSE_TYPES.find(x=>x.label===v);if(!t)return send(msg.chat.id,"نوع لایسنس معتبر نیست. از دکمه‌های پنل انتخاب کنید.")&&true;s.data.type=t;s.data.step=2;session(uid,s.flow,s.data);return send(msg.chat.id,"حداکثر تعداد گروه این لایسنس را به عدد ارسال کنید.");}
     if(step===2){const n=Number(v);if(!Number.isInteger(n)||n<1||n>10000)return send(msg.chat.id,"تعداد گروه باید عددی بین ۱ تا ۱۰۰۰۰ باشد.");s.data.groupLimit=n;s.data.step=3;session(uid,s.flow,s.data);return send(msg.chat.id,"قیمت داخلی لایسنس را به عدد ارسال کنید؛ برای بدون قیمت «0» بفرستید.");}
-    if(step===3){const p=Number(v);if(!Number.isFinite(p)||p<0)return send(msg.chat.id,"قیمت معتبر نیست.");s.data.price=p;s.data.step=4;session(uid,s.flow,s.data);return send(msg.chat.id,"آیدی عددی مشتری را ارسال کنید.");}
-    if(step===4){const customerId=Number(v);if(!Number.isSafeInteger(customerId))return send(msg.chat.id,"آیدی مشتری معتبر نیست.");s.data.customerId=customerId;s.data.step=5;session(uid,s.flow,s.data);return send(msg.chat.id,"برای تأیید ایجاد لایسنس، «تایید نهایی» را ارسال کنید.");}
+    if(step===3){const p=Number(v);if(!Number.isFinite(p)||p<0)return send(msg.chat.id,"قیمت معتبر نیست.");s.data.price=p;s.data.step=4;session(uid,s.flow,s.data);return send(msg.chat.id,"آیدی عددی یا @username مشتری را ارسال کنید.");}
+    if(step===4){
+      const customer=await resolveOrRegisterCustomer(pool,v);
+      if(!customer){
+        if(/^@/.test(v))return send(msg.chat.id,"✗ این @username در سامانه ثبت نشده است. کاربر باید حداقل یک‌بار با ربات تعامل کرده باشد تا یوزرنیم او قابل شناسایی باشد.",menu([[["‹ بازگشت","o:licenses"]]]))&&true;
+        return send(msg.chat.id,"✗ آیدی عددی یا @username معتبر وارد کنید.",menu([[["‹ بازگشت","o:licenses"]]]))&&true;
+      }
+      s.data.customerId=Number(customer.user_id);
+      s.data.customerUsername=customer.username||"";
+      s.data.customerName=customer.first_name||"";
+      s.data.step=5;
+      session(uid,s.flow,s.data);
+      return send(msg.chat.id,"⛂ مشتری : "+(customer.username?"@"+customer.username:String(customer.user_id))+"\n⛂ آیدی : "+customer.user_id+"\n\nبرای تأیید ایجاد لایسنس، «تایید نهایی» را ارسال کنید.",menu([[["‹ بازگشت","o:licenses"]]]))&&true;
+    }
     if(step===5&&v==="تایید نهایی"){
       const d=s.data,t=d.type.days===null?null:new Date(Date.now()+d.type.days*86400000);const code="PBS-"+Math.random().toString(36).slice(2,10).toUpperCase();
       await pool.query("INSERT INTO bot_customers(user_id,status) VALUES($1,'active') ON CONFLICT DO NOTHING",[d.customerId]);
