@@ -11,6 +11,7 @@ import { AUTOMATION_ACTIONS } from "../src/lib/bot/automation-engine.ts";
 import { getGroupStats } from "../src/lib/bot/runtime.ts";
 import { ensureGroupConfigSchema, handleGroupConfigMessage, handleGroupConfigInput, handleGroupConfigCallback } from "../src/lib/bot/group-config.ts";
 import { handleInviteLinkCallback, handleInviteLinkTextInput } from "../src/lib/bot/invite-links.ts";
+import { handleSpecialCallback, handleSpecialCommand, handleSpecialTextInput } from "../src/lib/bot/special-users.ts";
 import { executeRuntimeAction, isRuntimeMaintenance } from "./runtime-control.ts";
 import {
   ensurePanelSessionSchema,
@@ -2346,6 +2347,8 @@ export async function dispatchPanelMessage(pool:Pool,msg:TgMessage,ownerIds:stri
     if(await handleGroupConfigInput(pool,msg))return true;
     if(await handleGroupConfigMessage(pool,msg,ownerIds))return true;
     if(await handleInviteLinkTextInput(pool,msg))return true;
+    if(await handleSpecialTextInput(pool,msg))return true;
+    if(await handleSpecialCommand(pool,msg,ownerIds))return true;
     if(await handleInput(pool,msg))return true;
     if(await handleOwner(pool,msg,ownerIds))return true;
     return await handleCustomer(pool,msg,ownerIds);
@@ -2382,6 +2385,7 @@ export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:str
     const data=String(cb.data||"");
     if(data.startsWith("link:")) return handleInviteLinkCallback(pool,cb as any);
     if(data.startsWith("cfg:")) return handleGroupConfigCallback(pool,cb as any);
+    if(data.startsWith("sp:")) return handleSpecialCallback(pool,cb,ownerIds);
     // Customer/lock panel callbacks must keep their customer context even for the bot owner.
     // Otherwise ownerCallback receives c:/cl:/clt:/cls: actions and silently ignores them.
     if(
