@@ -1867,12 +1867,13 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     return edit(msg.chat.id,msg.message_id,panelTitle("تاریخچه عملیات",r.rows.length?r.rows.map((x:any)=>"⛂ - "+faDate(x.created_at)+" · کاربر : "+x.target_id+" · عملیات : "+x.action_type+" · دلیل : "+(x.reason||"—")).join("\n"):"⛂ - وضعیت : تاریخچه‌ای ثبت نشده است."),menu([[["‹ بازگشت","c:warnings"]]]));
   }
 
-  if(data==="c:members")return edit(msg.chat.id,msg.message_id,panelTitle("مدیریت اعضا","⛂ - وضعیت : ابزارهای جستجو، سکوت، اخراج و عملیات گروهی آماده است."),menu([
+  if(data==="c:members")return edit(msg.chat.id,msg.message_id,panelTitle("مدیریت اعضا","⛂ - وضعیت : ابزارهای جستجو، سکوت، اخراج، بن و کاربران ویژه آماده است."),menu([
     [["جستجوی عضو","m:search"],["لیست محدودشده‌ها","m:restricted"]],
     [["اخطار","m:warn"],["سکوت موقت","m:mute"]],
     [["سکوت دائم","m:perm_mute"],["بن عضو","m:ban"]],
-    [["اخراج عضو","m:kick"],["تغییر نقش","m:role"]],
-    [["عملیات گروهی","m:bulk"],["‹ بازگشت","c:home"]]
+    [["اخراج عضو","m:kick"],["کاربران ویژه","sp:list:0"]],
+    [["تغییر نقش","m:role"],["عملیات گروهی","m:bulk"]],
+    [["‹ بازگشت","c:home"]]
   ]));
   if(data==="m:search"){session(uid,"member_search",{chatId:groupId});return edit(msg.chat.id,msg.message_id,panelTitle("جستجوی عضو","آیدی تلگرام یا نام کاربری را ارسال کنید."),menu([[["‹ بازگشت","c:members"]]]));}
   if(data==="m:restricted")return edit(msg.chat.id,msg.message_id,panelTitle("اعضای محدودشده","برای مدیریت سریع، عملیات موردنظر را انتخاب کنید."),menu([[["سکوت موقت","m:mute"],["اخراج عضو","m:kick"]],[["‹ بازگشت","c:members"]]]));
