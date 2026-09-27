@@ -123,10 +123,16 @@ async function resolveChatFromReference(pool: Pool, reference: GroupReference) {
     return chat.ok && chat.result ? chat.result : null;
   }
 
-  const invite = await pool.query(
-    "SELECT group_id FROM group_invite_links WHERE telegram_invite_link=$1 OR telegram_invite_link=$2 LIMIT 1",
-    [reference.link, reference.alternateLink],
-  );
+  let invite;
+  try {
+    invite = await pool.query(
+      "SELECT group_id FROM group_invite_links WHERE telegram_invite_link=$1 OR telegram_invite_link=$2 LIMIT 1",
+      [reference.link, reference.alternateLink],
+    );
+  } catch (error) {
+    console.error("[subscription] private invite lookup unavailable:", error);
+    return null;
+  }
   const groupId = invite.rows[0]?.group_id;
   if (!groupId) return null;
 
