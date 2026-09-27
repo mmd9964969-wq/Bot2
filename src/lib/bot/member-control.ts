@@ -407,7 +407,7 @@ async function renderAdmin(pool: Pool, cb: TgCallback, targetId: number) {
     "─────━━───── ◈ ─────━━─────",
     "",
     "⛂ - برای تغییر هر دسترسی، وضعیت فعلی دوباره از Telegram خوانده می‌شود.",
-  ].join("\n"), rows);
+  ].join("\n")), rows);
 }
 
 async function adminInfo(pool: Pool, cb: TgCallback, targetId: number) {
