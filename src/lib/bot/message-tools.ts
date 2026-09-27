@@ -253,7 +253,7 @@ async function renderTagCenter(pool:Pool,chatId:number,actorId:number,editMessag
   await ensureBuiltInTags(pool,chatId,actorId);
   const c=await tagCounts(pool,chatId);
   const text=[
-    "◈ Pᴇʀsɪᴀɴ ᴮᵒᵛ · Tᴀɢ Cᴇɴᴛᴇʀ",
+    "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Tᴀɢ Cᴇɴᴛᴇʀ",
     "",
     "⛂ - سیستم تگ : فعال",
     "⛂ - تگ‌های فعال : "+c.tags,
@@ -314,6 +314,10 @@ async function scopeUsers(pool:Pool,groupId:number,scope:string){
   }
   if(scope==="special"){
     const r=await pool.query<any>("SELECT user_id,username,first_name FROM special_users WHERE group_id=$1 AND status='active' AND (expires_at IS NULL OR expires_at>NOW())",[groupId]);
+    return r.rows.map((u:any)=>({id:Number(u.user_id),username:u.username,first_name:u.first_name}));
+  }
+  if(scope==="members"){
+    const r=await pool.query<any>("SELECT user_id,username,first_name FROM member_tag_activity WHERE group_id=$1 ORDER BY last_message_at DESC LIMIT 500",[groupId]);
     return r.rows.map((u:any)=>({id:Number(u.user_id),username:u.username,first_name:u.first_name}));
   }
   const interval=scope==="active"?"15 minutes":scope==="recent"?"24 hours":null;
@@ -458,7 +462,7 @@ async function renderPurgeCenter(pool:Pool,chatId:number,actorId:number,editMess
   );
   const tracked=Number(c.rows[0]?.n||0);
   const text=[
-    "◈ Pᴇʀsɪᴀɴ ᴮᵒᵛ · Pᴜʀɢᴇ Cᴇɴᴛᴇʀ",
+    "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Pᴜʀɢᴇ Cᴇɴᴛᴇʀ",
     "",
     "⛂ - پیام‌های ثبت‌شده ۲۴ ساعت اخیر : "+tracked,
     "⛂ - وضعیت : آماده",
@@ -480,11 +484,8 @@ async function purgePreview(pool:Pool,chatId:number,filter:any){
   if(filter.kind){where.push("kind=$"+n);params.push(filter.kind);n++;}
   if(filter.link){where.push("has_link=TRUE");}
   if(filter.since){where.push("created_at>=$"+n);params.push(filter.since);n++;}
-  if(filter.limit){params.push(filter.limit);where.push("message_id IN (SELECT message_id FROM bot_message_records WHERE "+where.slice(0,-1).join(" AND ")+)");}
-  const q=filter.limit
-    ? "SELECT message_id FROM bot_message_records WHERE "+where.filter((x:string)=>!x.startsWith("message_id IN")).join(" AND ")+" ORDER BY created_at DESC LIMIT "+Number(filter.limit)
-    : "SELECT message_id FROM bot_message_records WHERE "+where.join(" AND ")+" ORDER BY created_at DESC LIMIT 100";
-  const r=await pool.query(q,filter.limit?params.slice(0,-1):params).catch(()=>({rows:[]}));
+  const q="SELECT message_id FROM bot_message_records WHERE "+where.join(" AND ")+" ORDER BY created_at DESC LIMIT "+Math.max(1,Math.min(100,Number(filter.limit||100)));
+  const r=await pool.query(q,params).catch(()=>({rows:[]}));
   return r.rows.map((x:any)=>Number(x.message_id)).filter(Number.isSafeInteger);
 }
 
@@ -515,20 +516,25 @@ export async function handleMessageToolsText(pool:Pool,msg:TgMessage,ownerIds:st
 
   if(s&&s.chatId===chatId){
     if(s.kind==="tag_create"){
+      const panelId=Number(s.data.panelId||0);
       await del(chatId,msg.message_id);
       const name=String(msg.text||"").trim().replace(/^@/,"").slice(0,40);
       if(!name)return true;
       if(["admin","member","active","recent","special"].includes(name.toLowerCase()))return true;
       await pool.query("INSERT INTO member_tag_definitions(group_id,name,tag_type,description,created_by) VALUES($1,$2,'custom',$3,$4) ON CONFLICT(group_id,name) DO UPDATE SET enabled=TRUE,updated_at=NOW()",[chatId,name,"تگ سفارشی",uid]);
       clearSession(uid);
-      return renderTagList(pool,chatId,uid,msg.message_id-1).then(()=>true).catch(()=>true);
+      if(panelId)return renderTagList(pool,chatId,uid,panelId).then(()=>true).catch(()=>true);
+      return true;
     }
     if(s.kind==="tag_edit"){
+      const panelId=Number(s.data.panelId||0);
       await del(chatId,msg.message_id);
       const name=String(msg.text||"").trim().slice(0,40);
       if(!name)return true;
       await pool.query("UPDATE member_tag_definitions SET name=$1,updated_at=NOW() WHERE group_id=$2 AND id=$3",[name,chatId,Number(s.data.tagId)]);
-      clearSession(uid);return true;
+      clearSession(uid);
+      if(panelId)await renderTagView(pool,chatId,uid,Number(s.data.tagId),panelId).catch(()=>{});
+      return true;
     }
     if(s.kind==="tag_remove"||s.kind==="tag_assign"){
       await del(chatId,msg.message_id);
@@ -646,7 +652,7 @@ export async function handleMessageToolsCallback(pool:Pool,cb:TgCallback,ownerId
   if(data==="mt:home")return renderTagCenter(pool,chatId,uid,cb.message.message_id).then(()=>true);
   if(data==="mt:cancel"){clearSession(uid);return renderTagCenter(pool,chatId,uid,cb.message.message_id).then(()=>true);}
   if(data==="mt:tags")return renderTagList(pool,chatId,uid,cb.message.message_id).then(()=>true);
-  if(data==="mt:create"){setSession(uid,{kind:"tag_create",chatId,actorId:uid,data:{}});return sendPanel(pool,chatId,uid,"◈ ایجاد تگ\n\nنام تگ را ارسال کنید.",[[["‹ لغو","mt:cancel"]]],cb.message.message_id).then(()=>true);}
+  if(data==="mt:create"){setSession(uid,{kind:"tag_create",chatId,actorId:uid,data:{panelId:cb.message.message_id}});return sendPanel(pool,chatId,uid,"◈ ایجاد تگ\n\nنام تگ را ارسال کنید.",[[["‹ لغو","mt:cancel"]]],cb.message.message_id).then(()=>true);}
   if(data.startsWith("mt:view:"))return renderTagView(pool,chatId,uid,Number(data.split(":")[2]),cb.message.message_id).then(()=>true);
   if(data==="mt:stats")return renderStats(pool,chatId,uid,cb.message.message_id).then(()=>true);
   if(data==="mt:history")return renderHistory(pool,chatId,uid,cb.message.message_id).then(()=>true);
@@ -660,7 +666,7 @@ export async function handleMessageToolsCallback(pool:Pool,cb:TgCallback,ownerId
     return sendPanel(pool,chatId,uid,"◈ "+(p[2]==="add"?"افزودن":"حذف")+" تگ\n\n⛂ - آیدی یا یوزرنیم کاربر را ارسال کنید.",[[["‹ لغو","mt:cancel"]]],cb.message.message_id).then(()=>true);
   }
   if(data.startsWith("mt:edit:")){
-    const tagId=Number(data.split(":")[2]);setSession(uid,{kind:"tag_edit",chatId,actorId:uid,data:{tagId}});
+    const tagId=Number(data.split(":")[2]);setSession(uid,{kind:"tag_edit",chatId,actorId:uid,data:{tagId,panelId:cb.message.message_id}});
     return sendPanel(pool,chatId,uid,"◈ ویرایش تگ\n\nنام جدید را ارسال کنید.",[[["‹ لغو","mt:cancel"]]],cb.message.message_id).then(()=>true);
   }
   if(data.startsWith("mt:delete:")){
@@ -732,7 +738,7 @@ export async function handleMessageToolsCallback(pool:Pool,cb:TgCallback,ownerId
   if(data==="pin:center")return renderPinCenter(pool,chatId,uid,cb.message.message_id).then(()=>true);
   if(data==="pin:unpin"){const r=await unpin(pool,chatId,uid);return renderPinCenter(pool,chatId,uid,cb.message.message_id).then(()=>true);}
   if(data==="pin:history"){
-    const r=await pool.query<any>("SELECT created_at,actor_id,action,target FROM audit_logs WHERE source='message_tools' AND action IN('message_pinned','message_unpinned') AND target=$1 ORDER BY created_at DESC LIMIT 30",[String(chatId)]);
+    const r=await pool.query<any>("SELECT created_at,actor_id,action,target FROM audit_logs WHERE source='message_tools' AND action IN('message_pinned','message_unpinned') AND after_data->>'groupId'=$1 ORDER BY created_at DESC LIMIT 30",[String(chatId)]);
     return sendPanel(pool,chatId,uid,"◈ Pɪɴ · Hɪsᴛᴏʀʏ\n\n"+(r.rows.length?r.rows.map((x:any)=>"⛂ - "+x.action+" · "+x.actor_id+" · "+new Date(x.created_at).toLocaleString("fa-IR")).join("\n"):"⛂ - سابقه‌ای ثبت نشده است."),[[["‹ بازگشت","pin:center"]]],cb.message.message_id).then(()=>true);
   }
 
