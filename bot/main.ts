@@ -398,13 +398,16 @@ function commandMatches(text: string, aliases: string[]) {
 function isPanelCommandInvocation(text: string) {
   const raw = String(text ?? "").trim().replace(/^[\\/!.]+/, "").trim();
   if (!raw || raw.startsWith("@") || /^-?\\d+$/.test(raw)) return false;
+  const exact = normalizeCommand(raw);
+  const coreNoArg = new Set(["robot","id","admin","info","rank","me","ping","bot","status","ربات","آیدی","ادمین","اطلاعات","مقام","اطلاعات مقام","من","پینگ","بات","وضعیت"]);
+  if (coreNoArg.has(exact)) return true;
   const knownStudio = studio.commands.some(item =>
-    item.enabled && item.phase <= 2 && commandMatches(raw, [...item.aliasesFa, ...item.aliasesEn])
+    item.enabled && item.phase <= 2 && [...item.aliasesFa, ...item.aliasesEn].some(alias => normalizeCommand(alias) === exact)
   );
   const knownPanel = panelCommands.some(item =>
-    item.enabled && commandMatches(raw, [item.command_key, item.fa_name, item.en_name])
+    item.enabled && [item.command_key, item.fa_name, item.en_name].some(alias => normalizeCommand(alias) === exact)
   );
-  return knownStudio || knownPanel || ["owner","مالک","panel","پنل","config","پیکربندی"].includes(normalizeCommand(raw));
+  return knownStudio || knownPanel || ["owner","مالک","panel","پنل","config","پیکربندی"].includes(exact);
 }
 
 async function deleteCommandMessage(msg: TgMessage) {
@@ -491,7 +494,14 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
     await logCommandAccess(ctx,"lang","command_executed","allowed","ADMIN");
     return languageChangedText(selected);
   }
-  const studioCommand=studio.commands.find(item=>item.enabled&&item.phase<=2&&commandMatches(token,[...item.aliasesFa,...item.aliasesEn]));
+  const firstToken=normalizeCommand(commandText.split(/\\s+/)[0]||"");
+  const coreNoArgIds=new Set(["robot","id","admin","info","rank","me","ping","bot","status"]);
+  const studioCommand=studio.commands.find(item=>{
+    if(!item.enabled||item.phase>2)return false;
+    const aliases=[...item.aliasesFa,...item.aliasesEn].map(normalizeCommand);
+    if(coreNoArgIds.has(item.id))return aliases.includes(token);
+    return commandMatches(token,aliases);
+  });
   const panelCommand=panelCommands.find(item=>commandMatches(token,[item.command_key,item.fa_name,item.en_name]));
   if(!studioCommand && !panelCommand)return null;
 
@@ -504,6 +514,11 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
 
     try{
       const commandArgs=raw.split(/\\s+/).slice(1);
+      // Core identity commands without arguments are exact-only. This prevents
+      // ordinary sentences such as «من امروز رفتم...» from being interpreted as «من».
+      if(["robot","id","admin","info","rank","me","ping","bot","status"].includes(studioCommand.id) && commandArgs.length>0){
+        return null;
+      }
       if(["warn","mute","perm_mute","ban"].includes(studioCommand.id)){
         const targetId=ctx.replyToUserId ?? Number(commandArgs[0]?.replace(/^@/,""));
         if(!Number.isSafeInteger(Number(targetId)) || Number(targetId)<=0){
@@ -537,6 +552,33 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
         const opened=await sendContentLockCenter(studioPool!,ctx.chatId,ctx.userId,"command");
         await logCommandAccess(ctx,studioCommand.id,"command_executed","allowed",auth.role);
         if(!opened.ok)return ctx.lang==="fa"?"✗ بازکردن مرکز قفل ناموفق بود.":"✗ Could not open the lock center.";
+        return null;
+      }
+      if(studioCommand.id==="id"){
+        const targetId=Number(ctx.replyToUserId||ctx.userId);
+        let target:any=null;
+        if(ctx.replyToUserId){
+          const member=await telegramApi<any>("getChatMember",{chat_id:ctx.chatId,user_id:targetId});
+          if(member.ok) target=member.result;
+        }
+        const targetUser=target?.user||{id:targetId,first_name:ctx.replyToUserId?(ctx.replyToName||String(targetId)):ctx.userName,username:ctx.replyToUserId?undefined:ctx.userName.replace(/^@/,"")};
+        const targetRank=ctx.replyToUserId
+          ? (String(target?.status||"")==="creator"?"owner":String(target?.status||"")==="administrator"?"admin":"member")
+          : ctx.userRank;
+        const targetCtx:any={...ctx,userId:targetId,userName:targetUser.username||targetUser.first_name||String(targetId),userRank:targetRank,replyToUserId:undefined,replyToName:undefined};
+        const liveCard=await runLiveCommand({...targetCtx,messageId:0},"id",[]);
+        const photos=await telegramApi<any>("getUserProfilePhotos",{user_id:targetId,offset:0,max:1});
+        if(photos.ok&&Number(photos.result?.total_count||0)>0){
+          const sizes=photos.result?.photos?.[0];
+          const photo=sizes?.[sizes.length-1]?.file_id;
+          if(photo){
+            await telegramApi("sendPhoto",{chat_id:ctx.chatId,photo,caption:liveCard,reply_to_message_id:ctx.replyToUserId?undefined:undefined});
+            await logCommandAccess(ctx,"id","command_executed","allowed",auth.role);
+            return null;
+          }
+        }
+        await telegramApi("sendMessage",{chat_id:ctx.chatId,text:liveCard,reply_to_message_id:undefined});
+        await logCommandAccess(ctx,"id","command_executed","allowed",auth.role);
         return null;
       }
       const liveCard=(["lock","unlock","lockall","unlockall"].includes(studioCommand.id) && studioPool)
