@@ -158,6 +158,7 @@ function botMarkup(sessionId:number,code:string,userId:number,state:any,players:
     return {inline_keyboard:[["۰","۱","۲","۳"].map((v,i)=>({text:"‹ "+v,callback_data:"game:engine:move:"+s+":"+i+":"+u})),
       [{text:"‹ وضعیت بازی",callback_data:"game:engine:view:"+s+":"+u},{text:"‹ مرکز بازی",callback_data:"game:center"}]]};
   }
+  if(code==="duel_dice")return {inline_keyboard:[[{text:"‹ انداختن تاس",callback_data:"game:engine:move:"+s+":roll:"+u}],[{text:"‹ وضعیت",callback_data:"game:engine:view:"+s+":"+u}]]};
   if(["rps_ai","rps"].includes(code))return {inline_keyboard:[
     [{text:"‹ سنگ",callback_data:"game:engine:move:"+s+":rock:"+u},{text:"‹ کاغذ",callback_data:"game:engine:move:"+s+":paper:"+u},{text:"‹ قیچی",callback_data:"game:engine:move:"+s+":scissors:"+u}],
     [{text:"‹ وضعیت",callback_data:"game:engine:view:"+s+":"+u}]
@@ -259,6 +260,21 @@ async function resolveAction(pool:Pool,ctx:GameContext,sessionId:number,action:s
     if(s.mode==="solo")return settleEngine(pool,sessionId,[{userId:ctx.userId,result:score>=500?"win":"loss",score}], "mini_app_finish");
     const mine=score>=500?"win":"loss";const other=players.find(x=>x!==ctx.userId)!;
     return settleEngine(pool,sessionId,[{userId:ctx.userId,result:mine,score},{userId:other,result:mine==="win"?"loss":"win",score:1000-score}],"mini_app_finish");
+  }
+
+  if(game.code==="duel_dice"){
+    if(!Array.isArray(state.rolls))state.rolls={};
+    if(state.rolls[ctx.userId])throw new Error("already_rolled");
+    state.rolls={...(state.rolls||{}),[ctx.userId]:1+Math.floor(Math.random()*6)};
+    const ids=Object.keys(state.rolls).map(Number);
+    if(ids.length>=2){
+      const a=ids[0],b=ids[1],ra=Number(state.rolls[a]),rb=Number(state.rolls[b]);
+      if(ra===rb)return settleEngine(pool,sessionId,[{userId:a,result:"draw",score:160},{userId:b,result:"draw",score:160}],"duel_dice_draw");
+      const aWin=ra>rb;
+      return settleEngine(pool,sessionId,[{userId:a,result:aWin?"win":"loss",score:aWin?300:90},{userId:b,result:aWin?"loss":"win",score:aWin?90:300}],"duel_dice");
+    }
+    await pool.query("UPDATE game_sessions SET state=$2::jsonb,turn_no=turn_no+1 WHERE id=$1",[sessionId,JSON.stringify(state)]);
+    return;
   }
 
   if(["rps_ai","rps"].includes(game.code)){
@@ -366,4 +382,16 @@ export async function miniAppAction(pool:Pool,sessionId:number,initData:string,b
   const row=(await pool.query<any>("SELECT group_id FROM game_sessions WHERE id=$1 AND status='active'",[sessionId])).rows[0];if(!row)throw new Error("session_finished");
   const ctx:GameContext={pool,chatId:Number(row.group_id),userId:Number(user.id),user:{id:Number(user.id),username:user.username,firstName:user.first_name},isAdmin:false};
   return await (action==="finish"?resolveAction(pool,ctx,sessionId,"finish",payload):resolveAction(pool,ctx,sessionId,"move",payload)).then(async()=>engineView(pool,ctx,sessionId));
+}
+
+
+export async function startEngineFromRoom(pool:Pool,ctx:GameContext,roomId:number,groupId:number,gameCode:string,playerIds:number[]){
+  const sessionId=await createEngineSession(pool,ctx,gameCode,"multi",playerIds);
+  await pool.query("UPDATE game_multiplayer_rooms SET status='active',started_at=NOW(),metadata=metadata||$1::jsonb,match_id=NULL WHERE id=$2 AND group_id=$3",[JSON.stringify({engine:"game_engine_v1",session_id:sessionId}),roomId,groupId]);
+  return await engineView(pool,{...ctx,userId:ctx.userId},sessionId);
+}
+
+export async function engineSessionIdFromRoom(pool:Pool,roomId:number,groupId:number){
+  const row=(await pool.query<any>("SELECT metadata->>'session_id' session_id FROM game_multiplayer_rooms WHERE id=$1 AND group_id=$2",[roomId,groupId])).rows[0];
+  return Number(row?.session_id||0)||null;
 }
