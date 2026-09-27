@@ -852,7 +852,7 @@ async function processMessage(msg: TgMessage, edited = false) {
   const studioResult = await studioReplyLive(ctx);
   if (studioResult !== null) {
     const payload:any = { chat_id: chat.id, text: studioResult, reply_to_message_id: msg.message_id };
-    if (!edited && isGameCenterCommand(text)) payload.reply_markup = gameCenterKeyboard();
+    if (!edited && isGameCenterCommand(text)) payload.reply_markup = gameCenterKeyboard(ctx.userId);
     await telegramApi("sendMessage", payload);
     return;
   }
