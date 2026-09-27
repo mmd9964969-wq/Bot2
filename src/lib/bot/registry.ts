@@ -40,6 +40,11 @@ const defs: CommandDef[] = [
   { id:"special_set", phase:2, minRank:"admin", aliasesEn:["setspecial"], aliasesFa:["تنظیم ویژه"], usageEn:"setspecial [duration]", usageFa:"تنظیم ویژه [مدت]", descEn:"Set or replace a member special duration", descFa:"تنظیم یا جایگزینی مدت ویژه یک عضو" },
   { id:"special_remove", phase:2, minRank:"admin", aliasesEn:["removespecial"], aliasesFa:["حذف ویژه"], usageEn:"removespecial", usageFa:"حذف ویژه", descEn:"Remove a member special status", descFa:"حذف وضعیت ویژه یک عضو" },
   { id:"special_list", phase:2, minRank:"admin", aliasesEn:["speciallist"], aliasesFa:["لیست ویژه","فهرست ویژه"], usageEn:"speciallist", usageFa:"لیست ویژه", descEn:"List active special users", descFa:"فهرست کاربران ویژه فعال" },
+  { id:"special_bulk", phase:2, minRank:"admin", aliasesEn:["specialbulk","specialbulkusers"], aliasesFa:["ویژه دسته جمعی","ویژه دسته‌جمعی"], usageEn:"specialbulk [duration]", usageFa:"ویژه دسته جمعی [مدت]", descEn:"Open bulk special-user management", descFa:"بازکردن مدیریت دسته‌جمعی کاربران ویژه" },
+  { id:"special_bulk_set", phase:2, minRank:"admin", aliasesEn:["setspecialbulk"], aliasesFa:["تنظیم ویژه گروهی","تنظیم ویژه دسته جمعی"], usageEn:"setspecialbulk [duration]", usageFa:"تنظیم ویژه گروهی [مدت]", descEn:"Set special status for multiple members", descFa:"تنظیم وضعیت ویژه برای چند عضو" },
+  { id:"special_bulk_extend", phase:2, minRank:"admin", aliasesEn:["extendspecialbulk"], aliasesFa:["افزایش ویژه گروهی","افزایش ویژه دسته جمعی"], usageEn:"extendspecialbulk [duration]", usageFa:"افزایش ویژه گروهی [مدت]", descEn:"Extend special duration for multiple members", descFa:"افزایش مدت ویژه چند عضو" },
+  { id:"special_bulk_reduce", phase:2, minRank:"admin", aliasesEn:["reducespecialbulk"], aliasesFa:["کاهش ویژه گروهی","کاهش ویژه دسته جمعی"], usageEn:"reducespecialbulk [duration]", usageFa:"کاهش ویژه گروهی [مدت]", descEn:"Reduce special duration for multiple members", descFa:"کاهش مدت ویژه چند عضو" },
+  { id:"special_bulk_remove", phase:2, minRank:"admin", aliasesEn:["removespecialbulk"], aliasesFa:["حذف ویژه گروهی","حذف ویژه دسته جمعی"], usageEn:"removespecialbulk", usageFa:"حذف ویژه گروهی", descEn:"Remove special status from multiple members", descFa:"حذف وضعیت ویژه چند عضو" },
 ];
 
 export const COMMANDS = defs;
