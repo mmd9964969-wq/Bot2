@@ -93,6 +93,7 @@ export async function validateGroup(
   pool: Pool,
   customerId: number,
   groupRef: unknown,
+  options: { allowProvisionedOwner?: boolean } = {},
 ): Promise<{ ok: true; group: ValidatedGroup } | { ok: false; message: string }> {
   const parsed = parsePublicGroupRef(groupRef);
   if (parsed === null) {
@@ -131,15 +132,20 @@ export async function validateGroup(
     return { ok: false, message: "ربات باید حداقل دسترسی حذف پیام و محدودکردن اعضا را داشته باشد." };
   }
 
+  let customerStatus = "provisioned_owner";
   const customerMember = await telegramApi<any>("getChatMember", {
     chat_id: chat.result.id,
     user_id: customerId,
   });
-  if (!customerMember.ok) return { ok: false, message: "مشتری در این گروه قابل شناسایی نیست." };
-
-  const customerStatus = String(customerMember.result?.status || "");
+  if (customerMember.ok) {
+    customerStatus = String(customerMember.result?.status || "");
+  }
   if (!["administrator","creator"].includes(customerStatus)) {
-    return { ok: false, message: "مشتری باید در همین گروه ادمین یا مالک تلگرام باشد تا به‌عنوان مالک اشتراک ثبت شود." };
+    if (!options.allowProvisionedOwner) {
+      if (!customerMember.ok) return { ok: false, message: "مشتری در این گروه قابل شناسایی نیست." };
+      return { ok: false, message: "مشتری باید در همین گروه ادمین یا مالک تلگرام باشد تا به‌عنوان مالک اشتراک ثبت شود." };
+    }
+    customerStatus = "provisioned_owner";
   }
 
   return {
