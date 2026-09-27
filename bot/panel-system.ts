@@ -2400,6 +2400,7 @@ export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:str
     if(data.startsWith("cfg:")) return handleGroupConfigCallback(pool,cb as any);
     if(data.startsWith("spb:")) return handleSpecialBulkCallback(pool,cb,ownerIds);
     if(data.startsWith("sp:")) return handleSpecialCallback(pool,cb,ownerIds);
+    if(data.startsWith("mc:")) return handleMemberControlCallback(pool,cb,ownerIds);
     // Customer/lock panel callbacks must keep their customer context even for the bot owner.
     // Otherwise ownerCallback receives c:/cl:/clt:/cls: actions and silently ignores them.
     if(
