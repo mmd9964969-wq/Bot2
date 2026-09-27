@@ -1854,6 +1854,8 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     return edit(msg.chat.id,msg.message_id,panelTitle("اخطار و جریمه",r.rows.length?r.rows.map((x:any)=>"⛂ - کاربر : "+x.user_id+" · اخطار : "+x.warning_count+" · سطح : "+(x.current_level??"—")).join("\n"):"⛂ - وضعیت : عضوی با اخطار فعال نیست."),menu([[["‹ بازگشت","c:warnings"]]]));
   }
   if(data==="w:issue"){session(uid,"warn_issue",{chatId:groupId});return edit(msg.chat.id,msg.message_id,panelTitle("صدور اخطار","آیدی عددی کاربر را ارسال کنید."),menu([[["‹ بازگشت","c:warnings"]]]));}
+  if(data==="w:issue_custom"){session(uid,"warn_issue",{chatId:groupId,custom:true});return edit(msg.chat.id,msg.message_id,panelTitle("اخطار سفارشی","آیدی عددی کاربر را ارسال کنید."),menu([[["‹ بازگشت","c:warnings"]]]));}
+  if(data==="w:decrease"){session(uid,"warn_decrease",{chatId:groupId});return edit(msg.chat.id,msg.message_id,panelTitle("کاهش اخطار","آیدی عددی کاربر را ارسال کنید."),menu([[["‹ بازگشت","c:warnings"]]]));}
   if(data==="w:levels"){
     const r=await pool.query("SELECT level_no,name,warning_count_required,penalty_type,duration_value,duration_unit,enabled FROM warning_levels WHERE group_id=$1 ORDER BY level_no",[groupId]);
     return edit(msg.chat.id,msg.message_id,panelTitle("سطوح اخطار",r.rows.length?r.rows.map((x:any)=>"⛂ - سطح "+x.level_no+" : "+x.name+" · حد اخطار : "+x.warning_count_required+" · جریمه : "+x.penalty_type+" · "+(x.duration_value?x.duration_value+" "+x.duration_unit:"—")).join("\n"):"⛂ - وضعیت : سطحی تعریف نشده است."),menu([[["‹ بازگشت","c:warnings"]]]));
@@ -2104,6 +2106,7 @@ async function handleInput(pool:Pool,msg:TgMessage){
         [["‹ بازگشت","c:members"]]
       ]));
   }
+  if(s.flow==="warn_decrease"){const userId=Number(value);if(!Number.isSafeInteger(userId)||userId<=0){clearSession(uid);return send(msg.chat.id,"آیدی معتبر نیست.");}const r=await pool.query("SELECT COALESCE(warning_count,0) AS warning_count FROM warning_cases WHERE group_id=$1 AND user_id=$2 LIMIT 1",[groupId,userId]);const count=Number(r.rows[0]?.warning_count||0);if(count<=0){clearSession(uid);return send(msg.chat.id,"⛂ - برای این کاربر اخطار فعالی برای کاهش وجود ندارد.");}await pool.query("UPDATE warning_cases SET warning_count=GREATEST(0,warning_count-1),updated_at=NOW() WHERE group_id=$1 AND user_id=$2",[groupId,userId]);await audit(pool,String(uid),"warning_decreased",String(userId),{groupId,previous:count,next:Math.max(0,count-1)});clearSession(uid);return send(msg.chat.id,"✓ یک اخطار کاهش یافت.\n⛂ - کاربر : "+userId+"\n⛂ - اخطار فعلی : "+Math.max(0,count-1));}
   if(s.flow==="warn_clear"){const userId=Number(value);await pool.query("UPDATE warning_events SET status='cleared',result='cleared' WHERE group_id=$1 AND user_id=$2 AND action_type='warning' AND status='active'",[groupId,userId]);clearSession(uid);return send(msg.chat.id,"✓ اخطارهای فعال کاربر پاک شد.");}
   if(s.flow==="moderation_action"){
     const userId=Number(value);
@@ -2382,7 +2385,7 @@ export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:str
     // Customer/lock panel callbacks must keep their customer context even for the bot owner.
     // Otherwise ownerCallback receives c:/cl:/clt:/cls: actions and silently ignores them.
     if(
-      /^(c|cl|clt|cls|auto|ex|w|m|wel|cmd|sc|sec|st|tw|tm|tp|tu|bp|br|brx|bt|btd|bu|ban|mute):/.test(data)
+      /^(c|cl|clt|cls|auto|ex|w|m|wel|cmd|sc|sec|st|tw|twx|twc|wd|wc|tm|tp|tu|bp|br|brx|bt|btd|bu|ban|mute):/.test(data)
     ){
       return customerCallback(pool,cb,ownerIds);
     }
