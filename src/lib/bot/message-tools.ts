@@ -327,8 +327,8 @@ async function renderTagView(pool:Pool,chatId:number,actorId:number,tagId:number
   ].join("\n");
   return sendPanel(pool,chatId,actorId,text,[
     [["＋ افزودن به عضو","mt:one:add:"+tagId],["⛔ حذف از عضو","mt:one:remove:"+tagId]],
-    [["› ویرایش تگ","mt:edit:"+tagId"],["⛔ حذف تگ","mt:delete:"+tagId]],
-    [["› مشاهده اعضا","mt:viewusers:"+tagId"],["› سوابق","mt:viewevents:"+tagId]],
+    [["› ویرایش تگ","mt:edit:"+tagId],["⛔ حذف تگ","mt:delete:"+tagId]],
+    [["› مشاهده اعضا","mt:viewusers:"+tagId],["› سوابق","mt:viewevents:"+tagId]],
     [["‹ بازگشت","mt:tags"]]
   ],editMessageId);
 }
