@@ -662,6 +662,9 @@ async function sendCustomer(pool:Pool,ownerId:number,chatId:number,row:any){
 }
 
 
+async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
+  const uid=cb.from.id;if(!await isOwner(pool,uid,ownerIds))return;
+  const data=String(cb.data||"");const msg=cb.message;if(!msg)return;await answer(cb.id);
   if(data==="o:subscriptions"){
     const [active,expiring,expired,lifetime]=await Promise.all([
       pool.query("SELECT COUNT(*)::int n FROM bot_group_subscriptions WHERE status='ACTIVE'"),
@@ -829,9 +832,6 @@ async function sendCustomer(pool:Pool,ownerId:number,chatId:number,row:any){
     );
   }
 
-async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
-  const uid=cb.from.id;if(!await isOwner(pool,uid,ownerIds))return;
-  const data=String(cb.data||"");const msg=cb.message;if(!msg)return;await answer(cb.id);
   if(data==="o:home")return renderOwner(pool,uid,msg.chat.id,msg.message_id,"main");
   if(data==="o:stats")return renderOwner(pool,uid,msg.chat.id,msg.message_id,"stats");
   if(data==="o:customers"){session(uid,"owner_customer_search");return edit(msg.chat.id,msg.message_id,"آیدی عددی یا یوزرنیم مشتری را ارسال کنید.",menu([[["‹ بازگشت","o:home"]]]));}
