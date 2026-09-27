@@ -17,6 +17,7 @@ import { ensureInstallationSchema, installationGate, handleInstallationCallback 
 import { ensureModerationSchema, runModerationCommand } from "../src/lib/bot/moderation.ts";
 import { sweepGroupSubscriptions } from "../src/lib/bot/group-subscriptions.ts";
 import { ensureInviteLinkSchema, handleInviteLinkCallback, handleInviteLinkJoinRequest, handleInviteLinkTextInput, handleInviteLinkUsage, openInviteLinkCenter } from "../src/lib/bot/invite-links.ts";
+import { handleGameText } from "../src/lib/bot/game-core.ts";
 
 const TOKEN = process.env.BOT_TOKEN ?? "";
 if (!TOKEN) { console.error("BOT_TOKEN is missing"); process.exit(1); }
@@ -462,6 +463,8 @@ async function logCommandAccess(ctx:BotContext,key:string,eventType:"command_exe
 async function studioReplyLive(ctx: BotContext): Promise<string | null> {
   const raw=ctx.text.trim();
   if(!raw)return null;
+  const gameResult=await handleGameText({pool:studioPool!,chatId:ctx.chatId,userId:ctx.userId,user:{id:ctx.userId,username:ctx.userName.startsWith("@")?ctx.userName.slice(1):ctx.userName},isAdmin:["owner","sudo","admin"].includes(ctx.userRank),replyToUserId:ctx.replyToUserId,replyToName:ctx.replyToName},raw);
+  if(gameResult!==null)return gameResult;
   const commandText=raw.replace(/^[\\/!.]+/,"").trim();
   if(!commandText)return null;
   const token=normalizeCommand(commandText);
