@@ -2325,7 +2325,7 @@ export async function openModerationCenterFromCommand(pool:Pool, chatId:number, 
   const result=await telegramApi("sendMessage",{chat_id:chatId,text:buildPanelText(title,body,lang),reply_markup:localizeMarkup(markup,lang)});
   if(result.ok){
     const messageId=Number((result.result as any)?.message_id);
-    if(Number.isSafeInteger(messageId)&&messageId>0)await bindPanelMessage(pool,chatId,messageId,actorId,"command");
+    if(Number.isSafeInteger(messageId)&&messageId>0)await bindPanelMessage(pool,chatId,messageId,actorId,"panel");
   }
   return result;
 }
