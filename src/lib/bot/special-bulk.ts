@@ -479,7 +479,7 @@ export async function handleSpecialBulkCommand(pool:Pool,msg:TgMessage,ownerIds:
   }else if(raw.startsWith("تنظیم ویژه گروهی ")||raw.startsWith("تنظیم ویژه دسته جمعی ")||raw.startsWith("setspecialbulk ")||raw.startsWith("special bulk ")){
     mode="set";
     durationText=raw.startsWith("setspecialbulk ")?raw.slice("setspecialbulk ".length):raw.startsWith("special bulk ")?raw.slice("special bulk ".length):raw.slice(raw.indexOf(" ") + 1);
-  }  }else if(raw.startsWith("کاهش ویژه گروهی ")||raw.startsWith("reducespecialbulk ")||raw.startsWith("decrease special bulk ")||raw.startsWith("special bulk reduce ")){
+  }else if(raw.startsWith("کاهش ویژه گروهی ")||raw.startsWith("reducespecialbulk ")||raw.startsWith("decrease special bulk ")||raw.startsWith("special bulk reduce ")){
     mode="reduce";
     durationText=raw.startsWith("reducespecialbulk ")?raw.slice("reducespecialbulk ".length):raw.startsWith("decrease special bulk ")?raw.slice("decrease special bulk ".length):raw.startsWith("special bulk reduce ")?raw.slice("special bulk reduce ".length):raw.slice(raw.indexOf(" ") + 1);
   }
@@ -521,6 +521,7 @@ export async function handleSpecialBulkTextInput(pool:Pool,msg:TgMessage){
   }
 
   if(s.step==="duration"){
+    const raw=strip(messageText);
     const sec=parseDuration(raw);
     if(sec===null||(s.mode!=="set"&&sec===0)){
       await telegramApi("sendMessage",{chat_id:s.groupId,text:s.mode==="set"?"✗ مدت نامعتبر است. نمونه: 3 ساعت، 1 روز یا بدون انقضا.":"✗ برای این عملیات مدت باید بیشتر از صفر باشد.",reply_to_message_id:msg.message_id});
