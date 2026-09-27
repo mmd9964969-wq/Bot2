@@ -364,7 +364,7 @@ async function joinGameRoom(ctx:GameContext,roomId:number){
     await client.query("BEGIN");
     const room=(await client.query<any>("SELECT * FROM game_multiplayer_rooms WHERE id=$1 AND group_id=$2 FOR UPDATE",[roomId,ctx.chatId])).rows[0];
     if(!room){await client.query("ROLLBACK");return {text:"✗ این اتاق در این گروه پیدا نشد.",replyMarkup:gameMultiKeyboard(ctx.userId)};}
-    if(!["waiting","ready"].includes(room.status)){await client.query("ROLLBACK");return {text:"✗ این اتاق دیگر قابل پیوستن نیست.",replyMarkup:gameMultiKeyboard(ctx.userId);}}
+    if(!["waiting","ready"].includes(room.status)){await client.query("ROLLBACK");return {text:"✗ این اتاق دیگر قابل پیوستن نیست.",replyMarkup:gameMultiKeyboard(ctx.userId)};}
     const existing=(await client.query<any>("SELECT * FROM game_multiplayer_room_players WHERE room_id=$1 AND user_id=$2 AND left_at IS NULL",[roomId,ctx.userId])).rows[0];
     if(existing){await client.query("COMMIT");return await roomView(ctx.pool,ctx,roomId);}
 
