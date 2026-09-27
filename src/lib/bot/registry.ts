@@ -35,6 +35,7 @@ const defs: CommandDef[] = [
   { id:"unlock", phase:2, minRank:"admin", aliasesEn:["unlock"], aliasesFa:["بازکردن","باز کردن"], usageEn:"unlock [type]", usageFa:"بازکردن [نوع]", descEn:"Unlock a content rule", descFa:"بازکردن یک قفل" },
   { id:"lockall", phase:2, minRank:"admin", aliasesEn:["lockall"], aliasesFa:["قفل همه","قفل‌همه"], usageEn:"lockall", usageFa:"قفل همه", descEn:"Enable all lock rules", descFa:"فعال‌سازی همه قفل‌ها" },
   { id:"unlockall", phase:2, minRank:"admin", aliasesEn:["unlockall"], aliasesFa:["بازکردن همه","بازکردن‌همه"], usageEn:"unlockall", usageFa:"بازکردن همه", descEn:"Disable all lock rules", descFa:"خاموش‌کردن همه قفل‌ها" },
+  { id:"link", phase:2, minRank:"admin", aliasesEn:["link"], aliasesFa:["لینک"], usageEn:"link", usageFa:"لینک", descEn:"Invite link management center", descFa:"مرکز مدیریت لینک‌های دعوت گروه" },
 ];
 
 export const COMMANDS = defs;
