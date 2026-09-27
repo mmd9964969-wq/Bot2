@@ -925,11 +925,36 @@ async function toggleException(pool: Pool, cb: TgCallback, targetId: number, key
   return exceptionsPanel(pool, cb, targetId);
 }
 
+async function botCanPromoteMembers(groupId: number) {
+  const me = await telegramApi<any>("getMe");
+  if (!me.ok || !me.result?.id) return { ok: false, error: me.description || "شناسه ربات قابل دریافت نیست." };
+  const botMember = await telegramApi<any>("getChatMember", { chat_id: groupId, user_id: me.result.id });
+  if (!botMember.ok || !botMember.result) return { ok: false, error: botMember.description || "وضعیت ربات در گروه قابل دریافت نیست." };
+  if (!["administrator", "creator"].includes(String(botMember.result.status || ""))) {
+    return { ok: false, error: "ربات در این گروه مدیر نیست." };
+  }
+  if (botMember.result.status === "administrator" && botMember.result.can_promote_members !== true) {
+    return { ok: false, error: "ربات مجوز «افزودن/مدیریت ادمین‌ها» را ندارد." };
+  }
+  return { ok: true, error: "" };
+}
+
 async function promoteAdmin(pool: Pool, cb: TgCallback, targetId: number) {
   const t = await target(pool, cb.message!.chat.id, targetId);
   if (!t.ok) return renderMain(pool, cb.message!.chat.id, cb.from.id, targetId, cb);
   if (t.status === "creator") return editPanel(pool, cb, panel("Aᴅᴅ Aᴅᴍɪɴ", "✗ مالک گروه قابل ارتقا نیست."), [[["‹ بازگشت", `mc:center:${targetId}`]]]);
   if (t.status === "administrator") return renderAdmin(pool, cb, targetId);
+  const capability = await botCanPromoteMembers(cb.message!.chat.id);
+  if (!capability.ok) {
+    return editPanel(pool, cb, panel("Aᴅᴅ Aᴅᴍɪɴ", [
+      "⛂ - وضعیت : ✗ قابل اجرا نیست",
+      "⛂ - علت : " + capability.error,
+      "",
+      "─────━━───── ◈ ─────━━─────",
+      "",
+      "⛂ - در تنظیمات ادمین گروه، مجوز «افزودن مدیران» را برای ربات فعال کنید.",
+    ].join("\n")), [[["‹ بازگشت", `mc:center:${targetId}`]]]);
+  }
   const r = await telegramApi("promoteChatMember", {
     chat_id: cb.message!.chat.id,
     user_id: targetId,
@@ -957,6 +982,15 @@ async function promoteAdmin(pool: Pool, cb: TgCallback, targetId: number) {
 
 async function toggleAdminRight(pool: Pool, cb: TgCallback, targetId: number, key: string) {
   if (!ADMIN_PERMISSION_KEYS.includes(key)) return;
+  const capability = await botCanPromoteMembers(cb.message!.chat.id);
+  if (!capability.ok) {
+    return editPanel(pool, cb, panel("Aᴅᴍɪɴ Cᴇɴᴛᴇʀ", [
+      "⛂ - وضعیت : ✗ ویرایش دسترسی ممکن نیست",
+      "⛂ - علت : " + capability.error,
+      "",
+      "⛂ - برای ویرایش دسترسی ادمین، ربات باید مجوز «افزودن مدیران» داشته باشد.",
+    ].join("\n")), [[["‹ بازگشت", `mc:admin:${targetId}`]]]);
+  }
   const t = await target(pool, cb.message!.chat.id, targetId);
   if (!t.ok) return renderMain(pool, cb.message!.chat.id, cb.from.id, targetId, cb);
   if (t.status !== "administrator" || t.member.can_be_edited === false) {
