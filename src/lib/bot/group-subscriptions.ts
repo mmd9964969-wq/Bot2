@@ -78,18 +78,72 @@ export function parsePublicGroupRef(value: unknown): string | number | null {
   return "@" + head;
 }
 
+type GroupReference =
+  | { kind: "chat"; ref: string | number }
+  | { kind: "invite"; link: string; alternateLink: string };
 
+function parseGroupReference(value: unknown): GroupReference | null {
+  const raw = String(value ?? "").replace(/[\u200c\u200d\ufeff]/g, "").trim();
+  if (!raw) return null;
+  if (/^-100\d{5,20}$/.test(raw)) return { kind: "chat", ref: Number(raw) };
+  if (/^@?[A-Za-z0-9_]{5,32}$/.test(raw)) return { kind: "chat", ref: "@" + raw.replace(/^@/, "") };
+
+  let url: URL;
+  try { url = new URL(raw); } catch { return null; }
+  if (!["t.me","telegram.me","www.t.me","www.telegram.me"].includes(url.hostname.toLowerCase())) return null;
+
+  const parts = url.pathname.split("/").filter(Boolean);
+  if (!parts.length) return null;
+  const head = parts[0];
+
+  if (head === "joinchat" && parts[1]) {
+    const token = parts[1];
+    return {
+      kind: "invite",
+      link: "https://t.me/joinchat/" + token,
+      alternateLink: "https://t.me/+" + token,
+    };
+  }
+  if (head.startsWith("+") && head.length > 1) {
+    const token = head.slice(1);
+    return {
+      kind: "invite",
+      link: "https://t.me/+" + token,
+      alternateLink: "https://t.me/joinchat/" + token,
+    };
+  }
+
+  if (!/^[A-Za-z0-9_]{5,32}$/.test(head)) return null;
+  return { kind: "chat", ref: "@" + head };
+}
+
+async function resolveChatFromReference(pool: Pool, reference: GroupReference) {
+  if (reference.kind === "chat") {
+    const chat = await telegramApi<any>("getChat", { chat_id: reference.ref });
+    return chat.ok && chat.result ? chat.result : null;
+  }
+
+  const invite = await pool.query(
+    "SELECT group_id FROM group_invite_links WHERE telegram_invite_link=$1 OR telegram_invite_link=$2 LIMIT 1",
+    [reference.link, reference.alternateLink],
+  );
+  const groupId = invite.rows[0]?.group_id;
+  if (!groupId) return null;
+
+  const chat = await telegramApi<any>("getChat", { chat_id: Number(groupId) });
+  return chat.ok && chat.result ? chat.result : null;
+}
 
 export async function resolveGroup(pool: Pool, groupRef: unknown) {
-  const parsed = parsePublicGroupRef(groupRef);
+  const parsed = parseGroupReference(groupRef);
   if (parsed === null) return null;
-  const chat = await telegramApi<any>("getChat", { chat_id: parsed });
-  if (!chat.ok || !chat.result) return null;
+  const chatResult = await resolveChatFromReference(pool, parsed);
+  if (!chatResult) return null;
   return {
-    id: Number(chat.result.id),
-    title: String(chat.result.title || ""),
-    username: chat.result.username ? String(chat.result.username) : null,
-    type: String(chat.result.type || ""),
+    id: Number(chatResult.id),
+    title: String(chatResult.title || ""),
+    username: chatResult.username ? String(chatResult.username) : null,
+    type: String(chatResult.type || ""),
   };
 }
 
@@ -99,16 +153,20 @@ export async function validateGroup(
   groupRef: unknown,
   options: { allowProvisionedOwner?: boolean } = {},
 ): Promise<{ ok: true; group: ValidatedGroup } | { ok: false; message: string }> {
-  const parsed = parsePublicGroupRef(groupRef);
+  const parsed = parseGroupReference(groupRef);
   if (parsed === null) {
-    return { ok: false, message: "لینک گروه عمومی معتبر نیست. از لینک https://t.me/... استفاده کنید." };
+    return { ok: false, message: "لینک یا شناسه گروه معتبر نیست. لینک عمومی، لینک دعوت خصوصی یا شناسه -100... را ارسال کنید." };
   }
 
-  const chat = await telegramApi<any>("getChat", { chat_id: parsed });
-  if (!chat.ok || !chat.result) {
+  const chatResult = await resolveChatFromReference(pool, parsed);
+  if (!chatResult) {
+    if (parsed.kind === "invite") {
+      return { ok: false, message: "لینک دعوت خصوصی قابل استفاده است، اما این لینک هنوز در مرکز لینک‌های ربات ثبت نشده است. همان لینک را از مرکز لینک‌ها ثبت کنید یا شناسه -100 گروه را ارسال کنید." };
+    }
     return { ok: false, message: "گروه پیدا نشد یا ربات دسترسی دریافت اطلاعات گروه را ندارد." };
   }
 
+  const chat = { result: chatResult };
   const type = String(chat.result.type || "");
   if (!["group","supergroup"].includes(type)) {
     return { ok: false, message: "لینک واردشده مربوط به گروه تلگرامی نیست." };
