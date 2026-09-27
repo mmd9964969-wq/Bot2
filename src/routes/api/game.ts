@@ -1,6 +1,6 @@
 import { Pool } from "pg";
 import { createFileRoute } from "@tanstack/react-router";
-import { miniAppAction, renderEngineSession, ensureEngineSchema } from "@/lib/bot/game-engine";
+import { miniAppAction, renderEngineSession, ensureEngineSchema, resolveAction } from "@/lib/bot/game-engine";
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
 
