@@ -94,7 +94,7 @@ function roomOwnerKeyboard(roomId:number,hostId:number,status:string){
   if(status==="ready")return {inline_keyboard:[
     [{text:"‹ شروع بازی",callback_data:"game:room:start:"+roomId+":"+hostId}],
     [{text:"‹ بروزرسانی اتاق",callback_data:"game:room:refresh:"+roomId+":"+hostId}],
-    [{text:"‹ خروج از اتاق",callback_data:"game:room:leave:"+roomId+":"+hostId}],
+    [{text:"‹ ترک اتاق",callback_data:"game:room:leave:"+roomId}],
     [{text:"‹ بازگشت به چندنفره",callback_data:"game:multi:"+hostId}],
   ]};
   return {inline_keyboard:[
@@ -568,8 +568,6 @@ export async function handleGameCallback(ctx:GameContext,data:string):Promise<{t
     }
     if(sub==="leave"){
       const roomId=Number(parts[3]??0);
-      const owner=Number(parts[4]??0);
-      if(owner!==ctx.userId)return {text:"⛂ - این دکمه متعلق به بازیکن دیگری است.",replyMarkup:{inline_keyboard:[]}};
       return await leaveGameRoom(ctx,roomId);
     }
     if(sub==="cancel"){
