@@ -29,7 +29,7 @@ export async function ensurePanelSessionSchema(pool:Pool){
         expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '1 minute'),
         PRIMARY KEY (chat_id,message_id)
       )
-    `).then(()=>undefined);
+    `).then(async()=>{\n      await pool.query(\"UPDATE bot_panel_sessions SET expires_at=updated_at+INTERVAL '1 minute' WHERE expires_at>updated_at+INTERVAL '1 minute'\");\n    });
   }
   try{
     await schemaPromise;
