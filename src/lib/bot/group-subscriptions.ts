@@ -50,7 +50,7 @@ export type ValidatedGroup = {
 };
 
 export async function resolveCustomer(pool: Pool, value: unknown) {
-  const raw = String(value ?? "").trim();
+  const raw = String(value ?? "").replace(/[\u200c\u200d\ufeff]/g, "").trim();
   if (!raw) return null;
   const key = raw.replace(/^@/, "");
   const r = /^\d+$/.test(key)
