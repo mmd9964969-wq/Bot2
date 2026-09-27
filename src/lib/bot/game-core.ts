@@ -314,7 +314,11 @@ async function createGameRoom(ctx:GameContext,gameCode="duel_dice",maxPlayers=2)
     [ctx.chatId,ctx.userId]
   );
 
-  // Guard against an old open host-room record with no active player row.
+  // Reconcile an inconsistent open host room before creating a new one.
+  await ctx.pool.query(
+    "UPDATE game_multiplayer_rooms r SET status='cancelled',cancelled_at=NOW(),finished_at=NOW(),metadata=r.metadata||'{"reconciled":"stale_host"}'::jsonb WHERE r.group_id=$1 AND r.host_id=$2 AND r.status IN ('waiting','ready','active') AND NOT EXISTS (SELECT 1 FROM game_multiplayer_room_players rp WHERE rp.room_id=r.id AND rp.user_id=r.host_id AND rp.left_at IS NULL)",
+    [ctx.chatId,ctx.userId]
+  );
   const openHost=(await ctx.pool.query<any>(
     "SELECT id FROM game_multiplayer_rooms WHERE group_id=$1 AND host_id=$2 AND status IN ('waiting','ready','active') ORDER BY id DESC LIMIT 1",
     [ctx.chatId,ctx.userId]
