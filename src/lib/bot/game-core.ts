@@ -18,8 +18,8 @@ const ACH=[
   ["hundred_games","100 Games","صد بازی","۱۰۰ بازی انجام بده",900],["quiz_master","Quiz Master","استاد کوییز","۱۰ برد در کوییز",500],
 ] as const;
 const SHOP=[
-  ["gold_frame","قاب طلایی","cosmetic","ظاهر پروفایل",800],["champion_title","عنوان Champion","title","عنوان نمایشی",1200],
-  ["veteran_badge","نشان Veteran","badge","نشان Veteran",1600],["diamond_title","عنوان Diamond","title","عنوان Diamond",2500],
+  ["gold_frame","قاب طلایی","ظاهر","ظاهر پروفایل",800],["champion_title","عنوان قهرمان","عنوان","عنوان نمایشی",1200],
+  ["veteran_badge","نشان کهنه‌کار","نشان","نشان کهنه‌کار",1600],["diamond_title","عنوان الماس","عنوان","عنوان الماس",2500],
 ] as const;
 const QUESTIONS=[
   {q:"کدام سیاره به خورشید نزدیک‌تر است؟",o:["عطارد","زمین","مریخ","زهره"],a:0},
@@ -33,7 +33,18 @@ const QUESTIONS=[
 const key=(g:number,u:number)=>g+":"+u;
 const norm=(s:string)=>String(s??"").trim().replace(/[\u200c\u200d]/g," ").replace(/\s+/g," ").toLowerCase();
 const fa=(x:number)=>String(x).replace(/\d/g,d=>"۰۱۲۳۴۵۶۷۸۹"[+d]??d);
-const league=(r:number)=>r>=2600?"LEGEND":r>=2300?"GRANDMASTER":r>=2000?"MASTER":r>=1750?"DIAMOND":r>=1500?"PLATINUM":r>=1250?"GOLD":r>=1000?"SILVER":"BRONZE";
+const league=(r:number)=>r>=2600?"افسانه":r>=2300?"استاد بزرگ":r>=2000?"استاد":r>=1750?"الماس":r>=1500?"پلاتینیوم":r>=1250?"طلا":r>=1000?"نقره":"برنز";
+const gameTitle=(code:string)=>({dice:"تاس",quiz:"کوییز",speed:"بازی سرعتی",guess:"حدس عدد",rps:"سنگ، کاغذ، قیچی",duel:"دوئل"} as Record<string,string>)[code]??code;
+const resultTitle=(value:string)=>value==="win"?"برد":value==="loss"?"باخت":value==="draw"?"مساوی":value;
+const reasonTitle=(value:string)=>({
+  "Game reward":"پاداش بازی",
+  "Achievement reward":"پاداش دستاورد",
+  "Mission reward":"پاداش مأموریت",
+  "Daily reward":"پاداش روزانه",
+  "Shop purchase":"خرید از فروشگاه",
+  "Admin grant":"اعطای جم توسط مدیر",
+  "Admin remove":"کسر جم توسط مدیر"
+} as Record<string,string>)[value]??value;
 const lvl=(x:number)=>Math.max(1,Math.floor(Math.sqrt(Math.max(0,x)/100))+1);
 const req=(l:number)=>l*l*100;
 const bar=(x:number,l:number)=>{const p=Math.max(0,Math.min(100,Math.floor(((x-req(l-1))/Math.max(1,req(l)-req(l-1)))*100)));return "█".repeat(Math.floor(p/10))+"░".repeat(10-Math.floor(p/10));};
@@ -85,16 +96,41 @@ async function seed(pool:Pool,g:number){
   for(const x of SHOP)await pool.query("INSERT INTO game_shop_items(group_id,code,name,item_type,description,price) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING",[g,...x]);
 }
 async function ensurePlayer(pool:Pool,ctx:GameContext,id=ctx.userId,u?:GameUser){
-  await ensureGameSchema(pool);await seed(pool,ctx.chatId);const p=u??(id===ctx.userId?ctx.user:undefined);
-  await pool.query("INSERT INTO game_players(group_id,user_id,username,first_name) VALUES($1,$2,$3,$4) ON CONFLICT(group_id,user_id) DO UPDATE SET username=COALESCE(EXCLUDED.username,game_players.username),first_name=COALESCE(EXCLUDED.first_name,game_players.first_name),last_active_at=NOW()",[ctx.chatId,id,p?.username??null,p?.firstName??null]);
+  await ensureGameSchema(pool);
+  await seed(pool,ctx.chatId);
+  const p=u??(id===ctx.userId?ctx.user:undefined);
+  const display=p?.firstName||p?.username||String(id);
+  await pool.query("INSERT INTO game_players(group_id,user_id,username,first_name,display_name,status) VALUES($1,$2,$3,$4,$5,'active') ON CONFLICT(group_id,user_id) DO UPDATE SET username=COALESCE(EXCLUDED.username,game_players.username),first_name=COALESCE(EXCLUDED.first_name,game_players.first_name),display_name=COALESCE(EXCLUDED.display_name,game_players.display_name),status='active',updated_at=NOW(),last_active_at=NOW()",[ctx.chatId,id,p?.username??null,p?.firstName??null,display]);
+  await pool.query("INSERT INTO game_player_progression(group_id,user_id,level,xp,total_xp) SELECT group_id,user_id,level,xp,xp FROM game_players WHERE group_id=$1 AND user_id=$2 ON CONFLICT(group_id,user_id) DO UPDATE SET level=EXCLUDED.level,xp=EXCLUDED.xp,total_xp=GREATEST(game_player_progression.total_xp,EXCLUDED.total_xp),updated_at=NOW()",[ctx.chatId,id]);
+  await pool.query("INSERT INTO game_wallets(group_id,user_id,balance,lifetime_earned,lifetime_spent) SELECT p.group_id,p.user_id,p.gems,COALESCE((SELECT SUM(delta) FROM game_wallet_ledger l WHERE l.group_id=p.group_id AND l.user_id=p.user_id AND l.delta>0),0),COALESCE((SELECT SUM(ABS(delta)) FROM game_wallet_ledger l WHERE l.group_id=p.group_id AND l.user_id=p.user_id AND l.delta<0),0) FROM game_players p WHERE p.group_id=$1 AND p.user_id=$2 ON CONFLICT(group_id,user_id) DO UPDATE SET balance=EXCLUDED.balance,updated_at=NOW()",[ctx.chatId,id]);
+  await pool.query("INSERT INTO game_player_stats(group_id,user_id,total_games,wins,losses,high_score,current_streak,best_streak) SELECT group_id,user_id,total_games,wins,losses,high_score,current_streak,best_streak FROM game_players WHERE group_id=$1 AND user_id=$2 ON CONFLICT(group_id,user_id) DO UPDATE SET total_games=EXCLUDED.total_games,wins=EXCLUDED.wins,losses=EXCLUDED.losses,high_score=EXCLUDED.high_score,current_streak=EXCLUDED.current_streak,best_streak=EXCLUDED.best_streak,updated_at=NOW()",[ctx.chatId,id]);
+  await pool.query("INSERT INTO game_player_rating(group_id,user_id,rating,league_points) SELECT group_id,user_id,rating,rating FROM game_players WHERE group_id=$1 AND user_id=$2 ON CONFLICT(group_id,user_id) DO UPDATE SET rating=EXCLUDED.rating,league_points=EXCLUDED.league_points,updated_at=NOW()",[ctx.chatId,id]);
+  await pool.query("INSERT INTO game_player_streaks(group_id,user_id,current_streak,best_streak) SELECT group_id,user_id,current_streak,best_streak FROM game_players WHERE group_id=$1 AND user_id=$2 ON CONFLICT(group_id,user_id) DO UPDATE SET current_streak=EXCLUDED.current_streak,best_streak=EXCLUDED.best_streak,updated_at=NOW()",[ctx.chatId,id]);
 }
 async function changeGems(pool:Pool,g:number,u:number,d:number,reason:string,game?:string,meta:any={}){
-  const r=await pool.query<{gems:number}>("UPDATE game_players SET gems=gems+$3,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2 AND gems+$3>=0 RETURNING gems",[g,u,d]);if(!r.rows[0])return {ok:false,balance:null};
-  const b=Number(r.rows[0].gems);await pool.query("INSERT INTO game_wallet_ledger(group_id,user_id,delta,balance_after,reason,game_code,metadata) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb)",[g,u,d,b,reason,game??null,JSON.stringify(meta)]);return {ok:true,balance:b};
+  const client=await pool.connect();
+  try{
+    await client.query("BEGIN");
+    const r=await client.query<{gems:number}>("UPDATE game_players SET gems=gems+$3,updated_at=NOW(),last_active_at=NOW() WHERE group_id=$1 AND user_id=$2 AND gems+$3>=0 RETURNING gems",[g,u,d]);
+    if(!r.rows[0]){await client.query("ROLLBACK");return {ok:false,balance:null};}
+    const b=Number(r.rows[0].gems),before=b-d;
+    await client.query("INSERT INTO game_wallet_ledger(group_id,user_id,transaction_type,delta,balance_before,balance_after,reason,game_code,reference_id,metadata) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)",[g,u,d>=0?"credit":"debit",d,before,b,reason,game??null,meta?.reference_id??null,JSON.stringify(meta)]);
+    await client.query("INSERT INTO game_wallets(group_id,user_id,balance,lifetime_earned,lifetime_spent,updated_at) VALUES($1,$2,$3,GREATEST($4,0),GREATEST($5,0),NOW()) ON CONFLICT(group_id,user_id) DO UPDATE SET balance=EXCLUDED.balance,lifetime_earned=game_wallets.lifetime_earned+GREATEST($4,0),lifetime_spent=game_wallets.lifetime_spent+GREATEST($5,0),updated_at=NOW()",[g,u,b,d,Math.abs(d)]);
+    await client.query("INSERT INTO game_activity_log(group_id,user_id,action,category,amount,reference_id,metadata) VALUES($1,$2,$3,'اقتصاد',$4,$5,$6::jsonb)",[g,u,d>=0?"دریافت":"مصرف",d,game??null,JSON.stringify(meta)]);
+    await client.query("COMMIT");
+    return {ok:true,balance:b};
+  }catch(error){await client.query("ROLLBACK").catch(()=>{});throw error;}
+  finally{client.release();}
 }
 async function addXp(pool:Pool,g:number,u:number,d:number){
-  const r=await pool.query<{xp:number;level:number}>("UPDATE game_players SET xp=xp+$3,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2 RETURNING xp,level",[g,u,d]);if(!r.rows[0])return {level:1,up:false};
-  const old=Number(r.rows[0].level),now=lvl(Number(r.rows[0].xp));if(now!==old)await pool.query("UPDATE game_players SET level=$3 WHERE group_id=$1 AND user_id=$2",[g,u,now]);return {level:now,up:now>old};
+  const r=await pool.query<{xp:number;level:number}>("UPDATE game_players SET xp=xp+$3,updated_at=NOW(),last_active_at=NOW() WHERE group_id=$1 AND user_id=$2 RETURNING xp,level",[g,u,d]);
+  if(!r.rows[0])return {level:1,up:false};
+  const old=Number(r.rows[0].level),now=lvl(Number(r.rows[0].xp));
+  if(now!==old)await pool.query("UPDATE game_players SET level=$3,updated_at=NOW() WHERE group_id=$1 AND user_id=$2",[g,u,now]);
+  await pool.query("INSERT INTO game_player_progression(group_id,user_id,level,xp,total_xp) VALUES($1,$2,$3,$4,$4) ON CONFLICT(group_id,user_id) DO UPDATE SET level=EXCLUDED.level,xp=EXCLUDED.xp,total_xp=game_player_progression.total_xp+GREATEST($5,0),updated_at=NOW()",[g,u,now,Number(r.rows[0].xp),d]);
+  await pool.query("UPDATE game_player_stats SET total_xp_earned=total_xp_earned+GREATEST($3,0),updated_at=NOW() WHERE group_id=$1 AND user_id=$2",[g,u,d]);
+  if(d!==0)await pool.query("INSERT INTO game_activity_log(group_id,user_id,action,category,amount,metadata) VALUES($1,$2,'تغییر تجربه','پیشرفت',$3,$4::jsonb)",[g,u,d,JSON.stringify({level:now})]);
+  return {level:now,up:now>old};
 }
 async function updateMission(pool:Pool,g:number,u:number,code:string,d:number){
   const m=(await pool.query<{period:string}>("SELECT period FROM game_missions WHERE group_id=$1 AND code=$2",[g,code])).rows[0];if(!m)return;
@@ -112,8 +148,12 @@ async function unlock(pool:Pool,g:number,u:number){
   const out:string[]=[];for(const code of list){const q=await pool.query("INSERT INTO game_player_achievements(group_id,user_id,code) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",[g,u,code]);if(!q.rowCount)continue;const reward=Number((await pool.query<{reward_gems:number}>("SELECT reward_gems FROM game_achievements WHERE group_id=$1 AND code=$2",[g,code])).rows[0]?.reward_gems||0);if(reward)await changeGems(pool,g,u,reward,"Achievement reward",code);out.push(code);}return out;
 }
 async function record(pool:Pool,ctx:GameContext,code:string,win:boolean,x:number,g:number,rd:number,meta:any={}){
-  await pool.query("UPDATE game_players SET total_games=total_games+1,wins=wins+$3,losses=losses+$4,current_streak=CASE WHEN $5 THEN current_streak+1 ELSE 0 END,best_streak=GREATEST(best_streak,CASE WHEN $5 THEN current_streak+1 ELSE current_streak END),rating=GREATEST(0,rating+$6),last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,win?1:0,win?0:1,win,rd]);
-  await pool.query("UPDATE game_players SET high_score=GREATEST(high_score,rating) WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId]);
+  await pool.query("UPDATE game_players SET total_games=total_games+1,wins=wins+$3,losses=losses+$4,current_streak=CASE WHEN $5 THEN current_streak+1 ELSE 0 END,best_streak=GREATEST(best_streak,CASE WHEN $5 THEN current_streak+1 ELSE current_streak END),rating=GREATEST(0,rating+$6),updated_at=NOW(),last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,win?1:0,win?0:1,win,rd]);
+  await pool.query("UPDATE game_players SET high_score=GREATEST(high_score,rating),updated_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId]);
+  await pool.query("INSERT INTO game_player_stats(group_id,user_id,total_games,wins,losses,high_score,current_streak,best_streak) SELECT group_id,user_id,total_games,wins,losses,high_score,current_streak,best_streak FROM game_players WHERE group_id=$1 AND user_id=$2 ON CONFLICT(group_id,user_id) DO UPDATE SET total_games=EXCLUDED.total_games,wins=EXCLUDED.wins,losses=EXCLUDED.losses,high_score=EXCLUDED.high_score,current_streak=EXCLUDED.current_streak,best_streak=EXCLUDED.best_streak,updated_at=NOW()",[ctx.chatId,ctx.userId]);
+  await pool.query("INSERT INTO game_player_rating(group_id,user_id,rating,league_points) SELECT group_id,user_id,rating,rating FROM game_players WHERE group_id=$1 AND user_id=$2 ON CONFLICT(group_id,user_id) DO UPDATE SET rating=EXCLUDED.rating,league_points=EXCLUDED.league_points,updated_at=NOW()",[ctx.chatId,ctx.userId]);
+  await pool.query("INSERT INTO game_player_streaks(group_id,user_id,current_streak,best_streak) SELECT group_id,user_id,current_streak,best_streak FROM game_players WHERE group_id=$1 AND user_id=$2 ON CONFLICT(group_id,user_id) DO UPDATE SET current_streak=EXCLUDED.current_streak,best_streak=EXCLUDED.best_streak,updated_at=NOW()",[ctx.chatId,ctx.userId]);
+
   const xr=await addXp(pool,ctx.chatId,ctx.userId,x);if(g){const gr=await changeGems(pool,ctx.chatId,ctx.userId,g,"Game reward",code,meta);if(!gr.ok)throw new Error("gem transaction rejected");}
   await pool.query("INSERT INTO game_match_history(group_id,user_id,game_code,result,xp_earned,gems_earned,rating_delta,metadata) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb)",[ctx.chatId,ctx.userId,code,win?"win":"loss",x,Math.max(0,g),rd,JSON.stringify(meta)]);
   await updateMission(pool,ctx.chatId,ctx.userId,"play_3",1);await updateMission(pool,ctx.chatId,ctx.userId,"play_15",1);if(win){await updateMission(pool,ctx.chatId,ctx.userId,"win_1",1);await updateMission(pool,ctx.chatId,ctx.userId,"win_8",1);}if(g>0){await updateMission(pool,ctx.chatId,ctx.userId,"earn_100",g);await updateMission(pool,ctx.chatId,ctx.userId,"earn_500",g);}await updateSeason(pool,ctx.chatId,ctx.userId,x,win);const a=await unlock(pool,ctx.chatId,ctx.userId);return {xr,a};
