@@ -132,6 +132,20 @@ async function effectiveRole(pool:Pool|null,userId:number,userRank:Rank){
 }
 async function exceptionMatches(data:any,input:Input,section:string,key:string,sourceId?:number){
   if(data.settings.exempt_admins&&["owner","sudo","admin"].includes(input.userRank))return true;
+
+  // «ویژه» users are globally exempt from automatic content-lock deletion.
+  // This is checked against the persistent special_users table so the exemption
+  // survives restarts and does not depend on the transient runtime state.
+  if(input.pool){
+    try{
+      const special=await input.pool.query(
+        "SELECT 1 FROM special_users WHERE group_id=$1 AND user_id=$2 AND status='active' AND (expires_at IS NULL OR expires_at>NOW()) LIMIT 1",
+        [input.groupId,input.userId],
+      );
+      if(special.rowCount) return true;
+    }catch{}
+  }
+
   const role=String(await effectiveRole(input.pool,input.userId,input.userRank)).toLowerCase();
   return data.exceptions.some((e:Exception)=>{
     if(!e.enabled||!scopeMatches(e.scope,section,key))return false;
