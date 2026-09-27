@@ -403,14 +403,6 @@ function isPanelTriggerMessage(text: string) {
   return new Set(["panel","پنل","owner","مالک","config","پیکربندی"]).has(exact);
 }
 
-async function deletePanelTriggerMessage(msg: TgMessage) {
-  if (!msg.message_id || !msg.chat?.id || !isPanelTriggerMessage(msg.text || msg.caption || "")) return;
-  await telegramApi("deleteMessage", {
-    chat_id: msg.chat.id,
-    message_id: msg.message_id,
-  }).catch(() => {});
-}
-
 const PANEL_ROLE_ORDER: PanelRole[] = ["MEMBER","SPECIAL_USER","MODERATOR","ADMIN","SUPER_ADMIN","OWNER"];
 type PanelRole = typeof PANEL_ROLE_ORDER[number];
 type PanelCommand = { id:number; command_key:string; fa_name:string; en_name:string; enabled:boolean; required_permission:string; minimum_role:PanelRole; response_fa:string; response_en:string; permissions:Array<{role:PanelRole;allowed:boolean}> };
