@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import { getEngineGame, handleEngineCallback, startEngineFromRoom } from "./game-engine.ts";
+import { ensureEngineSchema, getEngineGame, handleEngineCallback, startEngineFromRoom } from "./game-engine.ts";
 
 export type GameUser={id:number;username?:string;firstName?:string};
 export type GameContext={pool:Pool;chatId:number;userId:number;user:GameUser;isAdmin:boolean;replyToUserId?:number;replyToName?:string};
@@ -294,7 +294,7 @@ async function roomView(pool:Pool,ctx:GameContext,roomId:number,viewerId?:number
   };
 }
 
-async function createGameRoom(ctx:GameContext,gameCode="duel_dice",maxPlayers=2){
+async function createGameRoom(ctx:GameContext,gameCode="duel_dice",maxPlayers=2){\n  await ensureEngineSchema(ctx.pool);
   await ensurePlayer(ctx.pool,ctx);
   if(ctx.chatId>0)return {text:"✗ اتاق آنلاین فقط داخل گروه ساخته می‌شود.",replyMarkup:gameMultiKeyboard(ctx.userId)};
   if(!(await enabled(ctx.pool,ctx.chatId)))return {text:"✗ سیستم بازی در این گروه خاموش است.",replyMarkup:gameMultiKeyboard(ctx.userId)};
@@ -315,7 +315,7 @@ async function createGameRoom(ctx:GameContext,gameCode="duel_dice",maxPlayers=2)
   return await roomView(ctx.pool,ctx,id);
 }
 
-async function joinGameRoom(ctx:GameContext,roomId:number){
+async function joinGameRoom(ctx:GameContext,roomId:number){\n  await ensureEngineSchema(ctx.pool);
   await ensurePlayer(ctx.pool,ctx);
   if(ctx.chatId>0)return {text:"✗ اتاق آنلاین فقط داخل گروه قابل استفاده است.",replyMarkup:gameMultiKeyboard(ctx.userId)};
   const client=await ctx.pool.connect();
@@ -343,7 +343,7 @@ async function joinGameRoom(ctx:GameContext,roomId:number){
   return await roomView(ctx.pool,ctx,roomId);
 }
 
-async function leaveGameRoom(ctx:GameContext,roomId:number){
+async function leaveGameRoom(ctx:GameContext,roomId:number){\n  await ensureEngineSchema(ctx.pool);
   const client=await ctx.pool.connect();
   try{
     await client.query("BEGIN");
@@ -367,14 +367,14 @@ async function leaveGameRoom(ctx:GameContext,roomId:number){
   return {text:"✓ از اتاق خارج شدید.",replyMarkup:gameMultiKeyboard(ctx.userId)};
 }
 
-async function cancelGameRoom(ctx:GameContext,roomId:number){
+async function cancelGameRoom(ctx:GameContext,roomId:number){\n  await ensureEngineSchema(ctx.pool);
   const r=await ctx.pool.query("UPDATE game_multiplayer_rooms SET status='cancelled',cancelled_at=NOW(),finished_at=NOW() WHERE id=$1 AND group_id=$2 AND host_id=$3 AND status IN ('waiting','ready') RETURNING id",[roomId,ctx.chatId,ctx.userId]);
   if(!r.rowCount)return {text:"✗ این اتاق دیگر قابل لغو نیست.",replyMarkup:gameMultiKeyboard(ctx.userId)};
   await ctx.pool.query("UPDATE game_multiplayer_room_players SET left_at=NOW() WHERE room_id=$1 AND left_at IS NULL",[roomId]);
   return {text:"✓ اتاق #"+fa(roomId)+" لغو شد.",replyMarkup:gameMultiKeyboard(ctx.userId)};
 }
 
-async function startGameRoom(ctx:GameContext,roomId:number){
+async function startGameRoom(ctx:GameContext,roomId:number){\n  await ensureEngineSchema(ctx.pool);
   if(ctx.chatId>0)return {text:"✗ شروع اتاق فقط داخل گروه انجام می‌شود.",replyMarkup:gameMultiKeyboard(ctx.userId)};
   const state=await roomState(ctx.pool,ctx,roomId);
   if(!state)return {text:"✗ اتاق پیدا نشد.",replyMarkup:gameMultiKeyboard(ctx.userId)};
@@ -443,7 +443,7 @@ async function startGameRoom(ctx:GameContext,roomId:number){
   }finally{locked.release();}
 }
 
-async function listGameRooms(ctx:GameContext){
+async function listGameRooms(ctx:GameContext){\n  await ensureEngineSchema(ctx.pool);
   await ensurePlayer(ctx.pool,ctx);
   if(ctx.chatId>0)return {text:"✗ اتاق‌های آنلاین فقط داخل گروه نمایش داده می‌شوند.",replyMarkup:gameMultiKeyboard(ctx.userId)};
   const rows=(await ctx.pool.query<any>("SELECT r.id,r.game_code,r.host_id,r.max_players,r.status,COALESCE(p.first_name,p.username,r.host_id::text) host_name,COUNT(rp.user_id)::int player_count FROM game_multiplayer_rooms r LEFT JOIN game_players p ON p.group_id=r.group_id AND p.user_id=r.host_id LEFT JOIN game_multiplayer_room_players rp ON rp.room_id=r.id AND rp.left_at IS NULL WHERE r.group_id=$1 AND r.status IN ('waiting','ready') GROUP BY r.id,p.first_name,p.username ORDER BY CASE WHEN r.status='ready' THEN 0 ELSE 1 END,r.created_at ASC LIMIT 12",[ctx.chatId])).rows;
