@@ -388,9 +388,10 @@ async function startGameRoom(ctx:GameContext,roomId:number){
   if(room.status!=="ready"||players.length<Number(room.max_players))return {text:"⛂ - هنوز ظرفیت اتاق کامل نشده است.",replyMarkup:await roomView(ctx.pool,ctx,roomId).then(x=>x.replyMarkup)};
   const playerIds=players.map((p:any)=>Number(p.user_id));
   if(playerIds.length===2){
-    const generic=await startEngineFromRoom(ctx.pool,ctx,roomId,ctx.chatId,String(room.game_code),playerIds).catch(error=>null);
-    if(generic){
-      return generic;
+    try{
+      return await startEngineFromRoom(ctx.pool,ctx,roomId,ctx.chatId,String(room.game_code),playerIds);
+    }catch(error){
+      if(String(room.game_code)!=="duel_dice")throw error;
     }
   }
   const locked=await ctx.pool.connect();
