@@ -59,7 +59,7 @@ export async function resolveCustomer(pool: Pool, value: unknown) {
   return r.rows[0] ?? null;
 }
 
-function parsePublicGroupRef(value: unknown): string | number | null {
+export function parsePublicGroupRef(value: unknown): string | number | null {
   const raw = String(value ?? "").trim();
   if (/^-100\d{5,20}$/.test(raw)) return Number(raw);
   if (/^@?[A-Za-z0-9_]{5,32}$/.test(raw)) return "@" + raw.replace(/^@/, "");
@@ -72,6 +72,21 @@ function parsePublicGroupRef(value: unknown): string | number | null {
   if (head === "joinchat" || head.startsWith("+")) return null;
   if (!/^[A-Za-z0-9_]{5,32}$/.test(head)) return null;
   return "@" + head;
+}
+
+
+
+export async function resolveGroup(pool: Pool, groupRef: unknown) {
+  const parsed = parsePublicGroupRef(groupRef);
+  if (parsed === null) return null;
+  const chat = await telegramApi<any>("getChat", { chat_id: parsed });
+  if (!chat.ok || !chat.result) return null;
+  return {
+    id: Number(chat.result.id),
+    title: String(chat.result.title || ""),
+    username: chat.result.username ? String(chat.result.username) : null,
+    type: String(chat.result.type || ""),
+  };
 }
 
 export async function validateGroup(
