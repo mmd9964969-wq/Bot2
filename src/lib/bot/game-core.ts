@@ -185,7 +185,10 @@ export function gameMultiKeyboard(userId:number){
   ]};
 }
 
-function roomName(code:string){return gameTitle(code);}
+function roomName(code:string){
+  const found=[...GAME_CATALOG.single,...GAME_CATALOG.multi].find(x=>x.code===code);
+  return found?.name??gameTitle(code);
+}
 
 function roomOwnerKeyboard(roomId:number,hostId:number,status:string){
   if(status==="waiting")return {inline_keyboard:[
@@ -642,13 +645,40 @@ export async function handleGameCallback(ctx:GameContext,data:string):Promise<{t
 
   if(action==="center")return {text:await center(ctx.pool,ctx),replyMarkup:gameCenterKeyboard(ctx.userId)};
 
+  if(action==="catalog"){
+    const sub=parts[2]??"";
+    if(sub==="single"||sub==="multi"){
+      const page=Math.max(1,Number(parts[3]??1));
+      const owner=Number(parts[4]??0);
+      if(owner!==ctx.userId)return {text:"⛂ - این فهرست متعلق به بازیکن دیگری است.",replyMarkup:{inline_keyboard:[]}};
+      return {
+        text:"◈ فهرست بازی‌های "+(sub==="single"?"تک‌نفره":"چندنفره آنلاین")+"\n\nهر بازی نوع اجرا و وضعیت اتصال خودش را دارد. بازی‌های گرافیکی از طریق Mini App به موتور بازی متصل می‌شوند.",
+        replyMarkup:catalogPageKeyboard(sub,ctx.userId,page)
+      };
+    }
+    if(sub==="open"){
+      const kind=(parts[3]??"") as "single"|"multi";
+      const code=parts[4]??"";
+      const owner=Number(parts[5]??0);
+      if(owner!==ctx.userId)return {text:"⛂ - این پنل متعلق به بازیکن دیگری است.",replyMarkup:{inline_keyboard:[]}};
+      if(kind!=="single"&&kind!=="multi")return null;
+      const body=catalogGameText(kind,code);
+      if(!body)return {text:"✗ بازی پیدا نشد.",replyMarkup:catalogPageKeyboard(kind,ctx.userId,1)};
+      return {text:body,replyMarkup:catalogGameKeyboard(kind,code,ctx.userId)};
+    }
+  }
+
   if(action==="room"){
     const sub=parts[2]??"";
     if(sub==="locked")return {text:"⛂ - این بازی هنوز به موتور اتاق آنلاین متصل نشده است.",replyMarkup:gameMultiKeyboard(ctx.userId)};
     if(sub==="new"){
       const owner=Number(parts[3]??0);
+      const page=Math.max(1,Number(parts[4]??1));
       if(owner!==ctx.userId)return {text:"⛂ - این پنل متعلق به بازیکن دیگری است.",replyMarkup:{inline_keyboard:[]}};
-      return {text:"◈ ساخت اتاق آنلاین\n\nبازی موردنظر را انتخاب کنید.\n\n⛂ - اتاق به همین گروه محدود است.\n⛂ - بازیکن دوم از همین فهرست می‌تواند وارد شود.\n⛂ - پس از تکمیل ظرفیت، سازنده دکمه «شروع بازی» را می‌زند.",replyMarkup:roomSelectKeyboard(ctx.userId)};
+      return {
+        text:"◈ ساخت اتاق آنلاین\n\nبازی موردنظر را انتخاب کنید.\n\n⛂ - اتاق به همین گروه محدود است.\n⛂ - بازیکن دوم از همین فهرست می‌تواند وارد شود.\n⛂ - پس از تکمیل ظرفیت، سازنده اتاق می‌تواند بازی را شروع کند.",
+        replyMarkup:roomSelectKeyboard(ctx.userId,page)
+      };
     }
     if(sub==="create"){
       const code=parts[3]??"";
