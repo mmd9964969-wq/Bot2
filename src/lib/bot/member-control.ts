@@ -224,6 +224,18 @@ async function renderMain(pool: Pool, chatId: number, actorId: number, targetId:
   }
   const warnings = await warningCount(pool, chatId, targetId);
   const special = await specialRow(pool, chatId, targetId);
+  const tagRows = await pool.query<any>(
+    `SELECT d.name
+       FROM member_tag_assignments a
+       JOIN member_tag_definitions d ON d.id=a.tag_id AND d.group_id=a.group_id
+      WHERE a.group_id=$1 AND a.user_id=$2
+        AND (a.expires_at IS NULL OR a.expires_at>NOW())
+        AND d.enabled=TRUE
+      ORDER BY d.name
+      LIMIT 20`,
+    [chatId, targetId],
+  ).catch(()=>({rows:[] as any[]}));
+  const memberTags = tagRows.rows.map((x:any)=>String(x.name)).filter(Boolean);
   const muted = t.status === "restricted" && t.member.permissions && t.member.permissions.can_send_messages === false;
   const banned = t.status === "kicked";
   const name = t.name;
@@ -236,6 +248,7 @@ async function renderMain(pool: Pool, chatId: number, actorId: number, targetId:
     "⛂ - نقش : " + roleLabel(t.status),
     "⛂ - وضعیت : ● فعال",
     "⛂ - ویژه : " + (special.active ? "● فعال" : "○ غیرفعال"),
+    "⛂ - تگ‌ها : " + (memberTags.length ? memberTags.join(" · ") : "—"),
     "⛂ - اخطار : " + warnings,
     "⛂ - سکوت : " + (muted ? "● فعال" : "○ خاموش"),
     "⛂ - بن : " + (banned ? "● فعال" : "○ خاموش"),
