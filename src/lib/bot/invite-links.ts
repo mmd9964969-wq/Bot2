@@ -248,7 +248,7 @@ async function event(pool: Pool, linkId: number | null, groupId: number, actorId
 
 async function upsertTelegramLink(pool: Pool, groupId: number, link: any) {
   const expireAt = link.expire_date ? new Date(Number(link.expire_date) * 1000) : null;
-  const type = deriveType(link);
+  const type = String(link.__type || deriveType(link));
   const temporaryExpired = !!expireAt && expireAt.getTime() <= Date.now();
   const creatorId = Number(link.creator?.id || 0) || null;
   const creatorUsername = link.creator?.username || null;
@@ -422,7 +422,7 @@ async function createLink(pool: Pool, groupId: number, actorId: number, type: st
   const result = await telegramApi<any>("createChatInviteLink", body);
   if (!result.ok || !result.result?.invite_link) return { ok: false, error: "telegram" as const, detail: result.description };
   const apiLink = result.result;
-  const row = await upsertTelegramLink(pool, groupId, apiLink);
+  const row = await upsertTelegramLink(pool, groupId, { ...apiLink, __type:type });
   await event(pool, row.id, groupId, actorId, "created", {
     type,
     member_limit: opts.member_limit ?? null,
@@ -745,9 +745,7 @@ async function rebuildLink(pool: Pool, groupId: number, actorId: number, id: num
     const newRow = await upsertTelegramLink(pool, groupId, { ...created.result, is_primary: false });
     await client.query("UPDATE group_invite_links SET is_active=FALSE,is_revoked=TRUE,revoked_at=NOW(),updated_at=NOW() WHERE id=$1 AND group_id=$2",[old.id,groupId]);
     await client.query("INSERT INTO invite_link_events(group_id,invite_link_id,actor_user_id,event_type,metadata) VALUES($1,$2,$3,$4,$5::jsonb)",[groupId,old.id,actorId,"revoked",JSON.stringify({reason:"rebuild"})]);
-    await client.query("INSERT INTO invite_link_events(group_id,invite_link_id,actor_user_id,event_type,metadata) VALUES($1,$2,$3,$4::jsonb)",[groupId,newRow.id,actorId,"rebuilt",JSON.stringify({replaced_link_id:old.id})]).catch(async()=>{
-      await client.query("INSERT INTO invite_link_events(group_id,invite_link_id,actor_user_id,event_type,metadata) VALUES($1,$2,$3,$4,$5::jsonb)",[groupId,newRow.id,actorId,"rebuilt",JSON.stringify({replaced_link_id:old.id})]);
-    });
+    await client.query("INSERT INTO invite_link_events(group_id,invite_link_id,actor_user_id,event_type,metadata) VALUES($1,$2,$3,$4,$5::jsonb)",[groupId,newRow.id,actorId,"rebuilt",JSON.stringify({replaced_link_id:old.id})]);
     return { ok: true, row: newRow };
   });
 }
