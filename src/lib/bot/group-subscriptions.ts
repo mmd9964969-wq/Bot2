@@ -248,7 +248,12 @@ export async function cancelGroupSubscription(pool: Pool, subscriptionId: number
     [subscriptionId, reason],
   );
   if (!r.rowCount) return { ok: false as const, reason: "NOT_FOUND" as const };
-  return { ok: true as const, row: r.rows[0] };
+  const row=r.rows[0];
+  if(row.warning_message_id){
+    await telegramApi("unpinChatMessage",{chat_id:row.group_id,message_id:Number(row.warning_message_id)}).catch(()=>{});
+    await telegramApi("deleteMessage",{chat_id:row.group_id,message_id:Number(row.warning_message_id)}).catch(()=>{});
+  }
+  return { ok: true as const, row };
 }
 
 function displayDate(value: unknown) { const d=new Date(String(value??"")); if(Number.isNaN(d.getTime())) return "—"; return new Intl.DateTimeFormat("en-GB",{day:"2-digit",month:"short",year:"numeric",timeZone:"Asia/Tehran"}).format(d); }
