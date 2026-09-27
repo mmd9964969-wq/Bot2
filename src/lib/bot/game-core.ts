@@ -295,6 +295,13 @@ export async function handleGameCallback(ctx:GameContext,data:string):Promise<{t
     }
   }
 
+  if(action==="multi" && parts[2]==="rules"){
+    const owner=Number(parts[3]??0);
+    if(owner && owner!==ctx.userId)return {text:"⛂ - این پنل متعلق به بازیکن دیگری است.",replyMarkup:{inline_keyboard:[]}};
+    await ensurePlayer(ctx.pool,ctx);
+    return {text:"◈ قوانین چندنفره\n\n⛂ - هر دو بازیکن یک نوبت ثبت می‌کنند.\n⛂ - برنده پاداش، تجربه و امتیاز رقابتی بیشتری می‌گیرد.\n⛂ - نتیجه برای هر دو بازیکن ذخیره می‌شود.\n⛂ - دوئل‌های بدون حریف پاداشی ندارند.\n⛂ - لغو دوئل قبل از شروع، بدون پاداش است.",replyMarkup:gameMultiKeyboard(ctx.userId)};
+  }
+
   const ownerId=Number(parts[2]??0);
   const hasOwner=Number.isSafeInteger(ownerId)&&ownerId>0;
   if(!hasOwner&&["play","single","multi","progress","stats","achievements","inventory","wallet","shop","missions","leaderboard","rewards","history","help","settings","profile","back"].includes(action)){
@@ -318,9 +325,6 @@ export async function handleGameCallback(ctx:GameContext,data:string):Promise<{t
     return {text:"◈ بازی‌های تک‌نفره\n\n⛂ - تاس : فعال\n⛂ - کوییز : فعال\n⛂ - پاداش : پایه\n⛂ - امتیاز : پایه\n\nاین بخش برای بازی سریع و پیشرفت تدریجی طراحی شده است.",replyMarkup:gameSingleKeyboard(ctx.userId)};
   }
   if(action==="multi"){
-    if(parts[2]==="rules"){
-      return {text:"◈ قوانین چندنفره\n\n⛂ - هر دو بازیکن یک نوبت ثبت می‌کنند.\n⛂ - برنده پاداش، تجربه و امتیاز رقابتی بیشتری می‌گیرد.\n⛂ - نتیجه برای هر دو بازیکن ذخیره می‌شود.\n⛂ - دوئل‌های بدون حریف پاداشی ندارند.\n⛂ - لغو دوئل قبل از شروع، بدون پاداش است.",replyMarkup:gameMultiKeyboard(ctx.userId)};
-    }
     return {text:"◈ بازی‌های چندنفره\n\n⛂ - دوئل تاس : فعال\n⛂ - بازی‌های نوبتی : به‌زودی\n⛂ - تورنمنت : به‌زودی\n\nدر چندنفره، پاداش و امتیاز از تک‌نفره بالاتر است.",replyMarkup:gameMultiKeyboard(ctx.userId)};
   }
   if(action==="dice")return {text:await dice(ctx.pool,ctx),replyMarkup:gameResultKeyboard(ctx.userId)};
