@@ -24,7 +24,7 @@ type TgMessage={
 type TgCallback={id:string;from:TgUser;message?:TgMessage;data?:string};
 
 type ToolSession={
-  kind:"tag_assign"|"tag_create"|"tag_edit"|"tag_remove"|"tag_bulk"|"tag_search"|"purge"|"pin_target";
+  kind:"tag_assign"|"tag_create"|"tag_edit"|"tag_remove"|"tag_bulk"|"tag_search"|"pin_target";
   chatId:number;
   actorId:number;
   data:Record<string,any>;
@@ -95,13 +95,6 @@ export async function ensureMessageToolsSchema(pool:Pool){
         ON bot_message_records(chat_id,created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_bot_message_records_chat_user
         ON bot_message_records(chat_id,user_id,created_at DESC);
-
-      CREATE TABLE IF NOT EXISTS message_purge_settings(
-        group_id BIGINT PRIMARY KEY,
-        auto_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-        updated_by BIGINT,
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      );
 
       CREATE TABLE IF NOT EXISTS member_tag_definitions(
         id BIGSERIAL PRIMARY KEY,
@@ -488,87 +481,6 @@ async function unpin(pool:Pool,chatId:number,actorId:number){
   return {ok:true,reason:""};
 }
 
-async function getPurgeAutoEnabled(pool:Pool,chatId:number){
-  await pool.query(
-    "INSERT INTO message_purge_settings(group_id,auto_enabled) VALUES($1,FALSE) ON CONFLICT(group_id) DO NOTHING",
-    [chatId],
-  );
-  const r=await pool.query<any>(
-    "SELECT auto_enabled FROM message_purge_settings WHERE group_id=$1 LIMIT 1",
-    [chatId],
-  );
-  return r.rows[0]?.auto_enabled===true;
-}
-
-async function togglePurgeAuto(pool:Pool,chatId:number,actorId:number){
-  const current=await getPurgeAutoEnabled(pool,chatId);
-  const next=!current;
-  await pool.query(
-    "UPDATE message_purge_settings SET auto_enabled=$2,updated_by=$3,updated_at=NOW() WHERE group_id=$1",
-    [chatId,next,actorId],
-  );
-  await audit(pool,actorId,"purge_auto_toggled",String(chatId),{groupId:chatId,enabled:next});
-  return next;
-}
-
-async function renderPurgeCenter(pool:Pool,chatId:number,actorId:number,editMessageId?:number){
-  const c=await pool.query<any>(
-    "SELECT COUNT(*)::int n FROM bot_message_records WHERE chat_id=$1 AND created_at>=NOW()-INTERVAL '24 hours'",
-    [chatId],
-  );
-  const tracked=Number(c.rows[0]?.n||0);
-  const autoEnabled=await getPurgeAutoEnabled(pool,chatId);
-  const text=[
-    "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Pᴜʀɢᴇ Cᴇɴᴛᴇʀ",
-    "",
-    "⛂ - پیام‌های ثبت‌شده ۲۴ ساعت اخیر : "+tracked,
-    "⛂ - پاکسازی خودکار : "+(autoEnabled?"فعال":"خاموش"),
-    "⛂ - وضعیت عملیات دستی : آماده",
-    "",
-    "⚠️ پیام‌ها فقط با انتخاب عملیات و تأیید مدیر حذف می‌شوند.",
-    "⛂ - حالت خودکار به‌صورت پیش‌فرض خاموش است."
-  ].join("\n");
-  return sendPanel(pool,chatId,actorId,text,[
-    [["› پاکسازی بر اساس تعداد","purge:count"],["› پاکسازی بر اساس کاربر","purge:user"]],
-    [["› فقط رسانه","purge:media"],["› فقط لینک","purge:link"]],
-    [["› پیام‌های اخیر","purge:recent"],["› بازه زمانی","purge:time"]],
-    [["› پیش‌نمایش","purge:preview"]],
-    [[autoEnabled?"● خاموش‌کردن پاکسازی خودکار":"○ روشن‌کردن پاکسازی خودکار","purge:auto_toggle"]],
-    [["‹ بازگشت","c:members"]]
-  ],editMessageId);
-}
-
-async function purgePreview(pool:Pool,chatId:number,filter:any){
-  const where=["chat_id=$1"];const params:any[]=[chatId];let n=2;
-  if(filter.userId){where.push("user_id=$"+n);params.push(filter.userId);n++;}
-  if(filter.kind){where.push("kind=$"+n);params.push(filter.kind);n++;}
-  if(filter.media){where.push("kind IN ('photo','video','audio','document','animation','sticker','voice','video_note')");}
-  if(filter.link){where.push("has_link=TRUE");}
-  if(filter.since){where.push("created_at>=$"+n);params.push(filter.since);n++;}
-  const q="SELECT message_id FROM bot_message_records WHERE "+where.join(" AND ")+" ORDER BY created_at DESC LIMIT "+Math.max(1,Math.min(100,Number(filter.limit||100)));
-  const r=await pool.query(q,params).catch(()=>({rows:[]}));
-  return r.rows.map((x:any)=>Number(x.message_id)).filter(Number.isSafeInteger);
-}
-
-async function executePurge(pool:Pool,chatId:number,actorId:number,filter:any){
-  const ids=await purgePreview(pool,chatId,filter);
-  let ok=0,failed=0;
-  for(const id of ids){
-    const r=await telegramApi("deleteMessage",{chat_id:chatId,message_id:id});
-    if(r.ok)ok++;else failed++;
-    await pool.query("DELETE FROM bot_message_records WHERE chat_id=$1 AND message_id=$2",[chatId,id]).catch(()=>{});
-    if((ok+failed)%20===0)await sleep(200);
-  }
-  await audit(pool,actorId,"message_purge",String(chatId),{count:ids.length,deleted:ok,failed,filter});
-  return {total:ids.length,ok,failed};
-}
-
-async function purgeFilterFromCommand(raw:string){
-  const m=raw.match(/^پاکسازی(?:\s+|$)(\d+)?$/u)||raw.match(/^purge(?:\s+|$)(\d+)?$/i);
-  if(m)return {limit:Number(m[1]||20)};
-  return null;
-}
-
 export async function handleMessageToolsText(pool:Pool,msg:TgMessage,ownerIds:string[]){
   if(!msg.from||msg.chat.type==="private")return false;
   await ensureMessageToolsSchema(pool);
@@ -732,21 +644,6 @@ export async function handleMessageToolsText(pool:Pool,msg:TgMessage,ownerIds:st
     return true;
   }
 
-  const purgeCmd=purgeFilterFromCommand(raw);
-  if(purgeCmd){
-    if(!(await isManager(chatId,uid,ownerIds)))return true;
-    await del(chatId,msg.message_id);
-    await renderPurgeCenter(pool,chatId,uid);
-    return true;
-  }
-  if(["پاکسازی","purge"].includes(raw)){
-    if(!(await isManager(chatId,uid,ownerIds)))return true;
-    clearSession(uid);
-    await del(chatId,msg.message_id);
-    await renderPurgeCenter(pool,chatId,uid);
-    return true;
-  }
-
   return false;
 }
 
@@ -848,34 +745,5 @@ export async function handleMessageToolsCallback(pool:Pool,cb:TgCallback,ownerId
     return sendPanel(pool,chatId,uid,"◈ Pɪɴ · Hɪsᴛᴏʀʏ\n\n"+(r.rows.length?r.rows.map((x:any)=>"⛂ - "+x.action+" · "+x.actor_id+" · "+new Date(x.created_at).toLocaleString("fa-IR")).join("\n"):"⛂ - سابقه‌ای ثبت نشده است."),[[["‹ بازگشت","pin:center"]]],cb.message.message_id).then(()=>true);
   }
 
-  if(data.startsWith("purge:")){
-    const p=data.split(":"),a=p[1];
-    if(a==="cancel") {clearSession(uid);return renderPurgeCenter(pool,chatId,uid,cb.message.message_id).then(()=>true);}
-    if(a==="count"){setSession(uid,{kind:"purge",chatId,actorId:uid,data:{step:"count",filter:{}}});return sendPanel(pool,chatId,uid,"◈ پاکسازی بر اساس تعداد\n\nتعداد پیام را ارسال کنید. (۱ تا ۱۰۰)",[[["‹ لغو","purge:cancel"]]],cb.message.message_id).then(()=>true);}
-    if(a==="user"){setSession(uid,{kind:"purge",chatId,actorId:uid,data:{step:"user",filter:{}}});return sendPanel(pool,chatId,uid,"◈ پاکسازی بر اساس کاربر\n\nآیدی عددی یا یوزرنیم را ارسال کنید.",[[["‹ لغو","purge:cancel"]]],cb.message.message_id).then(()=>true);}
-    if(a==="media"){setSession(uid,{kind:"purge",chatId,actorId:uid,data:{step:"confirm",filter:{media:true}}});const ids=await purgePreview(pool,chatId,{media:true,limit:100});return sendPanel(pool,chatId,uid,"◈ Pᴜʀɢᴇ · رسانه\n\n⛂ - قابل حذف : "+ids.length,[[["✓ تأیید","purge:confirm"],["✕ لغو","purge:cancel"]]],cb.message.message_id).then(()=>true);}
-    if(a==="link"){setSession(uid,{kind:"purge",chatId,actorId:uid,data:{step:"confirm",filter:{link:true,limit:100}}});const ids=await purgePreview(pool,chatId,{link:true,limit:100});return sendPanel(pool,chatId,uid,"◈ Pᴜʀɢᴇ · لینک\n\n⛂ - قابل حذف : "+ids.length,[[["✓ تأیید","purge:confirm"],["✕ لغو","purge:cancel"]]],cb.message.message_id).then(()=>true);}
-    if(a==="recent"){setSession(uid,{kind:"purge",chatId,actorId:uid,data:{step:"confirm",filter:{since:new Date(Date.now()-15*60000),limit:100}}});const ids=await purgePreview(pool,chatId,{since:new Date(Date.now()-15*60000),limit:100});return sendPanel(pool,chatId,uid,"◈ Pᴜʀɢᴇ · ۱۵ دقیقه اخیر\n\n⛂ - قابل حذف : "+ids.length,[[["✓ تأیید","purge:confirm"],["✕ لغو","purge:cancel"]]],cb.message.message_id).then(()=>true);}
-    if(a==="time"){setSession(uid,{kind:"purge",chatId,actorId:uid,data:{step:"time",filter:{}}});return sendPanel(pool,chatId,uid,"◈ پاکسازی بر اساس بازه\n\nنمونه: 30 دقیقه / 2 ساعت / 1 روز",[[["‹ لغو","purge:cancel"]]],cb.message.message_id).then(()=>true);}
-    if(a==="preview"){
-      const filter={limit:100};
-      const ids=await purgePreview(pool,chatId,filter);
-      setSession(uid,{kind:"purge",chatId,actorId:uid,data:{step:"confirm",filter}});
-      return sendPanel(pool,chatId,uid,"◈ Pᴜʀɢᴇ · Pʀᴇᴠɪᴇᴡ\n\n⛂ - پیام‌های قابل حذف : "+ids.length+"\n⛂ - این فقط پیش‌نمایش است؛ حذف بدون تأیید انجام نمی‌شود.",[[["✓ تأیید حذف 100 مورد","purge:confirm"],["✕ لغو","purge:cancel"]]],cb.message.message_id).then(()=>true);
-    }
-    if(a==="center")return renderPurgeCenter(pool,chatId,uid,cb.message.message_id).then(()=>true);
-    if(a==="auto_toggle"){
-      await togglePurgeAuto(pool,chatId,uid);
-      return renderPurgeCenter(pool,chatId,uid,cb.message.message_id).then(()=>true);
-    }
-    if(a==="confirm"){
-      const s=getSession(uid);
-      if(!s||s.kind!=="purge"||s.chatId!==chatId||s.data.step!=="confirm")return true;
-      const filter={...(s.data.filter||{})};
-      const result=await executePurge(pool,chatId,uid,filter);
-      clearSession(uid);
-      return sendPanel(pool,chatId,uid,"◈ Pᴜʀɢᴇ · Rᴇsᴜʟᴛ\n\n⛂ - بررسی‌شده : "+result.total+"\n⛂ - حذف موفق : "+result.ok+"\n⛂ - ناموفق : "+result.failed,[[["› پاکسازی جدید","purge:center"],["‹ بازگشت","c:members"]]],cb.message.message_id).then(()=>true);
-    }
-  }
   return false;
 }
