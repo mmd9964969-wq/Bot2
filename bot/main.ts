@@ -395,6 +395,26 @@ function commandMatches(text: string, aliases: string[]) {
   return targets.some((target) => normalized === target || normalized.startsWith(target + " "));
 }
 
+function isPanelCommandInvocation(text: string) {
+  const raw = String(text ?? "").trim().replace(/^[\\/!.]+/, "").trim();
+  if (!raw || raw.startsWith("@") || /^-?\\d+$/.test(raw)) return false;
+  const knownStudio = studio.commands.some(item =>
+    item.enabled && item.phase <= 2 && commandMatches(raw, [...item.aliasesFa, ...item.aliasesEn])
+  );
+  const knownPanel = panelCommands.some(item =>
+    item.enabled && commandMatches(raw, [item.command_key, item.fa_name, item.en_name])
+  );
+  return knownStudio || knownPanel || ["owner","مالک","panel","پنل","config","پیکربندی"].includes(normalizeCommand(raw));
+}
+
+async function deleteCommandMessage(msg: TgMessage) {
+  if (!msg.message_id || !msg.chat?.id || !isPanelCommandInvocation(msg.text || msg.caption || "")) return;
+  await telegramApi("deleteMessage", {
+    chat_id: msg.chat.id,
+    message_id: msg.message_id,
+  }).catch(() => {});
+}
+
 const PANEL_ROLE_ORDER: PanelRole[] = ["MEMBER","SPECIAL_USER","MODERATOR","ADMIN","SUPER_ADMIN","OWNER"];
 type PanelRole = typeof PANEL_ROLE_ORDER[number];
 type PanelCommand = { id:number; command_key:string; fa_name:string; en_name:string; enabled:boolean; required_permission:string; minimum_role:PanelRole; response_fa:string; response_en:string; permissions:Array<{role:PanelRole;allowed:boolean}> };
@@ -744,7 +764,10 @@ async function processMessage(msg: TgMessage, edited = false) {
     staff: [...adminIds].map((id) => ({ id, name: String(id), rank: rankOf(id, adminIds) })),
   };
 
-  if (studioPool && await dispatchPanelMessage(studioPool, msg, config.ownerIds)) return;
+  if (studioPool && await dispatchPanelMessage(studioPool, msg, config.ownerIds)) {
+    if (!edited) await deleteCommandMessage(msg);
+    return;
+  }
 
   if (!isPrivate && studioPool) {
     const blocked = await enforceContentLocks({
@@ -781,6 +804,7 @@ async function processMessage(msg: TgMessage, edited = false) {
   const studioResult = await studioReplyLive(ctx);
   if (studioResult !== null) {
     await telegramApi("sendMessage", { chat_id: chat.id, text: studioResult, reply_to_message_id: msg.message_id });
+    if (!edited) await deleteCommandMessage(msg);
     return;
   }
 
