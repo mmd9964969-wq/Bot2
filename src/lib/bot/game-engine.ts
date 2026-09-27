@@ -358,7 +358,9 @@ async function resolveAction(pool:Pool,ctx:GameContext,sessionId:number,action:s
 
 export async function startEngine(ctx:GameContext,code:string,mode:EngineMode,playerIds:number[]=[ctx.userId]){
   const id=await createEngineSession(ctx.pool,ctx,code,mode,playerIds);
-  return await engineView(ctx.pool,ctx,id);
+  const view:any=await engineView(ctx.pool,ctx,id);
+  view.sessionId=id;
+  return view;
 }
 
 export async function handleEngineCallback(ctx:GameContext,parts:string[]){
@@ -368,7 +370,14 @@ export async function handleEngineCallback(ctx:GameContext,parts:string[]){
   if(owner&&owner!==ctx.userId)return {text:"⛂ - این بازی متعلق به بازیکن دیگری است.",replyMarkup:{inline_keyboard:[]}};
   if(sub==="start"){
     const code=parts[4]??"";
-    return await startEngine(ctx,code,"solo",[ctx.userId]);
+    const result:any=await startEngine(ctx,code,"solo",[ctx.userId]);
+    const rawBase=process.env.GAME_WEBAPP_URL||"";
+    const base=rawBase.endsWith("/")?rawBase.slice(0,-1):rawBase;
+    const sessionId=Number((result as any)?.sessionId||0);
+    if(base&&sessionId>0&&(getEngineGame(code)?.mode==="mini_app")){
+      result.callbackUrl="https://t.me/Pers3anrobot?start=gameapp_"+sessionId;
+    }
+    return result;
   }
   if(sub==="move"){
     const payload=parts[4]??"";
