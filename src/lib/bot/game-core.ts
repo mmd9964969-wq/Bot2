@@ -301,18 +301,55 @@ async function createGameRoom(ctx:GameContext,gameCode="duel_dice",maxPlayers=2)
   await ensurePlayer(ctx.pool,ctx);
   if(ctx.chatId>0)return {text:"✗ اتاق آنلاین فقط داخل گروه ساخته می‌شود.",replyMarkup:gameMultiKeyboard(ctx.userId)};
   if(!(await enabled(ctx.pool,ctx.chatId)))return {text:"✗ سیستم بازی در این گروه خاموش است.",replyMarkup:gameMultiKeyboard(ctx.userId)};
-  const open=(await ctx.pool.query<any>("SELECT r.id FROM game_multiplayer_rooms r JOIN game_multiplayer_room_players rp ON rp.room_id=r.id WHERE r.group_id=$1 AND rp.user_id=$2 AND rp.left_at IS NULL AND r.status IN ('waiting','ready','active') ORDER BY r.id DESC LIMIT 1",[ctx.chatId,ctx.userId])).rows[0];
+
+  // Reuse an existing open room and release memberships left behind by terminal rooms.
+  const open=(await ctx.pool.query<any>(
+    "SELECT r.id FROM game_multiplayer_rooms r JOIN game_multiplayer_room_players rp ON rp.room_id=r.id WHERE r.group_id=$1 AND rp.user_id=$2 AND rp.left_at IS NULL AND r.status IN ('waiting','ready','active') ORDER BY r.id DESC LIMIT 1",
+    [ctx.chatId,ctx.userId]
+  )).rows[0];
   if(open)return await roomView(ctx.pool,ctx,Number(open.id));
+
+  await ctx.pool.query(
+    "UPDATE game_multiplayer_room_players rp SET left_at=NOW() FROM game_multiplayer_rooms r WHERE rp.room_id=r.id AND rp.group_id=$1 AND rp.user_id=$2 AND rp.left_at IS NULL AND r.status IN ('finished','cancelled')",
+    [ctx.chatId,ctx.userId]
+  );
+
+  // Guard against an old open host-room record with no active player row.
+  const openHost=(await ctx.pool.query<any>(
+    "SELECT id FROM game_multiplayer_rooms WHERE group_id=$1 AND host_id=$2 AND status IN ('waiting','ready','active') ORDER BY id DESC LIMIT 1",
+    [ctx.chatId,ctx.userId]
+  )).rows[0];
+  if(openHost)return await roomView(ctx.pool,ctx,Number(openHost.id));
+
   const client=await ctx.pool.connect();
   let id=0;
   try{
     await client.query("BEGIN");
-    const q=await client.query<{id:number}>("INSERT INTO game_multiplayer_rooms(group_id,game_code,host_id,max_players,status) VALUES($1,$2,$3,$4,'waiting') RETURNING id",[ctx.chatId,gameCode,ctx.userId,maxPlayers]);
+    const q=await client.query<{id:number}>(
+      "INSERT INTO game_multiplayer_rooms(group_id,game_code,host_id,max_players,status) VALUES($1,$2,$3,$4,'waiting') RETURNING id",
+      [ctx.chatId,gameCode,ctx.userId,maxPlayers]
+    );
     id=Number(q.rows[0].id);
-    await client.query("INSERT INTO game_multiplayer_room_players(room_id,group_id,user_id,slot,ready) VALUES($1,$2,$3,1,TRUE)",[id,ctx.chatId,ctx.userId]);
+    await client.query(
+      "INSERT INTO game_multiplayer_room_players(room_id,group_id,user_id,slot,ready) VALUES($1,$2,$3,1,TRUE)",
+      [id,ctx.chatId,ctx.userId]
+    );
     await client.query("COMMIT");
   }catch(error){
     await client.query("ROLLBACK").catch(()=>{});
+    const code=String((error as any)?.code??"");
+    if(code==="23505"){
+      const retry=(await ctx.pool.query<any>(
+        "SELECT r.id FROM game_multiplayer_rooms r JOIN game_multiplayer_room_players rp ON rp.room_id=r.id WHERE r.group_id=$1 AND rp.user_id=$2 AND rp.left_at IS NULL AND r.status IN ('waiting','ready','active') ORDER BY r.id DESC LIMIT 1",
+        [ctx.chatId,ctx.userId]
+      )).rows[0];
+      if(retry)return await roomView(ctx.pool,ctx,Number(retry.id));
+      const hostRetry=(await ctx.pool.query<any>(
+        "SELECT id FROM game_multiplayer_rooms WHERE group_id=$1 AND host_id=$2 AND status IN ('waiting','ready','active') ORDER BY id DESC LIMIT 1",
+        [ctx.chatId,ctx.userId]
+      )).rows[0];
+      if(hostRetry)return await roomView(ctx.pool,ctx,Number(hostRetry.id));
+    }
     throw error;
   }finally{client.release();}
   return await roomView(ctx.pool,ctx,id);
@@ -327,11 +364,22 @@ async function joinGameRoom(ctx:GameContext,roomId:number){
     await client.query("BEGIN");
     const room=(await client.query<any>("SELECT * FROM game_multiplayer_rooms WHERE id=$1 AND group_id=$2 FOR UPDATE",[roomId,ctx.chatId])).rows[0];
     if(!room){await client.query("ROLLBACK");return {text:"✗ این اتاق در این گروه پیدا نشد.",replyMarkup:gameMultiKeyboard(ctx.userId)};}
-    if(!["waiting","ready"].includes(room.status)){await client.query("ROLLBACK");return {text:"✗ این اتاق دیگر قابل پیوستن نیست.",replyMarkup:gameMultiKeyboard(ctx.userId)};}
+    if(!["waiting","ready"].includes(room.status)){await client.query("ROLLBACK");return {text:"✗ این اتاق دیگر قابل پیوستن نیست.",replyMarkup:gameMultiKeyboard(ctx.userId);}}
     const existing=(await client.query<any>("SELECT * FROM game_multiplayer_room_players WHERE room_id=$1 AND user_id=$2 AND left_at IS NULL",[roomId,ctx.userId])).rows[0];
     if(existing){await client.query("COMMIT");return await roomView(ctx.pool,ctx,roomId);}
-    const other=(await client.query<any>("SELECT r.id FROM game_multiplayer_rooms r JOIN game_multiplayer_room_players rp ON rp.room_id=r.id WHERE r.group_id=$1 AND rp.user_id=$2 AND rp.left_at IS NULL AND r.status IN ('waiting','ready','active') LIMIT 1",[ctx.chatId,ctx.userId])).rows[0];
+
+    // A finished/cancelled room may still contain a stale membership row.
+    await client.query(
+      "UPDATE game_multiplayer_room_players rp SET left_at=NOW() FROM game_multiplayer_rooms r WHERE rp.room_id=r.id AND rp.group_id=$1 AND rp.user_id=$2 AND rp.left_at IS NULL AND r.status IN ('finished','cancelled')",
+      [ctx.chatId,ctx.userId]
+    );
+
+    const other=(await client.query<any>(
+      "SELECT r.id FROM game_multiplayer_rooms r JOIN game_multiplayer_room_players rp ON rp.room_id=r.id WHERE r.group_id=$1 AND rp.user_id=$2 AND rp.left_at IS NULL AND r.status IN ('waiting','ready','active') LIMIT 1",
+      [ctx.chatId,ctx.userId]
+    )).rows[0];
     if(other){await client.query("ROLLBACK");return {text:"⛂ - شما همین حالا در اتاق #"+fa(Number(other.id))+" هستید.",replyMarkup:await roomView(ctx.pool,ctx,Number(other.id)).then(x=>x.replyMarkup)};}
+
     const count=Number((await client.query("SELECT COUNT(*)::int n FROM game_multiplayer_room_players WHERE room_id=$1 AND left_at IS NULL",[roomId])).rows[0]?.n||0);
     if(count>=Number(room.max_players)){await client.query("ROLLBACK");return {text:"✗ ظرفیت این اتاق تکمیل شده است.",replyMarkup:gameMultiKeyboard(ctx.userId)};}
     const slot=count+1;
@@ -342,6 +390,14 @@ async function joinGameRoom(ctx:GameContext,roomId:number){
     await client.query("COMMIT");
   }catch(error){
     await client.query("ROLLBACK").catch(()=>{});
+    const code=String((error as any)?.code??"");
+    if(code==="23505"){
+      const retry=(await ctx.pool.query<any>(
+        "SELECT r.id FROM game_multiplayer_rooms r JOIN game_multiplayer_room_players rp ON rp.room_id=r.id WHERE r.group_id=$1 AND rp.user_id=$2 AND rp.left_at IS NULL AND r.status IN ('waiting','ready','active') ORDER BY r.id DESC LIMIT 1",
+        [ctx.chatId,ctx.userId]
+      )).rows[0];
+      if(retry)return await roomView(ctx.pool,ctx,Number(retry.id));
+    }
     throw error;
   }finally{client.release();}
   return await roomView(ctx.pool,ctx,roomId);
