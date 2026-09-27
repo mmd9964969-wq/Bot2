@@ -37,6 +37,7 @@ function Root() {
   return (
     <html lang="fa" suppressHydrationWarning>
       <head>
+        <script src="https://telegram.org/js/telegram-web-app.js?63"></script>
         <HeadContent />
       </head>
       <body className="antialiased">
