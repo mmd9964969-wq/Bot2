@@ -4,6 +4,7 @@ import type { Pool } from "pg";
 import { telegramApi } from "../src/lib/telegram/api.ts";
 import type { Rank } from "../src/lib/bot/registry.ts";
 import { ensureContentLocks, editRichLockCenter } from "../src/lib/bot/content-locks.ts";
+import { SUBSCRIPTION_PLANS, createGroupSubscription, renewGroupSubscription, cancelGroupSubscription, getActiveGroupSubscription, getCurrentGroupSubscription, resolveCustomer, validateGroup, planLabel, type SubscriptionPlan } from "../src/lib/bot/group-subscriptions.ts";
 import { glassKeyboard, styledGlassButton } from "../src/lib/bot/panel-design.ts";
 import { getGroupLanguage, setGroupLanguage, ensureGroupLanguageSchema, normalizeBotLang, languageNative, languageButtonLabel, SUPPORTED_LANGUAGES, type BotLang } from "../src/lib/bot/i18n.ts";
 import { AUTOMATION_ACTIONS } from "../src/lib/bot/automation-engine.ts";
@@ -63,7 +64,8 @@ const LICENSE_TYPES:{key:string;label:string;days:number|null}[]=[
 const K={
   ownerMain:[
     [["آمار کلی سیستم","o:stats"],["مدیریت مشتریان","o:customers"]],
-    [["مدیریت لایسنس‌ها","o:licenses"],["مدیریت گروه‌ها","o:groups"]],
+    [["مرکز اشتراک","o:subscriptions"],["مدیریت لایسنس‌ها","o:licenses"]],
+    [["مدیریت گروه‌ها","o:groups"]],
     [["زبان گروه‌ها","o:languages"],["ارسال همگانی","o:broadcast"]],
     [["کنترل اجرایی","o:runtime"],["ممیزی سیستم","o:audit"]],
     [["امنیت و دسترسی","o:security"],["پشتیبان‌گیری و بازیابی","o:backup"]],
@@ -317,6 +319,10 @@ async function validLicense(pool:Pool,uid:number){
   return r.rows[0]||null;
 }
 async function customerAllowedForChat(pool:Pool,uid:number,chatId:number){
+  const subscription=await getActiveGroupSubscription(pool,uid,chatId).catch(()=>null);
+  if(subscription){
+    return { ...subscription, __groupSubscription:true, group_limit:1 };
+  }
   const license=await validLicense(pool,uid);
   if(!license)return null;
   const existing=await pool.query("SELECT * FROM bot_customer_groups WHERE group_id=$1 AND customer_id=$2 AND is_active=TRUE LIMIT 1",[chatId,uid]);
@@ -618,12 +624,210 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
   return false;
 }
 
+
+function subscriptionActionButton(label:string,callbackData:string,style:"primary"|"success"|"danger"){
+  return {text:label,callback_data:callbackData,style};
+}
+function subscriptionPlansKeyboard(prefix:string){
+  const rows:any[][]=[];
+  for(let i=0;i<SUBSCRIPTION_PLANS.length;i+=2){
+    const a=SUBSCRIPTION_PLANS[i],b=SUBSCRIPTION_PLANS[i+1];
+    const row:any[]=[
+      {text:"› "+a.label,callback_data:prefix+a.key}
+    ];
+    if(b)row.push({text:"› "+b.label,callback_data:prefix+b.key});
+    rows.push(row);
+  }
+  rows.push([{text:"‹ بازگشت",callback_data:"o:subscriptions",style:"primary"}]);
+  return {inline_keyboard:rows};
+}
+function subscriptionDate(value:unknown){
+  return value ? faDate(value) : "مادام‌العمر";
+}
+function subscriptionStatusFa(status:string){
+  return status==="ACTIVE"?"فعال":status==="EXPIRING"?"در حال انقضا":status==="EXPIRED"?"منقضی":status==="LIFETIME"?"مادام‌العمر":status==="CANCELLED"?"لغوشده":"ثبت نشده";
+}
+function subscriptionConfirmMarkup(callbackData:string){
+  return {inline_keyboard:[
+    [subscriptionActionButton("› تأیید اشتراک",callbackData,"success")],
+    [{text:"‹ بازگشت",callback_data:"o:subscriptions",style:"primary"}]
+  ]};
+}
+
 async function sendCustomer(pool:Pool,ownerId:number,chatId:number,row:any){
   const lic=await validLicense(pool,Number(row.user_id));const groups=(await pool.query("SELECT COUNT(*)::int n FROM bot_customer_groups WHERE customer_id=$1 AND is_active=TRUE",[row.user_id])).rows[0].n||0;
   const text=["◈ اطلاعات مشتری","","⛂ - آیدی : "+row.user_id,"⛂ - یوزرنیم : "+(row.username?"@"+row.username:"ندارد"),"⛂ - نام : "+(row.first_name||"—"),"⛂ - اولین نصب : "+faDate(row.first_installed_at),"⛂ - گروه‌های فعال : "+groups,"⛂ - لایسنس : "+(lic?.license_type||"ندارد"),"⛂ - شروع : "+(lic?faDate(lic.starts_at):"—"),"⛂ - انقضا : "+(lic?.expires_at?faDate(lic.expires_at):"مادام‌العمر"),"⛂ - وضعیت مشتری : "+row.status,"⛂ - آخرین فعالیت : "+faDate(row.last_active_at)].join("\n");
   const buttons=[[["فعال‌سازی لایسنس","u:lic_on:"+row.user_id],["غیرفعال‌سازی","u:lic_off:"+row.user_id]],[["افزایش مدت","u:lic_plus:"+row.user_id],["کاهش مدت","u:lic_minus:"+row.user_id]],[["مسدودکردن","u:block:"+row.user_id],["رفع مسدودیت","u:unblock:"+row.user_id]],[["لاگ مشتری","u:logs:"+row.user_id],["پیام خصوصی","u:msg:"+row.user_id]],[["‹ بازگشت","o:customers"]]];
   return send(chatId,text,menu(buttons));
 }
+
+
+  if(data==="o:subscriptions"){
+    const [active,expiring,expired,lifetime]=await Promise.all([
+      pool.query("SELECT COUNT(*)::int n FROM bot_group_subscriptions WHERE status='ACTIVE'"),
+      pool.query("SELECT COUNT(*)::int n FROM bot_group_subscriptions WHERE status='EXPIRING'"),
+      pool.query("SELECT COUNT(*)::int n FROM bot_group_subscriptions WHERE status='EXPIRED'"),
+      pool.query("SELECT COUNT(*)::int n FROM bot_group_subscriptions WHERE status='LIFETIME'")
+    ]);
+    const body=[
+      "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴜʙsᴄʀɪᴘᴛɪᴏɴ Cᴇɴᴛᴇʀ","",
+      "⛂ - اشتراک‌های فعال : "+Number(active.rows[0]?.n||0),
+      "⛂ - در آستانه پایان : "+Number(expiring.rows[0]?.n||0),
+      "⛂ - منقضی‌شده : "+Number(expired.rows[0]?.n||0),
+      "⛂ - مادام‌العمر : "+Number(lifetime.rows[0]?.n||0),
+      "","─────━━───── ◈ ─────━━─────",""
+    ].join("\n");
+    return edit(msg.chat.id,msg.message_id,body,menu([
+      [["ساخت اشتراک","o:sub_create"],["اشتراک‌های فعال","o:sub_active"]],
+      [["در حال انقضا","o:sub_expiring"],["تاریخچه اشتراک‌ها","o:sub_history"]],
+      [["جستجوی مشتری","o:sub_customer"],["جستجوی گروه","o:sub_group"]],
+      [["‹ بازگشت","o:home"]]
+    ]));
+  }
+  if(data==="o:sub_create"){
+    session(uid,"owner_subscription_create",{step:1});
+    return edit(msg.chat.id,msg.message_id,
+      "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴜʙsᴄʀɪᴘᴛɪᴏɴ\n\n⛂ شناسه مشتری را وارد کنید\n\nمی‌توانید یکی از موارد زیر را ارسال کنید:\n• آیدی عددی\n• @username",
+      menu([[["‹ بازگشت","o:subscriptions"]]])
+    );
+  }
+  if(data==="o:sub_active"||data==="o:sub_expiring"||data==="o:sub_history"){
+    const where=data==="o:sub_active"
+      ?"status IN ('ACTIVE','EXPIRING','LIFETIME')"
+      :data==="o:sub_expiring"
+        ?"status='EXPIRING'"
+        :"status IN ('EXPIRED','CANCELLED')";
+    const r=await pool.query(
+      "SELECT id,customer_id,group_id,group_title,subscription_type,status,expires_at FROM bot_group_subscriptions WHERE "+where+" ORDER BY expires_at NULLS LAST,id DESC LIMIT 30"
+    );
+    const lines=r.rows.length
+      ?r.rows.map((x:any)=>"⛂ - #"+x.id+" · "+String(x.group_title||"گروه")+" · مشتری "+x.customer_id+" · "+planLabel(String(x.subscription_type))+" · "+subscriptionStatusFa(String(x.status))+" · "+subscriptionDate(x.expires_at)).join("\n")
+      :"⛂ - موردی ثبت نشده است.";
+    return edit(msg.chat.id,msg.message_id,"◈ Sᴜʙsᴄʀɪᴘᴛɪᴏɴ\n\n"+lines,menu([[["‹ بازگشت","o:subscriptions"]]]));
+  }
+  if(data==="o:sub_customer"){
+    session(uid,"owner_subscription_lookup",{step:1,action:"status"});
+    return edit(msg.chat.id,msg.message_id,"◈ جستجوی اشتراک مشتری\n\n⛂ آیدی عددی یا @username مشتری را ارسال کنید.",menu([[["‹ بازگشت","o:subscriptions"]]]));
+  }
+  if(data==="o:sub_group"){
+    session(uid,"owner_subscription_group_lookup",{step:1});
+    return edit(msg.chat.id,msg.message_id,"◈ جستجوی اشتراک گروه\n\n⛂ لینک عمومی گروه را ارسال کنید.",menu([[["‹ بازگشت","o:subscriptions"]]]));
+  }
+  if(data==="o:sub_cancel"){
+    session(uid,"owner_subscription_lookup",{step:1,action:"cancel"});
+    return edit(msg.chat.id,msg.message_id,"◈ لغو اشتراک\n\n⛂ آیدی عددی یا @username مشتری را ارسال کنید.",menu([[["‹ بازگشت","o:subscriptions"]]]));
+  }
+  if(data.startsWith("o:sub_renew:")){
+    const planKey=data.slice("o:sub_renew:".length);
+    const s=getSession(uid);
+    if(!s||!["owner_subscription_create","owner_subscription_lookup"].includes(s.flow))return;
+    const plan=SUBSCRIPTION_PLANS.find(x=>x.key===planKey);
+    if(!plan)return;
+    s.data.plan=plan;session(uid,s.flow,s.data);
+    const current=await getActiveGroupSubscription(pool,Number(s.data.customerId),Number(s.data.groupId));
+    if(!current)return edit(msg.chat.id,msg.message_id,"اشتراک فعال برای این مشتری و گروه پیدا نشد.",menu([[["‹ بازگشت","o:subscriptions"]]]));
+    const base=current.expires_at?new Date(current.expires_at):new Date();
+    const next=plan.days===null?null:new Date(base.getTime()+plan.days*86400000);
+    return edit(msg.chat.id,msg.message_id,
+      "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴜʙsᴄʀɪᴘᴛɪᴏɴ\n\n⛂ مشتری : "+(s.data.customerUsername?"@"+s.data.customerUsername:String(s.data.customerId))+
+      "\n⛂ گروه : "+String(current.group_title||s.data.groupTitle||"—")+
+      "\n⛂ مدت تمدید : "+plan.label+
+      "\n⛂ پایان فعلی : "+subscriptionDate(current.expires_at)+
+      "\n⛂ پایان جدید : "+subscriptionDate(next)+
+      "\n\n─────━━───── ◈ ─────━━─────",
+      {inline_keyboard:[
+        [subscriptionActionButton("› تأیید تمدید","o:sub_renew_confirm","success")],
+        [{text:"‹ بازگشت",callback_data:"o:subscriptions",style:"primary"}]
+      ]}
+    );
+  }
+  if(data==="o:sub_renew_confirm"){
+    const s=getSession(uid);if(!s)return;
+    const plan=s.data.plan as SubscriptionPlan|undefined;
+    const customerId=Number(s.data.customerId),groupId=Number(s.data.groupId);
+    if(!plan||!Number.isSafeInteger(customerId)||!Number.isSafeInteger(groupId))return;
+    const result=await renewGroupSubscription(pool,{groupId,customerId,plan});
+    if(!result.ok)return edit(msg.chat.id,msg.message_id,"✗ اشتراک فعال برای تمدید پیدا نشد.",menu([[["‹ بازگشت","o:subscriptions"]]]));
+    clearSession(uid);await audit(pool,String(uid),"group_subscription_renewed",String(result.row.id),{groupId,customerId,plan:plan.key});
+    return edit(msg.chat.id,msg.message_id,
+      "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴜʙsᴄʀɪᴘᴛɪᴏɴ\n\n✓ تمدید اشتراک ثبت شد\n\n⛂ مشتری : "+customerId+"\n⛂ گروه : "+String(result.row.group_title||"—")+"\n⛂ پایان جدید : "+subscriptionDate(result.row.expires_at)+"\n⛂ وضعیت : "+subscriptionStatusFa(String(result.row.status)),
+      menu([[["‹ بازگشت","o:subscriptions"]]])
+    );
+  }
+  if(data.startsWith("o:sub_cancel_confirm:")){
+    const subscriptionId=Number(data.slice("o:sub_cancel_confirm:".length));
+    if(!Number.isSafeInteger(subscriptionId))return;
+    const result=await cancelGroupSubscription(pool,subscriptionId);
+    if(!result.ok)return edit(msg.chat.id,msg.message_id,"✗ اشتراک فعال پیدا نشد.",menu([[["‹ بازگشت","o:subscriptions"]]]));
+    await audit(pool,String(uid),"group_subscription_cancelled",String(subscriptionId),{});
+    clearSession(uid);
+    return edit(msg.chat.id,msg.message_id,"◈ Sᴜʙsᴄʀɪᴘᴛɪᴏɴ\n\n✓ اشتراک لغو شد.\n⛂ گروه : "+String(result.row.group_title||"—"),menu([[["‹ بازگشت","o:subscriptions"]]]));
+  }
+  if(data.startsWith("o:sub_plan:")){
+    const planKey=data.slice("o:sub_plan:".length);
+    const s=getSession(uid);
+    if(!s||s.flow!=="owner_subscription_create")return;
+    const plan=SUBSCRIPTION_PLANS.find(x=>x.key===planKey);
+    if(!plan)return;
+    const customerId=Number(s.data.customerId),groupId=Number(s.data.groupId);
+    if(!Number.isSafeInteger(customerId)||!Number.isSafeInteger(groupId))return;
+    s.data.plan=plan;session(uid,s.flow,s.data);
+    const start=new Date(),end=plan.days===null?null:new Date(start.getTime()+plan.days*86400000);
+    return edit(msg.chat.id,msg.message_id,
+      "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴜʙsᴄʀɪᴘᴛɪᴏɴ\n\n⛂ مشتری : "+(s.data.customerUsername?"@"+s.data.customerUsername:customerId)+
+      "\n⛂ گروه : "+String(s.data.groupTitle||"—")+
+      "\n⛂ مدت : "+plan.label+
+      "\n⛂ شروع : "+subscriptionDate(start)+
+      "\n⛂ پایان : "+subscriptionDate(end)+
+      "\n\n─────━━───── ◈ ─────━━─────",
+      subscriptionConfirmMarkup("o:sub_confirm")
+    );
+  }
+  if(data==="o:sub_confirm"){
+    const s=getSession(uid);if(!s||s.flow!=="owner_subscription_create")return;
+    const plan=s.data.plan as SubscriptionPlan|undefined;
+    const customerId=Number(s.data.customerId),groupId=Number(s.data.groupId);
+    if(!plan||!Number.isSafeInteger(customerId)||!Number.isSafeInteger(groupId))return;
+    const checked=await validateGroup(pool,customerId,String(s.data.groupRef||groupId));
+    if(!checked.ok)return edit(msg.chat.id,msg.message_id,"✗ بررسی گروه در زمان تأیید ناموفق بود.\n\n"+checked.message,menu([[["‹ بازگشت","o:subscriptions"]]]));
+    const result=await createGroupSubscription(pool,{customerId,group:checked.group,plan,createdBy:uid});
+    if(!result.ok){
+      const current=result.row;
+      return edit(msg.chat.id,msg.message_id,"✗ این گروه در حال حاضر اشتراک فعال دارد.\n\n⛂ مشتری فعلی : "+current.customer_id+"\n⛂ پایان : "+subscriptionDate(current.expires_at),menu([[["تمدید اشتراک","o:sub_renew_start:"+current.customer_id+":"+current.group_id]],[["‹ بازگشت","o:subscriptions"]]]));
+    }
+    await pool.query(
+      "INSERT INTO bot_customer_groups(group_id,customer_id,title,last_seen_at,is_active) VALUES($1,$2,$3,NOW(),TRUE) ON CONFLICT(group_id) DO UPDATE SET customer_id=EXCLUDED.customer_id,title=EXCLUDED.title,last_seen_at=NOW(),is_active=TRUE",
+      [groupId,customerId,checked.group.title]
+    );
+    clearSession(uid);
+    await audit(pool,String(uid),"group_subscription_created",String(result.row.id),{customerId,groupId,plan:plan.key});
+    return edit(msg.chat.id,msg.message_id,
+      "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴜʙsᴄʀɪᴘᴛɪᴏɴ\n\n✓ اشتراک با موفقیت ثبت شد\n\n⛂ مشتری : "+(s.data.customerUsername?"@"+s.data.customerUsername:customerId)+
+      "\n⛂ گروه : "+String(result.row.group_title||"—")+
+      "\n⛂ مدت : "+plan.label+
+      "\n⛂ شروع : "+subscriptionDate(result.row.started_at)+
+      "\n⛂ پایان : "+subscriptionDate(result.row.expires_at)+
+      "\n⛂ وضعیت : "+subscriptionStatusFa(String(result.row.status)),
+      menu([[["‹ بازگشت","o:subscriptions"]]])
+    );
+  }
+  if(data.startsWith("o:sub_renew_start:")){
+    const parts=data.split(":");const customerId=Number(parts[2]),groupId=Number(parts[3]);
+    if(!Number.isSafeInteger(customerId)||!Number.isSafeInteger(groupId))return;
+    session(uid,"owner_subscription_lookup",{step:3,action:"renew",customerId,groupId});
+    return edit(msg.chat.id,msg.message_id,"◈ تمدید اشتراک\n\n⛂ مدت جدید را انتخاب کنید.",subscriptionPlansKeyboard("o:sub_renew:"));
+  }
+  if(data.startsWith("o:sub_cancel_prompt:")){
+    const subscriptionId=Number(data.slice("o:sub_cancel_prompt:".length));
+    if(!Number.isSafeInteger(subscriptionId))return;
+    return edit(msg.chat.id,msg.message_id,
+      "◈ Sᴜʙsᴄʀɪᴘᴛɪᴏɴ\n\n⛂ آیا از لغو این اشتراک مطمئن هستید؟",
+      {inline_keyboard:[
+        [subscriptionActionButton("› لغو اشتراک","o:sub_cancel_confirm:"+subscriptionId,"danger")],
+        [{text:"‹ بازگشت",callback_data:"o:subscriptions",style:"primary"}]
+      ]}
+    );
+  }
 
 async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   const uid=cb.from.id;if(!await isOwner(pool,uid,ownerIds))return;
