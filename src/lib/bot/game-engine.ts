@@ -179,14 +179,17 @@ function botMarkup(sessionId:number,code:string,userId:number,state:any,players:
 
 function miniMarkup(sessionId:number,code:string,userId:number,privateChat=false){
   const rawBase=process.env.GAME_WEBAPP_URL||""; const base=rawBase.endsWith("/")?rawBase.slice(0,-1):rawBase;
-  if(!base)return {inline_keyboard:[[ {text:"‹ آدرس Mini App",url:"https://t.me/Pers3anrobot?start=gameapp_"+sessionId} ],[{text:"‹ وضعیت بازی",callback_data:"game:engine:view:"+sessionId+":"+userId}]]};
   const gameName=getEngineGame(code)?.name||"بازی";
+  if(!base)return {inline_keyboard:[
+    [{text:"‹ وضعیت بازی",callback_data:"game:engine:view:"+sessionId+":"+userId}],
+    [{text:"‹ مرکز بازی",callback_data:"game:center"}]
+  ]};
   const url=base+"/game/"+sessionId+"?code="+encodeURIComponent(code);
-  // Telegram WebApp buttons are private-chat only. In groups we bridge through
-  // a /start deep-link, then render the real WebApp button in the private chat.
+  // Telegram WebApp buttons are supported in private chats only.
+  // From a group we use a callback that sends a real WebApp button to the user's private chat.
   if(!privateChat){
     return {inline_keyboard:[
-      [{text:"‹ باز کردن "+gameName,url:"https://t.me/Pers3anrobot?start=gameapp_"+sessionId}],
+      [{text:"‹ اجرای "+gameName+" در PV",callback_data:"game:engine:launch:"+sessionId+":"+code+":"+userId}],
       [{text:"‹ وضعیت بازی",callback_data:"game:engine:view:"+sessionId+":"+userId}],
       [{text:"‹ مرکز بازی",callback_data:"game:center"}]
     ]};
@@ -360,6 +363,23 @@ export async function startEngine(ctx:GameContext,code:string,mode:EngineMode,pl
   const id=await createEngineSession(ctx.pool,ctx,code,mode,playerIds);
   const view:any=await engineView(ctx.pool,ctx,id);
   view.sessionId=id;
+  if(getEngineGame(code)?.mode==="mini_app")view.miniApp={
+    sessionId:id,
+    gameCode:code,
+    url:(()=>{const raw=process.env.GAME_WEBAPP_URL||"";const base=raw.endsWith("/")?raw.slice(0,-1):raw;return base?base+"/game/"+id+"?code="+encodeURIComponent(code):"";})()
+  };
+  return view;
+}
+
+async function launchMiniAppForSession(ctx:GameContext,sessionId:number){
+  const v=await renderEngineSession(ctx.pool,ctx,sessionId);
+  if(!v||v.game.mode!=="mini_app")return await engineView(ctx.pool,ctx,sessionId);
+  const raw=process.env.GAME_WEBAPP_URL||"";
+  const base=raw.endsWith("/")?raw.slice(0,-1):raw;
+  const url=base?base+"/game/"+sessionId+"?code="+encodeURIComponent(String(v.session.game_code)):"";
+  const view:any=await engineView(ctx.pool,ctx,sessionId);
+  view.sessionId=sessionId;
+  view.miniApp={sessionId,gameCode:String(v.session.game_code),url};
   return view;
 }
 
@@ -370,14 +390,10 @@ export async function handleEngineCallback(ctx:GameContext,parts:string[]){
   if(owner&&owner!==ctx.userId)return {text:"⛂ - این بازی متعلق به بازیکن دیگری است.",replyMarkup:{inline_keyboard:[]}};
   if(sub==="start"){
     const code=parts[4]??"";
-    const result:any=await startEngine(ctx,code,"solo",[ctx.userId]);
-    const rawBase=process.env.GAME_WEBAPP_URL||"";
-    const base=rawBase.endsWith("/")?rawBase.slice(0,-1):rawBase;
-    const sessionId=Number((result as any)?.sessionId||0);
-    if(base&&sessionId>0&&(getEngineGame(code)?.mode==="mini_app")){
-      result.callbackUrl="https://t.me/Pers3anrobot?start=gameapp_"+sessionId;
-    }
-    return result;
+    return await startEngine(ctx,code,"solo",[ctx.userId]);
+  }
+  if(sub==="launch"){
+    return await launchMiniAppForSession(ctx,sessionId);
   }
   if(sub==="move"){
     const payload=parts[4]??"";
