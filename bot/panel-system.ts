@@ -1033,7 +1033,7 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   if(data==="o:customer_add"){
     session(uid,"owner_customer_register",{step:1,username:"",returnTo:"customers"});
     return edit(msg.chat.id,msg.message_id,
-      "◈ ثبت مشتری جدید\n\n⛂ آیدی عددی تلگرام مشتری را ارسال کنید\n⛂ در مرحله بعد یوزرنیم را ثبت می‌کنیم.",
+      "◈ ثبت مشتری جدید\n\n⛂ آیدی عددی تلگرام مشتری را ارسال کنید\n⛂ یوزرنیم در صورت وجود از اطلاعات سامانه تکمیل می‌شود.",
       menu([[["‹ بازگشت","o:customers"]]])
     );
   }
