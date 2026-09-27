@@ -228,7 +228,7 @@ export async function handleSpecialCommand(pool:Pool,msg:TgMessage,ownerIds:stri
     await telegramApi("sendMessage",{chat_id:msg.chat.id,text:"✗ کاربر مشخص نیست. روی پیام او ریپلای کنید یا آیدی عددی بدهید.",reply_to_message_id:msg.message_id});return true;
   }
   if(isRemove){
-    await telegramApi("sendMessage",{chat_id:msg.chat.id,text:"◈ حذف ویژه\n\n⛂ - کاربر : "+targetId+"\n⛂ - برای تأیید حذف، پنل تأیید را باز کنید.",reply_markup:kb([[{text:"✓ تأیید حذف",callback_data:`sp:remove_yes:${targetId}`},{text:"لغو",callback_data:`sp:center:${targetId}`}]] )});
+    await sendPanel(pool,msg.chat.id,msg.from.id,"◈ حذف ویژه\n\n⛂ - کاربر : "+targetId+"\n⛂ - برای تأیید حذف، پنل تأیید را باز کنید.",[[{text:"✓ تأیید حذف",callback_data:`sp:remove_yes:${targetId}`},{text:"لغو",callback_data:`sp:center:${targetId}`}],[{text:"‹ بازگشت",callback_data:"c:members"}]]);
     return true;
   }
   if(isSet){
@@ -248,7 +248,7 @@ export async function handleSpecialTextInput(pool:Pool,msg:TgMessage){
   const raw=strip(msg.text||msg.caption||"");
   if(s.targetId===0){
     const targetId=Number(digits(raw));if(!Number.isSafeInteger(targetId)||targetId<=0){await telegramApi("sendMessage",{chat_id:msg.chat.id,text:"✗ آیدی معتبر نیست.",reply_to_message_id:msg.message_id});return true;}
-    sessions.set(msg.from.id,{...s,targetId});
+    sessions.delete(msg.from.id);
     await renderCenter(pool,msg.chat.id,msg.from.id,targetId);return true;
   }
   const sec=parseDuration(raw);
