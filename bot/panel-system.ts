@@ -646,7 +646,24 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
       if(!customer){
         const key=raw.replace(/^@/,"");
         if(/^@/.test(raw)){
-          return send(msg.chat.id,"✗ این @username در سامانه ثبت نشده است. کاربر باید حداقل یک‌بار با ربات تعامل کرده باشد تا یوزرنیم او قابل شناسایی باشد.",menu([[["‹ بازگشت","o:subscriptions"]]]))&&true;
+          if(!/^[A-Za-z0-9_]{5,32}$/.test(key)){
+            return send(msg.chat.id,"✗ @username معتبر وارد کنید.",menu([[["‹ بازگشت","o:subscriptions"]]]))&&true;
+          }
+          s.data.customerId=null;
+          s.data.customerUsername=key;
+          s.data.customerName="";
+          s.data.customerPendingVerification=true;
+          s.data.step=1.5;
+          session(uid,s.flow,s.data);
+          return send(msg.chat.id,
+            "◈ تأیید فروشنده\n\n⛂ یوزرنیم : @"+key+
+            "\n\n✓ یوزرنیم دریافت شد.\n⛂ در مرحله گروه، یوزرنیم فروشنده با فهرست ادمین‌های همان گروه تطبیق داده می‌شود.\n\n⛂ برای ادامه تأیید کنید.",
+            {inline_keyboard:[
+              [{text:"✓ تأیید فروشنده",callback_data:"o:sub_customer_confirm",style:"success"}],
+              [{text:"× تغییر شناسه",callback_data:"o:sub_customer_change",style:"danger"}],
+              [{text:"‹ بازگشت",callback_data:"o:subscriptions",style:"primary"}]
+            ]}
+          )&&true;
         }
         if(/^\d+$/.test(key)){
           return send(msg.chat.id,"✗ آیدی عددی مشتری معتبر نیست.",menu([[["‹ بازگشت","o:subscriptions"]]]))&&true;
@@ -670,8 +687,44 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
       )&&true;
     }
     if(step===2){
-      const customerId=Number(s.data.customerId);
-      const checked=await validateGroup(pool,customerId,raw,{allowProvisionedOwner:true});
+      let customerId=Number(s.data.customerId);
+      let checked: Awaited<ReturnType<typeof validateGroup>>;
+
+      // For a previously unknown @username, resolve the real Telegram user
+      // from the group's administrator list once the group is known.
+      if(!Number.isSafeInteger(customerId)||customerId<=0){
+        const pendingUsername=String(s.data.customerUsername||"").trim().replace(/^@/,"").toLowerCase();
+        const resolvedGroup=await resolveGroup(pool,raw);
+        if(!resolvedGroup){
+          return send(msg.chat.id,"✗ گروه پیدا نشد. لینک عمومی یا لینک دعوت خصوصی معتبر گروه را ارسال کنید.",menu([[["‹ بازگشت","o:subscriptions"]]]))&&true;
+        }
+        if(!pendingUsername){
+          return send(msg.chat.id,"✗ فروشنده مشخص نشده است. دوباره شناسه فروشنده را ارسال کنید.",menu([[["‹ بازگشت","o:subscriptions"]]]))&&true;
+        }
+
+        const admins=await telegramApi<any[]>("getChatAdministrators",{chat_id:resolvedGroup.id});
+        const matched=(admins.ok&&Array.isArray(admins.result)?admins.result:[]).find((item:any)=>{
+          const username=String(item?.user?.username||"").trim().replace(/^@/,"").toLowerCase();
+          return username && username===pendingUsername;
+        });
+        if(!matched?.user?.id){
+          return send(msg.chat.id,
+            "✗ فروشنده در ادمین‌های این گروه پیدا نشد.\n\n⛂ یوزرنیم بررسی‌شده : @"+pendingUsername+
+            "\n⛂ لینک گروه را بررسی کنید یا شناسه عددی فروشنده را ارسال کنید.",
+            menu([[["‹ بازگشت","o:subscriptions"]]])
+          )&&true;
+        }
+
+        customerId=Number(matched.user.id);
+        await customerEnsure(pool,customerId,matched.user);
+        s.data.customerId=customerId;
+        s.data.customerUsername=matched.user.username||pendingUsername;
+        s.data.customerName=matched.user.first_name||"";
+        s.data.customerPendingVerification=false;
+        session(uid,s.flow,s.data);
+      }
+
+      checked=await validateGroup(pool,customerId,raw,{allowProvisionedOwner:true});
       if(!checked.ok)return send(msg.chat.id,"✗ بررسی گروه انجام نشد.\n\n"+checked.message,menu([[["‹ بازگشت","o:subscriptions"]]]))&&true;
       const current=await getCurrentGroupSubscription(pool,checked.group.id);
       if(current){
@@ -968,23 +1021,39 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     const s=getSession(uid);
     if(!s||s.flow!=="owner_subscription_create"||Number(s.data.step)!==1.5)return;
     const customerId=Number(s.data.customerId);
-    if(!Number.isSafeInteger(customerId)||customerId<=0)return;
-    const customer=(await pool.query(
-      "SELECT user_id,username,first_name,status FROM bot_customers WHERE user_id=$1 LIMIT 1",
-      [customerId],
-    )).rows[0];
-    if(!customer)return edit(msg.chat.id,msg.message_id,"✗ اطلاعات فروشنده دیگر در سامانه موجود نیست.",menu([[["‹ بازگشت","o:subscriptions"]]]));
-    if(String(customer.status||"active")==="blocked")return edit(msg.chat.id,msg.message_id,"✗ این فروشنده در سامانه مسدود است.",menu([[["‹ بازگشت","o:subscriptions"]]]));
-    s.data.customerId=Number(customer.user_id);
-    s.data.customerUsername=customer.username||s.data.customerUsername||"";
-    s.data.customerName=customer.first_name||s.data.customerName||"";
+
+    if(Number.isSafeInteger(customerId)&&customerId>0){
+      const customer=(await pool.query(
+        "SELECT user_id,username,first_name,status FROM bot_customers WHERE user_id=$1 LIMIT 1",
+        [customerId],
+      )).rows[0];
+      if(!customer)return edit(msg.chat.id,msg.message_id,"✗ اطلاعات فروشنده دیگر در سامانه موجود نیست.",menu([[["‹ بازگشت","o:subscriptions"]]]));
+      if(String(customer.status||"active")==="blocked")return edit(msg.chat.id,msg.message_id,"✗ این فروشنده در سامانه مسدود است.",menu([[["‹ بازگشت","o:subscriptions"]]]));
+      s.data.customerId=Number(customer.user_id);
+      s.data.customerUsername=customer.username||s.data.customerUsername||"";
+      s.data.customerName=customer.first_name||s.data.customerName||"";
+      s.data.customerPendingVerification=false;
+    }else{
+      const username=String(s.data.customerUsername||"").trim().replace(/^@/,"");
+      if(!/^[A-Za-z0-9_]{5,32}$/.test(username)){
+        return edit(msg.chat.id,msg.message_id,"✗ یوزرنیم فروشنده معتبر نیست.",menu([[["‹ بازگشت","o:subscriptions"]]]));
+      }
+      s.data.customerId=null;
+      s.data.customerUsername=username;
+      s.data.customerPendingVerification=true;
+    }
+
     s.data.step=2;
     session(uid,s.flow,s.data);
     return edit(msg.chat.id,msg.message_id,
-      "◈ انتخاب گروه\n\n✓ فروشنده تأیید شد\n⛂ آیدی : <code>"+customer.user_id+"</code>"+
-      "\n⛂ یوزرنیم : "+(customer.username?"@"+customer.username:"ثبت نشده")+
-      "\n\n⛂ لینک گروه را ارسال کنید\n\nعمومی و خصوصی هر دو قابل بررسی هستند."+
-      "\n\nمثال عمومی:\nhttps://t.me/GroupName\nمثال خصوصی:\nhttps://t.me/+XXXXXXXX",
+      Number.isSafeInteger(Number(s.data.customerId))&&Number(s.data.customerId)>0
+        ? "◈ انتخاب گروه\n\n✓ فروشنده تأیید شد\n⛂ آیدی : <code>"+Number(s.data.customerId)+"</code>"+
+          "\n⛂ یوزرنیم : "+(s.data.customerUsername?"@"+s.data.customerUsername:"ثبت نشده")+
+          "\n\n⛂ لینک گروه را ارسال کنید\n\nعمومی و خصوصی هر دو قابل بررسی هستند."+
+          "\n\nمثال عمومی:\nhttps://t.me/GroupName\nمثال خصوصی:\nhttps://t.me/+XXXXXXXX"
+        : "◈ انتخاب گروه\n\n✓ شناسه فروشنده تأیید اولیه شد\n⛂ یوزرنیم : @"+String(s.data.customerUsername)+
+          "\n\n⛂ لینک گروه را ارسال کنید تا فروشنده از فهرست ادمین‌های همان گروه نهایی تأیید شود.\n\nعمومی و خصوصی هر دو قابل بررسی هستند."+
+          "\n\nمثال عمومی:\nhttps://t.me/GroupName\nمثال خصوصی:\nhttps://t.me/+XXXXXXXX",
       menu([[["‹ بازگشت","o:subscriptions"]]])
     );
   }
