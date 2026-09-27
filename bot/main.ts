@@ -850,6 +850,14 @@ async function processMessage(msg: TgMessage, edited = false) {
     return;
   }
 
+  // Commands that open an interactive panel (moderation/lock/link) or handle
+  // a special live response may intentionally return null because they already
+  // sent/edited their own panel. The command message itself must still be
+  // removed, while ordinary sentences must never be removed.
+  if (!edited && isPanelCommandInvocation(msg.text || msg.caption || "")) {
+    await deleteCommandMessage(msg);
+  }
+
   // Studio commands are authoritative. Legacy slash/prefix commands are disabled.
   // Unknown text is ignored here so old command handlers cannot answer.
 }
