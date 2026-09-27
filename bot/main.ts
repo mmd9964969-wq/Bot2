@@ -755,6 +755,44 @@ async function processMessage(msg: TgMessage, edited = false) {
   const normalizedEntry = text.replace(/^[/!]/,"").trim().toLowerCase();
   const isConfigRequest = ["config","پیکربندی"].includes(normalizedEntry);
   const isPrivate = chat.type === "private";
+
+  // Mini App group-to-private bridge:
+  // group button -> t.me deep-link -> /start gameapp_<sessionId> in private chat
+  // -> private WebApp button (the only Telegram-supported context for web_app).
+  const gameAppMatch = isPrivate ? normalizedEntry.match(/^start\s+gameapp_(\d+)$/) : null;
+  if (isPrivate && gameAppMatch && studioPool) {
+    const sessionId = Number(gameAppMatch[1]);
+    if (Number.isSafeInteger(sessionId) && sessionId > 0) {
+      const rawBase = process.env.GAME_WEBAPP_URL || "";
+      const base = rawBase.endsWith("/") ? rawBase.slice(0,-1) : rawBase;
+      if (base) {
+        try {
+          await ensureEngineSchema(studioPool);
+          const session = (await studioPool.query<any>(
+            "SELECT id,game_code,status FROM game_sessions WHERE id=$1",
+            [sessionId]
+          )).rows[0];
+          if (session && session.status === "active") {
+            const gameName = getEngineGame(String(session.game_code))?.name || "بازی";
+            const appUrl = base + "/game/" + sessionId + "?code=" + encodeURIComponent(String(session.game_code));
+            await telegramApi("sendMessage", {
+              chat_id: chat.id,
+              text: "◈ "+gameName+"\n\nبرای اجرای بازی، دکمه زیر را بزنید.",
+              reply_markup: {
+                inline_keyboard: [
+                  [{text:"‹ اجرای "+gameName,web_app:{url:appUrl}}],
+                  [{text:"‹ مرکز بازی",callback_data:"game:center"}]
+                ]
+              }
+            });
+            return;
+          }
+        } catch (error) {
+          console.error("[game-app] launch bridge failed", error);
+        }
+      }
+    }
+  }
   // Private chat is normally disabled, but /config and «پیکربندی» are
   // explicitly supported as a group-selection entry point.
   if (isPrivate && !isConfigRequest) return;
