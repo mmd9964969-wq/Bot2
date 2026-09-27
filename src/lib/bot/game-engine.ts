@@ -177,12 +177,22 @@ function botMarkup(sessionId:number,code:string,userId:number,state:any,players:
   return {inline_keyboard:[[ {text:"‹ پایان بازی",callback_data:"game:engine:finish:"+s+":"+u},{text:"‹ وضعیت",callback_data:"game:engine:view:"+s+":"+u} ]]};
 }
 
-function miniMarkup(sessionId:number,code:string,userId:number){
+function miniMarkup(sessionId:number,code:string,userId:number,privateChat=false){
   const rawBase=process.env.GAME_WEBAPP_URL||""; const base=rawBase.endsWith("/")?rawBase.slice(0,-1):rawBase;
-  if(!base)return {inline_keyboard:[[ {text:"‹ شروع در Mini App",callback_data:"game:engine:finish:"+sessionId+":"+userId} ],[{text:"‹ مرکز بازی",callback_data:"game:center"}]]};
+  if(!base)return {inline_keyboard:[[ {text:"‹ آدرس Mini App",url:"https://t.me/Pers3anrobot?start=gameapp_"+sessionId} ],[{text:"‹ وضعیت بازی",callback_data:"game:engine:view:"+sessionId+":"+userId}]]};
+  const gameName=getEngineGame(code)?.name||"بازی";
   const url=base+"/game/"+sessionId+"?code="+encodeURIComponent(code);
+  // Telegram WebApp buttons are private-chat only. In groups we bridge through
+  // a /start deep-link, then render the real WebApp button in the private chat.
+  if(!privateChat){
+    return {inline_keyboard:[
+      [{text:"‹ باز کردن "+gameName,url:"https://t.me/Pers3anrobot?start=gameapp_"+sessionId}],
+      [{text:"‹ وضعیت بازی",callback_data:"game:engine:view:"+sessionId+":"+userId}],
+      [{text:"‹ مرکز بازی",callback_data:"game:center"}]
+    ]};
+  }
   return {inline_keyboard:[
-    [{text:"‹ اجرای "+(getEngineGame(code)?.name||"بازی"),web_app:{url}}],
+    [{text:"‹ اجرای "+gameName,web_app:{url}}],
     [{text:"‹ وضعیت بازی",callback_data:"game:engine:view:"+sessionId+":"+userId}],
     [{text:"‹ مرکز بازی",callback_data:"game:center"}]
   ]};
@@ -211,7 +221,7 @@ export async function engineView(pool:Pool,ctx:GameContext,sessionId:number){
   if(st.a&&st.b)detail="\n⛂ - مسئله : "+fa(st.a)+" "+st.op+" "+fa(st.b);
   if(st.text)detail="\n⛂ - متن آزمون : "+st.text;
   if(st.emoji)detail="\n⛂ - سرنخ : "+st.emoji;
-  return {text:["◈ "+g.name,"","⛂ - حالت : "+(s.mode==="multi"?"چندنفره آنلاین":"تک‌نفره"),"⛂ - وضعیت : "+(s.current_turn_user_id===ctx.userId?"نوبت شما":"در حال انتظار"),"⛂ - بازیکنان : "+names(v.players),detail,"","⛂ - سیستم نتیجه : برد / باخت / مساوی","⛂ - پاداش : جم · تجربه · رنک · کاپ · امتیاز"].join("\n"),replyMarkup:g.mode==="mini_app"?miniMarkup(sessionId,g.code,ctx.userId):botMarkup(sessionId,g.code,ctx.userId,st,v.players)};
+  return {text:["◈ "+g.name,"","⛂ - حالت : "+(s.mode==="multi"?"چندنفره آنلاین":"تک‌نفره"),"⛂ - وضعیت : "+(s.current_turn_user_id===ctx.userId?"نوبت شما":"در حال انتظار"),"⛂ - بازیکنان : "+names(v.players),detail,"","⛂ - سیستم نتیجه : برد / باخت / مساوی","⛂ - پاداش : جم · تجربه · رنک · کاپ · امتیاز"].join("\n"),replyMarkup:g.mode==="mini_app"?miniMarkup(sessionId,g.code,ctx.userId,ctx.chatId>0?false:true):botMarkup(sessionId,g.code,ctx.userId,st,v.players)};
 }
 
 async function settleEngine(pool:Pool,sessionId:number,outcomes:Array<{userId:number,result:"win"|"loss"|"draw",score:number,metadata?:any}>,reason="normal"){
