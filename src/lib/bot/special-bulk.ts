@@ -523,6 +523,8 @@ export async function handleSpecialBulkTextInput(pool:Pool,msg:TgMessage){
   }
 
   if(s.step==="duration"){
+    // Custom duration is also temporary panel input.
+    await telegramApi("deleteMessage",{chat_id:s.groupId,message_id:msg.message_id}).catch(()=>{});
     const raw=strip(messageText);
     const sec=parseDuration(raw);
     if(sec===null||(s.mode!=="set"&&sec===0)){
