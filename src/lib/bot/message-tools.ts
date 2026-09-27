@@ -24,7 +24,7 @@ type TgMessage={
 type TgCallback={id:string;from:TgUser;message?:TgMessage;data?:string};
 
 type ToolSession={
-  kind:"tag_assign"|"tag_create"|"tag_edit"|"tag_remove"|"tag_bulk"|"purge"|"pin_target";
+  kind:"tag_assign"|"tag_create"|"tag_edit"|"tag_remove"|"tag_bulk"|"tag_search"|"purge"|"pin_target";
   chatId:number;
   actorId:number;
   data:Record<string,any>;
@@ -186,6 +186,7 @@ export async function trackMessageAndActivity(pool:Pool,msg:TgMessage){
          last_message_id=EXCLUDED.last_message_id`,
       [msg.chat.id,msg.from.id,msg.from.username??null,msg.from.first_name??null,msg.message_id],
     );
+    await runAutoTagRules(pool,msg);
   }catch(e){console.error("[message-tools] tracking failed",e);}
 }
 
@@ -194,6 +195,31 @@ async function audit(pool:Pool,actorId:number,action:string,target:string,meta:a
     "INSERT INTO audit_logs(actor_id,action,target,after_data,source) VALUES($1,$2,$3,$4::jsonb,'message_tools')",
     [String(actorId),action,target,JSON.stringify(meta)],
   ).catch(()=>{});
+}
+
+async function runAutoTagRules(pool:Pool,msg:TgMessage){
+  if(msg.chat.type==="private"||!msg.from)return;
+  const groupId=msg.chat.id,userId=msg.from.id;
+  const rules=await pool.query<any>("SELECT id,trigger_type,tag_id FROM member_tag_rules WHERE group_id=$1 AND enabled=TRUE",[groupId]).catch(()=>({rows:[]}));
+  if(!rules.rows.length)return;
+  let admin=false,special=false;
+  for(const r of rules.rows){
+    if(r.trigger_type==="active"){
+      await ensureAssigned(pool,groupId,userId,Number(r.tag_id),userId).catch(()=>{});
+    }else if(r.trigger_type==="admin"){
+      if(!admin){
+        const x=await telegramApi<any>("getChatMember",{chat_id:groupId,user_id:userId}).catch(()=>null);
+        admin=!!(x?.ok&&["creator","administrator"].includes(String(x.result?.status||"")));
+      }
+      if(admin)await ensureAssigned(pool,groupId,userId,Number(r.tag_id),userId).catch(()=>{});
+    }else if(r.trigger_type==="special"){
+      if(!special){
+        const x=await pool.query("SELECT 1 FROM special_users WHERE group_id=$1 AND user_id=$2 AND status='active' AND (expires_at IS NULL OR expires_at>NOW()) LIMIT 1",[groupId,userId]).catch(()=>({rowCount:0}));
+        special=!!x.rowCount;
+      }
+      if(special)await ensureAssigned(pool,groupId,userId,Number(r.tag_id),userId).catch(()=>{});
+    }
+  }
 }
 
 async function ensureBuiltInTags(pool:Pool,groupId:number,actorId:number){
@@ -482,6 +508,7 @@ async function purgePreview(pool:Pool,chatId:number,filter:any){
   const where=["chat_id=$1"];const params:any[]=[chatId];let n=2;
   if(filter.userId){where.push("user_id=$"+n);params.push(filter.userId);n++;}
   if(filter.kind){where.push("kind=$"+n);params.push(filter.kind);n++;}
+  if(filter.media){where.push("kind IN ('photo','video','audio','document','animation','sticker','voice','video_note')");}
   if(filter.link){where.push("has_link=TRUE");}
   if(filter.since){where.push("created_at>=$"+n);params.push(filter.since);n++;}
   const q="SELECT message_id FROM bot_message_records WHERE "+where.join(" AND ")+" ORDER BY created_at DESC LIMIT "+Math.max(1,Math.min(100,Number(filter.limit||100)));
@@ -524,6 +551,16 @@ export async function handleMessageToolsText(pool:Pool,msg:TgMessage,ownerIds:st
       await pool.query("INSERT INTO member_tag_definitions(group_id,name,tag_type,description,created_by) VALUES($1,$2,'custom',$3,$4) ON CONFLICT(group_id,name) DO UPDATE SET enabled=TRUE,updated_at=NOW()",[chatId,name,"تگ سفارشی",uid]);
       clearSession(uid);
       if(panelId)return renderTagList(pool,chatId,uid,panelId).then(()=>true).catch(()=>true);
+      return true;
+    }
+    if(s.kind==="tag_search"){
+      const panelId=Number(s.data.panelId||0);
+      await del(chatId,msg.message_id);
+      const q=String(msg.text||"").trim();
+      const r=await pool.query<any>("SELECT id,name,tag_type,enabled FROM member_tag_definitions WHERE group_id=$1 AND name ILIKE $2 ORDER BY name LIMIT 30",[chatId,"%"+q+"%"]).catch(()=>({rows:[]}));
+      clearSession(uid);
+      const text="◈ Tᴀɢ · Sᴇᴀʀᴄʜ\n\n"+(r.rows.length?r.rows.map((x:any)=>"⛂ - "+x.name+" · "+x.tag_type+" · "+(x.enabled?"فعال":"خاموش")).join("\n"):"⛂ - نتیجه‌ای پیدا نشد.");
+      if(panelId)await sendPanel(pool,chatId,uid,text,[[["‹ بازگشت","mt:home"]]],panelId).catch(()=>{});
       return true;
     }
     if(s.kind==="tag_edit"){
@@ -701,7 +738,7 @@ export async function handleMessageToolsCallback(pool:Pool,cb:TgCallback,ownerId
     return renderTagCenter(pool,chatId,uid,cb.message.message_id).then(async()=>{await telegramApi("sendMessage",{chat_id:chatId,text:`✓ عملیات تگ دسته‌جمعی انجام شد : ${count} کاربر.`}).catch(()=>{});return true;});
   }
   if(data==="mt:search"){
-    setSession(uid,{kind:"tag_assign",chatId,actorId:uid,data:{searchOnly:true}});
+    setSession(uid,{kind:"tag_search",chatId,actorId:uid,data:{panelId:cb.message.message_id}});
     return sendPanel(pool,chatId,uid,"◈ جستجوی تگ\n\nنام تگ را ارسال کنید.",[[["‹ لغو","mt:cancel"]]],cb.message.message_id).then(()=>true);
   }
   if(data==="mt:rules")return sendPanel(pool,chatId,uid,"◈ Aᴜᴛᴏ Tᴀɢ Rᴜʟᴇs\n\nقوانین خودکار بر اساس فعالیت‌های قابل مشاهده قابل مدیریت هستند.",[
@@ -747,7 +784,7 @@ export async function handleMessageToolsCallback(pool:Pool,cb:TgCallback,ownerId
     if(a==="cancel") {clearSession(uid);return renderPurgeCenter(pool,chatId,uid,cb.message.message_id).then(()=>true);}
     if(a==="count"){setSession(uid,{kind:"purge",chatId,actorId:uid,data:{step:"count",filter:{}}});return sendPanel(pool,chatId,uid,"◈ پاکسازی بر اساس تعداد\n\nتعداد پیام را ارسال کنید. (۱ تا ۱۰۰)",[[["‹ لغو","purge:cancel"]]],cb.message.message_id).then(()=>true);}
     if(a==="user"){setSession(uid,{kind:"purge",chatId,actorId:uid,data:{step:"user",filter:{}}});return sendPanel(pool,chatId,uid,"◈ پاکسازی بر اساس کاربر\n\nآیدی عددی یا یوزرنیم را ارسال کنید.",[[["‹ لغو","purge:cancel"]]],cb.message.message_id).then(()=>true);}
-    if(a==="media"){setSession(uid,{kind:"purge",chatId,actorId:uid,data:{step:"confirm",filter:{kind:"photo"}}});const ids=await purgePreview(pool,chatId,{kind:"photo",limit:100});return sendPanel(pool,chatId,uid,"◈ Pᴜʀɢᴇ · رسانه\n\n⛂ - قابل حذف : "+ids.length,[[["✓ تأیید","purge:confirm"],["✕ لغو","purge:cancel"]]],cb.message.message_id).then(()=>true);}
+    if(a==="media"){setSession(uid,{kind:"purge",chatId,actorId:uid,data:{step:"confirm",filter:{media:true}}});const ids=await purgePreview(pool,chatId,{media:true,limit:100});return sendPanel(pool,chatId,uid,"◈ Pᴜʀɢᴇ · رسانه\n\n⛂ - قابل حذف : "+ids.length,[[["✓ تأیید","purge:confirm"],["✕ لغو","purge:cancel"]]],cb.message.message_id).then(()=>true);}
     if(a==="link"){setSession(uid,{kind:"purge",chatId,actorId:uid,data:{step:"confirm",filter:{link:true,limit:100}}});const ids=await purgePreview(pool,chatId,{link:true,limit:100});return sendPanel(pool,chatId,uid,"◈ Pᴜʀɢᴇ · لینک\n\n⛂ - قابل حذف : "+ids.length,[[["✓ تأیید","purge:confirm"],["✕ لغو","purge:cancel"]]],cb.message.message_id).then(()=>true);}
     if(a==="recent"){setSession(uid,{kind:"purge",chatId,actorId:uid,data:{step:"confirm",filter:{since:new Date(Date.now()-15*60000),limit:100}}});const ids=await purgePreview(pool,chatId,{since:new Date(Date.now()-15*60000),limit:100});return sendPanel(pool,chatId,uid,"◈ Pᴜʀɢᴇ · ۱۵ دقیقه اخیر\n\n⛂ - قابل حذف : "+ids.length,[[["✓ تأیید","purge:confirm"],["✕ لغو","purge:cancel"]]],cb.message.message_id).then(()=>true);}
     if(a==="time"){setSession(uid,{kind:"purge",chatId,actorId:uid,data:{step:"time",filter:{}}});return sendPanel(pool,chatId,uid,"◈ پاکسازی بر اساس بازه\n\nنمونه: 30 دقیقه / 2 ساعت / 1 روز",[[["‹ لغو","purge:cancel"]]],cb.message.message_id).then(()=>true);}
