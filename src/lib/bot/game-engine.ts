@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Pool } from "pg";
-import { telegramApi } from "@/lib/telegram/api";
+import { telegramApi } from "../telegram/api.ts";
 import type { GameContext } from "./game-core.ts";
 
 export type EngineMode="solo"|"multi";
