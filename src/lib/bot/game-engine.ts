@@ -241,6 +241,7 @@ async function settleEngine(pool:Pool,sessionId:number,outcomes:Array<{userId:nu
     }
     const winners=outcomes.filter(x=>x.result==="win");
     await client.query("UPDATE game_sessions SET status='finished',winner_id=$2,ended_at=NOW(),ended_reason=$3,result=$4::jsonb WHERE id=$1",[sessionId,winners[0]?.userId||null,reason,JSON.stringify({outcomes})]);
+    await client.query("UPDATE game_multiplayer_rooms SET status='finished',finished_at=NOW(),metadata=metadata||$1::jsonb WHERE metadata->>'session_id'=$2",[JSON.stringify({engine_status:"finished"}),String(sessionId)]);
     await client.query("COMMIT");
   }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e;}finally{client.release();}
 }
