@@ -26,7 +26,7 @@ export async function ensurePanelSessionSchema(pool:Pool){
         panel_kind TEXT NOT NULL DEFAULT 'panel',
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '30 minutes'),
+        expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '1 minute'),
         PRIMARY KEY (chat_id,message_id)
       )
     `).then(()=>undefined);
