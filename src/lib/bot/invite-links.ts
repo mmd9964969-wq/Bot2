@@ -465,8 +465,8 @@ async function pendingCount(pool: Pool, linkId: number) {
 }
 
 async function renderCurrent(pool: Pool, groupId: number, messageId: number, actorId: number) {
-  let rows = await getActiveLinks(pool, groupId);
-  let link = rows.find(x => x.is_primary && computedStatus(x) === "active");
+  const links = await getActiveLinks(pool, groupId);
+  let link = links.find(x => x.is_primary && computedStatus(x) === "active");
   if (!link) {
     const exported = await telegramApi<any>("exportChatInviteLink", { chat_id: groupId });
     if (!exported.ok || !exported.result) {
