@@ -34,7 +34,7 @@ const key=(g:number,u:number)=>g+":"+u;
 const norm=(s:string)=>String(s??"").trim().replace(/[\u200c\u200d]/g," ").replace(/\s+/g," ").toLowerCase();
 const fa=(x:number)=>String(x).replace(/\d/g,d=>"۰۱۲۳۴۵۶۷۸۹"[+d]??d);
 const league=(r:number)=>r>=2600?"افسانه":r>=2300?"استاد بزرگ":r>=2000?"استاد":r>=1750?"الماس":r>=1500?"پلاتینیوم":r>=1250?"طلا":r>=1000?"نقره":"برنز";
-const gameTitle=(code:string)=>({dice:"تاس",quiz:"کوییز",speed:"بازی سرعتی",guess:"حدس عدد",rps:"سنگ، کاغذ، قیچی",duel:"دوئل"} as Record<string,string>)[code]??code;
+const gameTitle=(code:string)=>({dice:"تاس",quiz:"کوییز",duel_dice:"دوئل تاس",speed:"بازی سرعتی",guess:"حدس عدد",rps:"سنگ، کاغذ، قیچی",duel:"دوئل"} as Record<string,string>)[code]??code;
 const resultTitle=(value:string)=>value==="win"?"برد":value==="loss"?"باخت":value==="draw"?"مساوی":value;
 const reasonTitle=(value:string)=>({"Game reward":"پاداش بازی","Achievement reward":"پاداش دستاورد","Mission reward":"پاداش مأموریت","Daily reward":"پاداش روزانه","Shop purchase":"خرید از فروشگاه","Admin grant":"اعطای جم توسط مدیر","Admin remove":"کسر جم توسط مدیر"} as Record<string,string>)[value]??value;
 const lvl=(x:number)=>Math.max(1,Math.floor(Math.sqrt(Math.max(0,x)/100))+1);
@@ -108,35 +108,200 @@ export function gameSectionKeyboard(section:string,userId:number){
   return {inline_keyboard:[[ {text:"‹ بازگشت به مرکز",callback_data:"game:back:"+s} ]]};
 }
 
+export async function createMultiplayerDice(ctx:GameContext):Promise<{text:string;replyMarkup:any}>{
+  await ensurePlayer(ctx.pool,ctx);
+  if(!(await enabled(ctx.pool,ctx.chatId))){
+    return {text:"✗ سیستم بازی در این گروه خاموش است.",replyMarkup:gameMultiKeyboard(ctx.userId)};
+  }
+  const old=(await ctx.pool.query<any>("SELECT id FROM game_multiplayer_matches WHERE group_id=$1 AND creator_id=$2 AND game_code='duel_dice' AND status='waiting' ORDER BY id DESC LIMIT 1",[ctx.chatId,ctx.userId])).rows[0];
+  if(old){
+    return {
+      text:"◈ دوئل تاس\n\n⛂ - وضعیت : در انتظار حریف\n⛂ - شناسه دوئل : #"+fa(+old.id)+"\n\nدوئل قبلی شما هنوز فعال است. بازیکن دوم می‌تواند با دکمه زیر وارد شود.",
+      replyMarkup:{inline_keyboard:[
+        [{text:"‹ پیوستن به دوئل",callback_data:"game:duel:join:"+old.id}],
+        [{text:"‹ لغو دوئل",callback_data:"game:duel:cancel:"+old.id+":"+ctx.userId}],
+        [{text:"‹ بازگشت به چندنفره",callback_data:"game:multi:"+ctx.userId}],
+      ]}
+    };
+  }
+  const r=await ctx.pool.query<{id:number}>(
+    "INSERT INTO game_multiplayer_matches(group_id,game_code,creator_id,status) VALUES($1,'duel_dice',$2,'waiting') RETURNING id",
+    [ctx.chatId,ctx.userId],
+  );
+  const id=Number(r.rows[0].id);
+  return {
+    text:["◈ دوئل تاس","","⛂ - وضعیت : در انتظار حریف","⛂ - شناسه دوئل : #"+fa(id),"⛂ - بازیکن اول : "+(ctx.user.firstName||ctx.user.username||ctx.userId),"","⛂ - برد : +۱۲۰ جم · +۱۵۰ تجربه · +۳۵ امتیاز","⛂ - باخت : +۳۰ جم · +۷۰ تجربه · −۱۵ امتیاز","","برای شروع، بازیکن دیگری باید به این دوئل بپیوندد."].join("\n"),
+    replyMarkup:{inline_keyboard:[
+      [{text:"‹ پیوستن به دوئل",callback_data:"game:duel:join:"+id}],
+      [{text:"‹ لغو دوئل",callback_data:"game:duel:cancel:"+id+":"+ctx.userId}],
+      [{text:"‹ بازگشت به چندنفره",callback_data:"game:multi:"+ctx.userId}],
+    ]}
+  };
+}
+
+export async function listMultiplayerDice(ctx:GameContext):Promise<{text:string;replyMarkup:any}>{
+  await ensurePlayer(ctx.pool,ctx);
+  const rows=(await ctx.pool.query<any>(
+    "SELECT m.id,m.creator_id,COALESCE(p.first_name,p.username,m.creator_id::text) creator_name FROM game_multiplayer_matches m LEFT JOIN game_players p ON p.group_id=m.group_id AND p.user_id=m.creator_id WHERE m.group_id=$1 AND m.game_code='duel_dice' AND m.status='waiting' ORDER BY m.created_at ASC LIMIT 8",
+    [ctx.chatId],
+  )).rows;
+  if(!rows.length){
+    return {text:"◈ دوئل‌های در انتظار\n\nدر حال حاضر دوئل آماده‌ای برای پیوستن وجود ندارد.\n\nمی‌توانید یک دوئل جدید بسازید.",replyMarkup:{inline_keyboard:[
+      [{text:"‹ ساخت دوئل تاس",callback_data:"game:duel:new:"+ctx.userId}],
+      [{text:"‹ بازگشت به چندنفره",callback_data:"game:multi:"+ctx.userId}],
+    ]}};
+  }
+  return {
+    text:["◈ دوئل‌های در انتظار","","بازیکن موردنظر را انتخاب کنید و وارد دوئل شوید.","",...rows.map((x:any,i:number)=>
+      String(i+1).padStart(2,"0")+" · "+(x.creator_name||String(x.creator_id))+" · دوئل تاس · #"+fa(+x.id)
+    )].join("\n"),
+    replyMarkup:{inline_keyboard:[
+      ...rows.map((x:any)=>[{text:"‹ پیوستن به #"+fa(+x.id),callback_data:"game:duel:join:"+x.id}]),
+      [{text:"‹ ساخت دوئل جدید",callback_data:"game:duel:new:"+ctx.userId}],
+      [{text:"‹ بازگشت به چندنفره",callback_data:"game:multi:"+ctx.userId}],
+    ]}
+  };
+}
+
+export async function cancelMultiplayerDice(ctx:GameContext,sessionId:number):Promise<{text:string;replyMarkup:any}>{
+  const r=await ctx.pool.query(
+    "UPDATE game_multiplayer_matches SET status='cancelled',finished_at=NOW() WHERE id=$1 AND group_id=$2 AND creator_id=$3 AND status='waiting' RETURNING id",
+    [sessionId,ctx.chatId,ctx.userId],
+  );
+  if(!r.rowCount)return {text:"✗ این دوئل دیگر قابل لغو نیست.",replyMarkup:gameMultiKeyboard(ctx.userId)};
+  return {text:"✓ دوئل #"+fa(sessionId)+" لغو شد و هیچ پاداشی ثبت نشد.",replyMarkup:gameMultiKeyboard(ctx.userId)};
+}
+
+export async function joinMultiplayerDice(ctx:GameContext,sessionId:number):Promise<{text:string;replyMarkup:any}>{
+  await ensurePlayer(ctx.pool,ctx);
+  if(!(await enabled(ctx.pool,ctx.chatId)))return {text:"✗ سیستم بازی در این گروه خاموش است.",replyMarkup:gameMultiKeyboard(ctx.userId)};
+
+  const client=await ctx.pool.connect();
+  let match:any;
+  try{
+    await client.query("BEGIN");
+    const q=await client.query<any>("SELECT * FROM game_multiplayer_matches WHERE id=$1 AND group_id=$2 FOR UPDATE",[sessionId,ctx.chatId]);
+    match=q.rows[0];
+    if(!match){
+      await client.query("ROLLBACK");
+      return {text:"✗ این دوئل پیدا نشد.",replyMarkup:gameMultiKeyboard(ctx.userId)};
+    }
+    if(match.creator_id===ctx.userId){
+      await client.query("ROLLBACK");
+      return {text:"⛂ - شما سازنده‌ی این دوئل هستید؛ برای شروع به حریف دیگری نیاز است.",replyMarkup:{inline_keyboard:[
+        [{text:"‹ بازگشت",callback_data:"game:multi:"+ctx.userId}]
+      ]}};
+    }
+    if(match.status!=="waiting"){
+      await client.query("ROLLBACK");
+      return {text:"⛂ - این دوئل قبلاً شروع یا تمام شده است.",replyMarkup:gameMultiKeyboard(ctx.userId)};
+    }
+    const cr=1+Math.floor(Math.random()*6);
+    let or=1+Math.floor(Math.random()*6);
+    while(or===cr)or=1+Math.floor(Math.random()*6);
+    const creatorWins=cr>or;
+    await client.query(
+      "UPDATE game_multiplayer_matches SET opponent_id=$1,status='active',creator_roll=$2,opponent_roll=$3,started_at=NOW() WHERE id=$4",
+      [ctx.userId,cr,or,sessionId],
+    );
+    match.opponent_id=ctx.userId;
+    match.creator_roll=cr;
+    match.opponent_roll=or;
+    match.status="active";
+    await client.query("COMMIT");
+    match.creatorWins=creatorWins;
+  }catch(error){
+    await client.query("ROLLBACK").catch(()=>{});
+    throw error;
+  }finally{
+    client.release();
+  }
+
+  const creator=(await ctx.pool.query<any>("SELECT first_name,username FROM game_players WHERE group_id=$1 AND user_id=$2",[ctx.chatId,match.creator_id])).rows[0]??{};
+  const creatorName=creator.first_name||creator.username||String(match.creator_id);
+  const opponentName=ctx.user.firstName||ctx.user.username||String(ctx.userId);
+
+  const creatorCtx:GameContext={
+    ...ctx,
+    userId:Number(match.creator_id),
+    user:{id:Number(match.creator_id),username:creator.username,firstName:creator.first_name},
+    replyToUserId:undefined,
+    replyToName:undefined,
+  };
+  const opponentCtx:GameContext=ctx;
+
+  const winnerId=match.creatorWins?Number(match.creator_id):ctx.userId;
+  const winnerRoll=match.creatorWins?Number(match.creator_roll):Number(match.opponent_roll);
+  const loserId=match.creatorWins?ctx.userId:Number(match.creator_id);
+
+  try{
+    const creatorResult=await record(ctx.pool,creatorCtx,"duel_dice",winnerId===Number(match.creator_id),winnerId===Number(match.creator_id)?150:70,winnerId===Number(match.creator_id)?120:30,winnerId===Number(match.creator_id)?35:-15,{mode:"multiplayer",session_id:sessionId,roll:Number(match.creator_roll),opponent_id:ctx.userId});
+    const opponentResult=await record(ctx.pool,opponentCtx,"duel_dice",winnerId===ctx.userId,winnerId===ctx.userId?150:70,winnerId===ctx.userId?120:30,winnerId===ctx.userId?35:-15,{mode:"multiplayer",session_id:sessionId,roll:Number(match.opponent_roll),opponent_id:Number(match.creator_id)});
+    await ctx.pool.query(
+      "UPDATE game_multiplayer_matches SET status='finished',winner_id=$1,creator_xp=$2,opponent_xp=$3,creator_gems=$4,opponent_gems=$5,creator_rating_delta=$6,opponent_rating_delta=$7,finished_at=NOW() WHERE id=$8",
+      [winnerId, winnerId===Number(match.creator_id)?150:70, winnerId===ctx.userId?150:70, winnerId===Number(match.creator_id)?120:30, winnerId===ctx.userId?120:30, winnerId===Number(match.creator_id)?35:-15, winnerId===ctx.userId?35:-15, sessionId],
+    );
+    const winnerLabel=winnerId===Number(match.creator_id)?creatorName:opponentName;
+    return {
+      text:[
+        "◈ نتیجه دوئل تاس",
+        "",
+        "⛂ - بازیکن اول : "+creatorName+" · "+fa(+match.creator_roll),
+        "⛂ - بازیکن دوم : "+opponentName+" · "+fa(+match.opponent_roll),
+        "",
+        "⛂ - برنده : "+winnerLabel,
+        "⛂ - نتیجه شما : "+(winnerId===ctx.userId?"برد":"باخت"),
+        "⛂ - پاداش شما : +"+fa(winnerId===ctx.userId?120:30)+" جم",
+        "⛂ - تجربه شما : +"+fa(winnerId===ctx.userId?150:70),
+        "⛂ - تغییر امتیاز شما : "+(winnerId===ctx.userId?"+":"−")+fa(winnerId===ctx.userId?35:15),
+        "",
+        "دوئل برای هر دو بازیکن در تاریخچه ثبت شد."
+      ].join("\n"),
+      replyMarkup:{inline_keyboard:[
+        [{text:"‹ دوئل جدید",callback_data:"game:duel:new"},{text:"‹ دوئل‌های در انتظار",callback_data:"game:duel:list"}],
+        [{text:"‹ مرکز بازی",callback_data:"game:center"}],
+      ]}
+    };
+  }catch(error){
+    await ctx.pool.query("UPDATE game_multiplayer_matches SET status='cancelled',finished_at=NOW(),metadata=metadata||'{}'::jsonb||$1::jsonb WHERE id=$2",[JSON.stringify({error:String((error as any)?.message??error)}),sessionId]);
+    throw error;
+  }
+}
+
 export async function handleGameCallback(ctx:GameContext,data:string):Promise<{text:string;replyMarkup:any}|null>{
   const parts=String(data).split(":");
   if(parts[0]!=="game")return null;
   const action=parts[1]??"";
 
-  // Public multiplayer actions intentionally do not require the original panel owner.
+  if(action==="center")return {text:await center(ctx.pool,ctx),replyMarkup:gameCenterKeyboard(ctx.userId)};
+
   if(action==="duel"){
     const sub=parts[2]??"";
-    const sessionId=Number(parts[3]??0);
-    if(sub==="join")return await joinMultiplayerDice(ctx,sessionId);
+    if(sub==="join")return await joinMultiplayerDice(ctx,Number(parts[3]??0));
     if(sub==="cancel"){
-      const creatorId=Number(parts[3]??0);
+      const sessionId=Number(parts[3]??0),creatorId=Number(parts[4]??0);
       if(creatorId!==ctx.userId)return {text:"⛂ - فقط سازنده‌ی این دوئل می‌تواند آن را لغو کند.",replyMarkup:{inline_keyboard:[]}};
       return await cancelMultiplayerDice(ctx,sessionId);
     }
     if(sub==="new"){
       const owner=Number(parts[3]??0);
-      if(owner!==ctx.userId)return {text:"⛂ - این پنل متعلق به بازیکن دیگری است.",replyMarkup:{inline_keyboard:[]}};
+      if(owner && owner!==ctx.userId)return {text:"⛂ - این پنل متعلق به بازیکن دیگری است.",replyMarkup:{inline_keyboard:[]}};
       return await createMultiplayerDice(ctx);
     }
     if(sub==="list"){
       const owner=Number(parts[3]??0);
-      if(owner!==ctx.userId)return {text:"⛂ - این پنل متعلق به بازیکن دیگری است.",replyMarkup:{inline_keyboard:[]}};
+      if(owner && owner!==ctx.userId)return {text:"⛂ - این پنل متعلق به بازیکن دیگری است.",replyMarkup:{inline_keyboard:[]}};
       return await listMultiplayerDice(ctx);
     }
   }
 
   const ownerId=Number(parts[2]??0);
-  if(!Number.isSafeInteger(ownerId)||ownerId<=0||ownerId!==ctx.userId){
+  const hasOwner=Number.isSafeInteger(ownerId)&&ownerId>0;
+  if(!hasOwner&&["play","single","multi","progress","stats","achievements","inventory","wallet","shop","missions","leaderboard","rewards","history","help","settings","profile","back"].includes(action)){
+    parts.push(String(ctx.userId));
+  }
+  const boundOwner=Number(parts[2]??0);
+  if(!Number.isSafeInteger(boundOwner)||boundOwner<=0||boundOwner!==ctx.userId){
     return {text:"⛂ - این پنل متعلق به بازیکن دیگری است. برای مشاهده پنل خود، دستور «بازی» را ارسال کنید.",replyMarkup:{inline_keyboard:[]}};
   }
 
@@ -150,14 +315,16 @@ export async function handleGameCallback(ctx:GameContext,data:string):Promise<{t
     return {text:result,replyMarkup:gameResultKeyboard(ctx.userId)};
   }
   if(action==="single"){
-    return {text:"◈ بازی‌های تک‌نفره\n\nبازی‌های سریع برای تمرین و افزایش تدریجی تجربه طراحی شده‌اند.\n\n⛂ - تاس : فعال\n⛂ - کوییز : فعال\n\nضریب پاداش و امتیاز این بخش کمتر از بازی‌های چندنفره است.",replyMarkup:gameSingleKeyboard(ctx.userId)};
+    return {text:"◈ بازی‌های تک‌نفره\n\n⛂ - تاس : فعال\n⛂ - کوییز : فعال\n⛂ - پاداش : پایه\n⛂ - امتیاز : پایه\n\nاین بخش برای بازی سریع و پیشرفت تدریجی طراحی شده است.",replyMarkup:gameSingleKeyboard(ctx.userId)};
   }
   if(action==="multi"){
-    return {text:"◈ بازی‌های چندنفره\n\nدر این بخش با بازیکنان دیگر رقابت می‌کنید.\n\n⛂ - دوئل تاس : فعال\n⛂ - پاداش : بالاتر از تک‌نفره\n⛂ - امتیاز رقابتی : اعمال می‌شود\n⛂ - بازی نوبتی : به‌زودی\n⛂ - تورنمنت : به‌زودی",replyMarkup:gameMultiKeyboard(ctx.userId)};
+    if(parts[2]==="rules"){
+      return {text:"◈ قوانین چندنفره\n\n⛂ - هر دو بازیکن یک نوبت ثبت می‌کنند.\n⛂ - برنده پاداش، تجربه و امتیاز رقابتی بیشتری می‌گیرد.\n⛂ - نتیجه برای هر دو بازیکن ذخیره می‌شود.\n⛂ - دوئل‌های بدون حریف پاداشی ندارند.\n⛂ - لغو دوئل قبل از شروع، بدون پاداش است.",replyMarkup:gameMultiKeyboard(ctx.userId)};
+    }
+    return {text:"◈ بازی‌های چندنفره\n\n⛂ - دوئل تاس : فعال\n⛂ - بازی‌های نوبتی : به‌زودی\n⛂ - تورنمنت : به‌زودی\n\nدر چندنفره، پاداش و امتیاز از تک‌نفره بالاتر است.",replyMarkup:gameMultiKeyboard(ctx.userId)};
   }
   if(action==="dice")return {text:await dice(ctx.pool,ctx),replyMarkup:gameResultKeyboard(ctx.userId)};
   if(action==="quiz")return {text:await startQuiz(ctx.pool,ctx),replyMarkup:gameSectionKeyboard("single",ctx.userId)};
-  if(action==="multi" && parts[2]==="rules")return {text:"◈ قوانین چندنفره\n\n⛂ - هر دو بازیکن یک نوبت ثبت می‌کنند.\n⛂ - برنده جم، تجربه و امتیاز رقابتی بیشتری دریافت می‌کند.\n⛂ - نتیجه هر دو بازیکن در سابقه بازی ثبت می‌شود.\n⛂ - نتیجه بازی با شناسه جلسه ذخیره می‌شود.\n⛂ - در صورت لغو، پاداشی ثبت نمی‌شود.",replyMarkup:gameMultiKeyboard(ctx.userId)};
   if(action==="profile")return {text:await profile(ctx.pool,ctx,ctx.userId),replyMarkup:gameProfileKeyboard(ctx.userId)};
   if(action==="progress"){
     const p=(await ctx.pool.query<any>("SELECT level,xp FROM game_players WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId])).rows[0];
