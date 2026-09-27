@@ -1,4 +1,5 @@
 import type { Pool } from "pg";
+import { getEngineGame, handleEngineCallback, startEngineFromRoom } from "./game-engine.ts";
 
 export type GameUser={id:number;username?:string;firstName?:string};
 export type GameContext={pool:Pool;chatId:number;userId:number;user:GameUser;isAdmin:boolean;replyToUserId?:number;replyToName?:string};
@@ -34,47 +35,47 @@ const key=(g:number,u:number)=>g+":"+u;
 const norm=(s:string)=>String(s??"").trim().replace(/[\u200c\u200d]/g," ").replace(/\s+/g," ").toLowerCase();
 const fa=(x:number)=>String(x).replace(/\d/g,d=>"۰۱۲۳۴۵۶۷۸۹"[+d]??d);
 const league=(r:number)=>r>=2600?"افسانه":r>=2300?"استاد بزرگ":r>=2000?"استاد":r>=1750?"الماس":r>=1500?"پلاتینیوم":r>=1250?"طلا":r>=1000?"نقره":"برنز";
-const GAME_CATALOG={
+export const GAME_CATALOG={
   single:[
     {code:"quiz",name:"کوییز",mode:"Bot",status:"active"},
-    {code:"guess_number",name:"حدس عدد",mode:"Bot",status:"planned"},
-    {code:"rps_ai",name:"سنگ، کاغذ، قیچی با هوش مصنوعی",mode:"Bot",status:"planned"},
-    {code:"true_false",name:"درست یا غلط",mode:"Bot",status:"planned"},
-    {code:"word_guess",name:"حدس کلمه",mode:"Bot",status:"planned"},
-    {code:"hidden_word",name:"کلمه پنهان",mode:"Bot",status:"planned"},
-    {code:"word_chain",name:"زنجیره کلمات",mode:"Bot",status:"planned"},
-    {code:"sudoku",name:"سودوکو",mode:"Mini App",status:"planned"},
-    {code:"minesweeper",name:"مین‌روب",mode:"Mini App",status:"planned"},
-    {code:"2048",name:"۲۰۴۸",mode:"Mini App",status:"planned"},
-    {code:"fifteen",name:"پازل ۱۵",mode:"Mini App",status:"planned"},
-    {code:"snake",name:"مار",mode:"Mini App",status:"planned"},
-    {code:"maze",name:"لابیرنت",mode:"Mini App",status:"planned"},
-    {code:"target",name:"شکار هدف",mode:"Mini App",status:"planned"},
-    {code:"obstacles",name:"پرش از موانع",mode:"Mini App",status:"planned"},
-    {code:"tower",name:"برج‌سازی",mode:"Mini App",status:"planned"},
-    {code:"shooting",name:"تیراندازی به هدف",mode:"Mini App",status:"planned"},
-    {code:"tic_tac_toe_ai",name:"دوز مقابل ربات",mode:"Mini App",status:"planned"},
+    {code:"guess_number",name:"حدس عدد",mode:"Bot",status:"active"},
+    {code:"rps_ai",name:"سنگ، کاغذ، قیچی با هوش مصنوعی",mode:"Bot",status:"active"},
+    {code:"true_false",name:"درست یا غلط",mode:"Bot",status:"active"},
+    {code:"word_guess",name:"حدس کلمه",mode:"Bot",status:"active"},
+    {code:"hidden_word",name:"کلمه پنهان",mode:"Bot",status:"active"},
+    {code:"word_chain",name:"زنجیره کلمات",mode:"Bot",status:"active"},
+    {code:"sudoku",name:"سودوکو",mode:"Mini App",status:"active"},
+    {code:"minesweeper",name:"مین‌روب",mode:"Mini App",status:"active"},
+    {code:"2048",name:"۲۰۴۸",mode:"Mini App",status:"active"},
+    {code:"fifteen",name:"پازل ۱۵",mode:"Mini App",status:"active"},
+    {code:"snake",name:"مار",mode:"Mini App",status:"active"},
+    {code:"maze",name:"لابیرنت",mode:"Mini App",status:"active"},
+    {code:"target",name:"شکار هدف",mode:"Mini App",status:"active"},
+    {code:"obstacles",name:"پرش از موانع",mode:"Mini App",status:"active"},
+    {code:"tower",name:"برج‌سازی",mode:"Mini App",status:"active"},
+    {code:"shooting",name:"تیراندازی به هدف",mode:"Mini App",status:"active"},
+    {code:"tic_tac_toe_ai",name:"دوز مقابل ربات",mode:"Mini App",status:"active"},
   ],
   multi:[
     {code:"duel_dice",name:"دوئل تاس",mode:"Bot",status:"active"},
-    {code:"rps",name:"سنگ، کاغذ، قیچی",mode:"Bot",status:"planned"},
-    {code:"quiz_duel",name:"کوییز رقابتی",mode:"Bot",status:"planned"},
-    {code:"chess",name:"شطرنج",mode:"Mini App",status:"planned"},
-    {code:"checkers",name:"چکرز",mode:"Mini App",status:"planned"},
-    {code:"battleship",name:"نبرد ناوگان",mode:"Mini App",status:"planned"},
-    {code:"word_duel",name:"حدس کلمه دوئلی",mode:"Bot",status:"planned"},
-    {code:"math_battle",name:"جنگ ریاضی",mode:"Bot",status:"planned"},
-    {code:"typing_speed",name:"سرعت تایپ",mode:"Bot / Mini App",status:"planned"},
-    {code:"reaction",name:"مسابقه واکنش",mode:"Bot / Mini App",status:"planned"},
-    {code:"memory_duel",name:"حافظه رقابتی",mode:"Mini App",status:"planned"},
-    {code:"bingo",name:"بینگو",mode:"Mini App",status:"planned"},
-    {code:"draw_guess",name:"نقاشی و حدس",mode:"Mini App",status:"planned"},
-    {code:"emoji_guess",name:"حدس ایموجی",mode:"Bot / Mini App",status:"planned"},
-    {code:"trivia",name:"مسابقه اطلاعات عمومی",mode:"Bot / Mini App",status:"planned"},
-    {code:"territory",name:"نبرد منطقه‌ای",mode:"Mini App",status:"planned"},
-    {code:"mini_golf",name:"مینی‌گلف",mode:"Mini App",status:"planned"},
-    {code:"survival",name:"مسابقه بقا",mode:"Mini App",status:"planned"},
-    {code:"treasure_hunt",name:"شکار گنج دونفره",mode:"Mini App",status:"planned"},
+    {code:"rps",name:"سنگ، کاغذ، قیچی",mode:"Bot",status:"active"},
+    {code:"quiz_duel",name:"کوییز رقابتی",mode:"Bot",status:"active"},
+    {code:"chess",name:"شطرنج",mode:"Mini App",status:"active"},
+    {code:"checkers",name:"چکرز",mode:"Mini App",status:"active"},
+    {code:"battleship",name:"نبرد ناوگان",mode:"Mini App",status:"active"},
+    {code:"word_duel",name:"حدس کلمه دوئلی",mode:"Bot",status:"active"},
+    {code:"math_battle",name:"جنگ ریاضی",mode:"Bot",status:"active"},
+    {code:"typing_speed",name:"سرعت تایپ",mode:"Bot / Mini App",status:"active"},
+    {code:"reaction",name:"مسابقه واکنش",mode:"Bot / Mini App",status:"active"},
+    {code:"memory_duel",name:"حافظه رقابتی",mode:"Mini App",status:"active"},
+    {code:"bingo",name:"بینگو",mode:"Mini App",status:"active"},
+    {code:"draw_guess",name:"نقاشی و حدس",mode:"Mini App",status:"active"},
+    {code:"emoji_guess",name:"حدس ایموجی",mode:"Bot / Mini App",status:"active"},
+    {code:"trivia",name:"مسابقه اطلاعات عمومی",mode:"Bot / Mini App",status:"active"},
+    {code:"territory",name:"نبرد منطقه‌ای",mode:"Mini App",status:"active"},
+    {code:"mini_golf",name:"مینی‌گلف",mode:"Mini App",status:"active"},
+    {code:"survival",name:"مسابقه بقا",mode:"Mini App",status:"active"},
+    {code:"treasure_hunt",name:"شکار گنج دونفره",mode:"Mini App",status:"active"},
   ],
 } as const;
 
@@ -126,11 +127,12 @@ function catalogGameKeyboard(kind:"single"|"multi",code:string,userId:number){
     ]};
   }
   if(kind==="single"&&g.status==="active"){
-    if(g.code==="quiz")return {inline_keyboard:[
-      [{text:"‹ شروع بازی",callback_data:"game:quiz:"+userId}],
+    const engine=getEngineGame(code);
+    return {inline_keyboard:[
+      [{text:"‹ شروع "+g.name,callback_data:"game:engine:start:0:"+g.code+":"+userId}],
+      ...(engine?.mode==="mini_app" ? [[{text:"‹ اجرای Mini App",callback_data:"game:engine:start:0:"+g.code+":"+userId}]] : []),
       [{text:"‹ بازگشت به بازی‌ها",callback_data:"game:catalog:single:1:"+userId}],
     ]};
-    return {inline_keyboard:[[{text:"‹ بازگشت به بازی‌ها",callback_data:"game:catalog:single:1:"+userId}]]};
   }
   return {inline_keyboard:[[{text:"‹ بازگشت به بازی‌ها",callback_data:"game:catalog:"+kind+":1:"+userId}]]};
 }
@@ -379,7 +381,13 @@ async function startGameRoom(ctx:GameContext,roomId:number){
   const {room,players}=state;
   if(Number(room.host_id)!==ctx.userId)return {text:"⛂ - فقط سازنده اتاق می‌تواند بازی را شروع کند.",replyMarkup:await roomView(ctx.pool,ctx,roomId).then(x=>x.replyMarkup)};
   if(room.status!=="ready"||players.length<Number(room.max_players))return {text:"⛂ - هنوز ظرفیت اتاق کامل نشده است.",replyMarkup:await roomView(ctx.pool,ctx,roomId).then(x=>x.replyMarkup)};
-  if(room.game_code!=="duel_dice")return {text:"⛂ - موتور این بازی هنوز به اتاق متصل نشده است.",replyMarkup:await roomView(ctx.pool,ctx,roomId).then(x=>x.replyMarkup)};
+  const playerIds=players.map((p:any)=>Number(p.user_id));
+  if(playerIds.length===2){
+    const generic=await startEngineFromRoom(ctx.pool,ctx,roomId,ctx.chatId,String(room.game_code),playerIds).catch(error=>null);
+    if(generic){
+      return generic;
+    }
+  }
   const locked=await ctx.pool.connect();
   let creator:any,opponent:any,matchId=0;
   try{
@@ -668,6 +676,12 @@ export async function handleGameCallback(ctx:GameContext,data:string):Promise<{t
     }
   }
 
+  if(action==="engine"){
+    const owner=Number(parts[parts.length-1]??0);
+    if(owner && owner!==ctx.userId)return {text:"⛂ - این بازی متعلق به بازیکن دیگری است.",replyMarkup:{inline_keyboard:[]}};
+    return await handleEngineCallback(ctx,parts);
+  }
+
   if(action==="room"){
     const sub=parts[2]??"";
     if(sub==="locked")return {text:"⛂ - این بازی هنوز به موتور اتاق آنلاین متصل نشده است.",replyMarkup:gameMultiKeyboard(ctx.userId)};
@@ -766,10 +780,10 @@ export async function handleGameCallback(ctx:GameContext,data:string):Promise<{t
     return {text:result,replyMarkup:gameResultKeyboard(ctx.userId)};
   }
   if(action==="single"){
-    return {text:"◈ بازی‌های تک‌نفره\n\n⛂ - بازی‌های ثبت‌شده : "+fa(GAME_CATALOG.single.length)+"\n⛂ - Bot : بازی‌های سبک و سریع\n⛂ - Mini App : بازی‌های گرافیکی\n⛂ - پاداش : پایه\n\nفهرست بازی‌ها صفحه‌بندی شده تا انتخاب سریع و مرتب باقی بماند.",replyMarkup:gameSingleKeyboard(ctx.userId)};
+    return {text:"◈ بازی‌های تک‌نفره\n\n⛂ - بازی‌های ثبت‌شده : "+fa(GAME_CATALOG.single.length)+"\n⛂ - Bot : بازی‌های تعاملی و سریع\n⛂ - Mini App : بازی‌های گرافیکی و رقابتی\n⛂ - پاداش : پایه\n\nفهرست بازی‌ها صفحه‌بندی شده تا انتخاب سریع و مرتب باقی بماند.",replyMarkup:gameSingleKeyboard(ctx.userId)};
   }
   if(action==="multi"){
-    return {text:"◈ بازی‌های چندنفره\n\n⛂ - بازی‌های آنلاین : "+fa(GAME_CATALOG.multi.length)+"\n⛂ - اتاق آنلاین : فعال\n⛂ - بازی‌های Bot : قابل توسعه\n⛂ - بازی‌های Mini App : قابل توسعه\n\nهر اتاق به همین گروه محدود است؛ بازیکن وارد اتاق می‌شود و پس از تکمیل ظرفیت، سازنده آن را شروع می‌کند.",replyMarkup:gameMultiKeyboard(ctx.userId)};
+    return {text:"◈ بازی‌های چندنفره\n\n⛂ - بازی‌های آنلاین : "+fa(GAME_CATALOG.multi.length)+"\n⛂ - اتاق آنلاین : فعال\n⛂ - Bot : فعال\n⛂ - Mini App : فعال\n⛂ - سیستم نوبت : مشترک\n⛂ - پاداش و رنک و کاپ : مشترک\n\nهر اتاق به همین گروه محدود است؛ بازیکن وارد اتاق می‌شود و پس از تکمیل ظرفیت، سازنده آن را شروع می‌کند.",replyMarkup:gameMultiKeyboard(ctx.userId)};
   }
   if(action==="dice")return {text:await dice(ctx.pool,ctx),replyMarkup:gameResultKeyboard(ctx.userId)};
   if(action==="quiz")return {text:await startQuiz(ctx.pool,ctx),replyMarkup:gameSectionKeyboard("single",ctx.userId)};
@@ -893,11 +907,11 @@ async function profile(pool:Pool,ctx:GameContext,id:number,name?:string){
   await ensurePlayer(pool,ctx,id,id===ctx.userId?ctx.user:{id,firstName:name});const p=(await pool.query<any>("SELECT * FROM game_players WHERE group_id=$1 AND user_id=$2",[ctx.chatId,id])).rows[0];
   const l=+p.level,x=+p.xp,g=+p.gems,r=+p.rating,w=+p.wins,lo=+p.losses,ga=+p.total_games,rate=ga?((w/ga)*100).toFixed(1):"0.0",ac=Number((await pool.query("SELECT COUNT(*)::int n FROM game_player_achievements WHERE group_id=$1 AND user_id=$2",[ctx.chatId,id])).rows[0]?.n||0);
   const inv=Number((await pool.query("SELECT COALESCE(SUM(quantity),0)::int n FROM game_inventory WHERE group_id=$1 AND user_id=$2",[ctx.chatId,id])).rows[0]?.n||0);
-  const nameOut=p.first_name||name||String(id);return ["◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · پروفایل بازی","","⛂ - نام : "+nameOut,"⛂ - نام کاربری : "+(p.username?"@"+p.username:"—"),"⛂ - شناسه : "+id,"","─────━━───── ◈ ─────━━─────","","⛂ - سطح : "+fa(l),"⛂ - تجربه : "+fa(x),"⛂ - پیشرفت : ["+bar(x,l)+"] "+fa(progressPercent(x,l))+"٪","⛂ - جم : "+fa(g),"⛂ - لیگ : "+league(r),"⛂ - امتیاز رقابتی : "+fa(r),"","⛂ - بازی‌ها : "+fa(ga),"⛂ - برد : "+fa(w),"⛂ - باخت : "+fa(lo),"⛂ - درصد برد : "+fa(Number(rate))+"٪","⛂ - زنجیره فعلی : "+fa(+p.current_streak),"⛂ - بهترین زنجیره : "+fa(+p.best_streak),"","⛂ - دستاوردها : "+fa(ac),"⛂ - آیتم‌ها : "+fa(inv)].join("\n");
+  const nameOut=p.first_name||name||String(id);return ["◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · پروفایل بازی","","⛂ - نام : "+nameOut,"⛂ - نام کاربری : "+(p.username?"@"+p.username:"—"),"⛂ - شناسه : "+id,"","─────━━───── ◈ ─────━━─────","","⛂ - سطح : "+fa(l),"⛂ - تجربه : "+fa(x),"⛂ - پیشرفت : ["+bar(x,l)+"] "+fa(progressPercent(x,l))+"٪","⛂ - جم : "+fa(g),"⛂ - کاپ : "+fa(+p.cups),"⛂ - لیگ : "+league(r),"⛂ - امتیاز رقابتی : "+fa(r),"","⛂ - بازی‌ها : "+fa(ga),"⛂ - برد : "+fa(w),"⛂ - باخت : "+fa(lo),"⛂ - درصد برد : "+fa(Number(rate))+"٪","⛂ - زنجیره فعلی : "+fa(+p.current_streak),"⛂ - بهترین زنجیره : "+fa(+p.best_streak),"","⛂ - دستاوردها : "+fa(ac),"⛂ - آیتم‌ها : "+fa(inv)].join("\n");
 }
 async function center(pool:Pool,ctx:GameContext){
   await ensurePlayer(pool,ctx);
-  const p=(await pool.query<any>("SELECT level,xp,gems,rating,total_games,wins,losses,current_streak,high_score FROM game_players WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId])).rows[0];
+  const p=(await pool.query<any>("SELECT level,xp,gems,cups,rating,total_games,wins,losses,current_streak,high_score FROM game_players WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId])).rows[0];
   const pos=Number((await pool.query("SELECT 1+COUNT(*)::int pos FROM game_players a JOIN game_players me ON me.group_id=a.group_id AND me.user_id=$2 WHERE a.group_id=$1 AND (a.rating>me.rating OR (a.rating=me.rating AND a.user_id<me.user_id))",[ctx.chatId,ctx.userId])).rows[0]?.pos||1);
   const nextXp=req(+p.level);
   const today=new Date().toISOString().slice(0,10);
