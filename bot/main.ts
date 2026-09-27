@@ -14,6 +14,7 @@ import { ensureGroupLanguageSchema, getGroupLanguage, normalizeBotLang, setGroup
 import { ensureInstallationSchema, installationGate, handleInstallationCallback } from "./installation.ts";
 import { ensureModerationSchema, runModerationCommand } from "../src/lib/bot/moderation.ts";
 import { sweepGroupSubscriptions } from "../src/lib/bot/group-subscriptions.ts";
+import { ensureInviteLinkSchema, handleInviteLinkCallback, handleInviteLinkJoinRequest, handleInviteLinkTextInput, handleInviteLinkUsage, openInviteLinkCenter } from "../src/lib/bot/invite-links.ts";
 
 const TOKEN = process.env.BOT_TOKEN ?? "";
 if (!TOKEN) { console.error("BOT_TOKEN is missing"); process.exit(1); }
@@ -388,8 +389,7 @@ function normalizeCommand(text: string) {
 }
 
 function commandMatches(text: string, aliases: string[]) {
-  const raw = text.trim();
-  if (/^[\\/!.]/.test(raw)) return false;
+  const raw = text.trim().replace(/^[\\/!.]+/, "").trim();
   const normalized = normalizeCommand(raw);
   const targets = aliases.map(normalizeCommand).filter(Boolean).sort((a,b)=>b.length-a.length);
   return targets.some((target) => normalized === target || normalized.startsWith(target + " "));
@@ -453,10 +453,10 @@ async function logCommandAccess(ctx:BotContext,key:string,eventType:"command_exe
 async function studioReplyLive(ctx: BotContext): Promise<string | null> {
   const raw=ctx.text.trim();
   if(!raw)return null;
-  // Commands are plain words only; slash/prefix forms are intentionally disabled.
-  if(/^[/!.]/.test(raw))return null;
-  const token=normalizeCommand(raw);
-  const commandArgs=raw.split(/\\s+/).slice(1);
+  const commandText=raw.replace(/^[\\/!.]+/,"").trim();
+  if(!commandText)return null;
+  const token=normalizeCommand(commandText);
+  const commandArgs=commandText.split(/\\s+/).slice(1);
   if(["lang","language","زبان","تغییر زبان"].includes(token)){
     if(!rankAtLeast(ctx.userRank,"admin")){
       return ctx.lang==="fa" ? "✗ فقط مدیر گروه یا مالک می‌تواند زبان گروه را تغییر دهد." : "✗ Only a group admin or owner can change the group language.";
@@ -499,6 +499,19 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
         const liveCard=await runModerationCommand(studioPool!,ctx,studioCommand.id,commandArgs);
         await logCommandAccess(ctx,studioCommand.id,"command_executed","allowed",auth.role);
         return liveCard;
+      }
+      if(studioCommand.id==="link"){
+        if(ctx.chatType==="private"){
+          await logCommandAccess(ctx,studioCommand.id,"permission_denied","group_only",auth.role);
+          return ctx.lang==="fa"?"✗ مرکز لینک فقط داخل گروه قابل استفاده است.":"✗ Link Center is available only inside groups.";
+        }
+        const opened=await openInviteLinkCenter(studioPool!,ctx.chatId,ctx.userId);
+        if(!opened.ok){
+          await logCommandAccess(ctx,studioCommand.id,"permission_denied",String((opened as any).error||"invite_permission"),auth.role);
+          return ctx.lang==="fa"?"✗ دسترسی به مدیریت لینک‌های دعوت برای شما فعال نیست.":"✗ You do not have permission to manage invite links in this group.";
+        }
+        await logCommandAccess(ctx,studioCommand.id,"command_executed","allowed",auth.role);
+        return null;
       }
       if(studioCommand.id==="lock" && ["","ها","قفل‌ها","قفل ها","وضعیت","status"].includes(normalizeCommand(commandArgs.join(" ")))){
         const opened=await sendContentLockCenter(studioPool!,ctx.chatId,ctx.userId);
@@ -641,8 +654,8 @@ const adminCache = new Map<number, { at: number; ids: Set<number> }>();
 type TgUser = { id: number; first_name?: string; username?: string };
 type TgChat = { id: number; type: string; title?: string; username?: string };
 type TgMessage = ContentLockMessage & { chat: TgChat; from?: TgUser; reply_to_message?: { from?: TgUser }; new_chat_members?: TgUser[]; left_chat_member?: TgUser };
-type TgChatMemberUpdate = { chat: TgChat; from?: TgUser; new_chat_member?: { status?: string; user?: TgUser } };
-type TgUpdate = { update_id: number; message?: TgMessage; edited_message?: TgMessage; callback_query?: {id:string;from?:TgUser;message?:TgMessage;data?:string}; my_chat_member?: TgChatMemberUpdate; chat_member?: TgChatMemberUpdate };
+type TgChatMemberUpdate = { chat: TgChat; from?: TgUser; new_chat_member?: { status?: string; user?: TgUser; invite_link?: any } };
+type TgUpdate = { update_id: number; message?: TgMessage; edited_message?: TgMessage; callback_query?: {id:string;from?:TgUser;message?:TgMessage;data?:string}; my_chat_member?: TgChatMemberUpdate; chat_member?: TgChatMemberUpdate; chat_join_request?: { chat?: TgChat; from?: TgUser; user_chat_id?: number; date?: number; invite_link?: any } };
 
 function splitIds(raw: string | undefined): string[] {
   return (raw ?? "").split(/[,\s]+/).map((s) => s.trim()).filter(Boolean);
@@ -834,6 +847,7 @@ async function poll() {
     await ensureAutomationSchema(studioPool);
     await ensureGroupLanguageSchema(studioPool);
     await ensureModerationSchema(studioPool);
+    await ensureInviteLinkSchema(studioPool);
   }
   setInterval(() => void refreshStudio(), 5000);
   setInterval(() => { if (studioPool) void tickSchedules(studioPool).catch(error => console.error("[scheduler]", error)); }, 5000);
@@ -847,7 +861,7 @@ async function poll() {
       const data = await telegramApi("getUpdates", {
         offset,
         timeout: 30,
-        allowed_updates: ["message", "edited_message", "callback_query", "my_chat_member", "chat_member"],
+        allowed_updates: ["message", "edited_message", "callback_query", "my_chat_member", "chat_member", "chat_join_request"],
       });
       if (!data.ok || !Array.isArray(data.result)) {
         console.error(data.description ?? "getUpdates failed");
@@ -876,6 +890,11 @@ async function poll() {
             console.error("[update] callback handler failed", error);
           });
         }
+        if (upd.chat_join_request && studioPool) {
+          void handleInviteLinkJoinRequest(studioPool, upd.chat_join_request).catch((error) => {
+            console.error("[invite-links] join request tracking failed", error);
+          });
+        }
         if (upd.edited_message) {
           void handleMessage(upd.edited_message, true).catch((error) => {
             console.error("[update] edited message handler failed", error);
@@ -887,8 +906,11 @@ async function poll() {
           });
         }
         if (upd.chat_member?.new_chat_member?.user && ["member","administrator","creator"].includes(upd.chat_member.new_chat_member.status ?? "")) {
-          // Join tracking hook is not implemented in this runtime yet.
-          // Keep the polling loop alive so a member event cannot abort the rest of the batch.
+          if (studioPool) {
+            void handleInviteLinkUsage(studioPool, upd.chat_member).catch((error) => {
+              console.error("[invite-links] usage tracking failed", error);
+            });
+          }
           console.log("[member] join observed:", upd.chat_member.chat.id, upd.chat_member.new_chat_member.user.id);
         }
       }
