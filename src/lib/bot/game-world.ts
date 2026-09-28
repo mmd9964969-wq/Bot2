@@ -544,14 +544,33 @@ function marketKeyboard(userId: number) {
         { text:"‹ بازار روستا",callback_data:"world:market:local:"+s },
         { text:"‹ فروش‌های من",callback_data:"world:market:mine:"+s }
       ],
-      [{ text:"‹ راهنمای فروش",callback_data:"world:market:help:"+s }],
+      [{ text:"‹ راهنمای بازار",callback_data:"world:market:help:"+s }],
       [{ text:"‹ بازگشت به جهان",callback_data:"world:home:"+s }]
     ]
   };
 }
 
+function marketBuyKeyboard(userId:number,listingId:number,available:number){
+  const s=String(userId);
+  const qty=Math.max(1,Math.floor(available));
+  const rows:any[]=[[{text:"‹ خرید ۱",callback_data:"world:market:buyqty:"+listingId+":1:"+s}]];
+  if(qty>=5) rows[0].push({text:"‹ خرید ۵",callback_data:"world:market:buyqty:"+listingId+":5:"+s});
+  rows.push([{text:"‹ خرید همه · "+qty,callback_data:"world:market:buyqty:"+listingId+":"+qty+":"+s}]);
+  rows.push([{text:"‹ بازگشت به بازار",callback_data:"world:market:local:"+s}]);
+  return {inline_keyboard:rows};
+}
 
-
+function marketLocalKeyboard(userId:number,rows:Array<{listing_id:number;amount:number}>){
+  const s=String(userId);
+  const kb:any[]=[];
+  for(const row of rows){
+    kb.push([{text:"‹ آگهی #"+fa(Number(row.listing_id))+" · خرید",callback_data:"world:market:buy:"+Number(row.listing_id)+":"+s}]);
+  }
+  kb.push([{text:"‹ فروش کالا",callback_data:"world:market:sell:"+s},{text:"‹ فروش‌های من",callback_data:"world:market:mine:"+s}]);
+  kb.push([{text:"‹ راهنمای بازار",callback_data:"world:market:help:"+s}]);
+  kb.push([{text:"‹ بازگشت به جهان",callback_data:"world:home:"+s}]);
+  return {inline_keyboard:kb};
+}
 
 function cityOverviewKeyboard(userId:number,cities:Array<{settlement_id:number;name:string}>,canPromote:boolean) {
   const s=String(userId);
@@ -705,8 +724,14 @@ async function marketText(pool:Pool,ctx:WorldContext,mode:"local"|"mine"|"help")
       "",
       "★ - خرید کالا",
       "فرمت : خرید <شناسه آگهی> <تعداد>",
+      "یا از داخل بازار، روی «خرید» بزن.",
       "",
-      "قیمت را خودت تعیین می‌کنی. پس از ثبت فروش، کالا از انبارت خارج می‌شود.",
+      "★ - معامله",
+      "خریدار سکه را می‌پردازد و کالا مستقیم وارد انبارش می‌شود.",
+      "فروشنده همان لحظه سکه معامله را دریافت می‌کند.",
+      "",
+      "★ - قانون بازار",
+      "خرید از خود، موجودی ناکافی و آگهی منقضی‌شده مجاز نیست.",
       "",
       westernLine("market"),
       "",
@@ -731,6 +756,7 @@ async function marketText(pool:Pool,ctx:WorldContext,mode:"local"|"mine"|"help")
     lines.push("⛂ - مقدار : "+fa(Number(row.amount)));
     lines.push("⛂ - قیمت هر واحد : "+fa(Number(row.unit_price))+" سکه");
     lines.push("⛂ - فروشنده : "+fa(Number(row.seller_user_id)));
+    if(mode==="local")lines.push("‹ برای خرید، آگهی را از دکمه‌های زیر انتخاب کن.");
     lines.push("");
   }
   lines.push(westernLine("market"),"",WORLD_SEPARATOR);
@@ -1636,7 +1662,28 @@ export async function handleWorldCallback(ctx: WorldContext, data: string): Prom
     if(mode==="sellitem"){
       return await marketSellItemText(ctx.pool,ctx,String(parts[3]??""));
     }
-    return {text:await marketText(ctx.pool,ctx,mode==="mine"?"mine":mode==="help"?"help":"local"),replyMarkup:marketKeyboard(ctx.userId)};
+    if(mode==="buy"){
+      const listingId=Number(parts[3]??0);
+      const row=(await ctx.pool.query<any>(
+        "SELECT * FROM game_world_market_listings WHERE listing_id=$1 AND group_id=$2 AND status='active' AND expires_at>NOW() AND amount>0 LIMIT 1",
+        [listingId,ctx.chatId],
+      )).rows[0];
+      if(!row)return {text:"« این آگهی دیگر فعال نیست.»",replyMarkup:marketKeyboard(ctx.userId)};
+      const resource=resourceByCode(String(row.resource_code));
+      const total=Math.floor(Number(row.amount))*Number(row.unit_price);
+      return {text:["◈ خرید از بازار","","WORLD_SEPARATOR","","★ - آگهی #"+fa(listingId),"⛂ - کالا : "+(resource?.name??String(row.resource_code)),"⛂ - موجودی آگهی : "+fa(Number(row.amount)),"⛂ - قیمت واحد : "+fa(Number(row.unit_price))+" سکه","⛂ - ارزش خرید همه : "+fa(total)+" سکه","⛂ - فروشنده : "+fa(Number(row.seller_user_id)),"","یک مقدار را انتخاب کن.","",westernLine("market"),"",WORLD_SEPARATOR].join("\n"),replyMarkup:marketBuyKeyboard(ctx.userId,listingId,Number(row.amount))};
+    }
+    if(mode==="buyqty"){
+      const listingId=Number(parts[3]??0);
+      const qty=Number(parts[4]??0);
+      const result=await buyMarketListingFromText(ctx.pool,ctx,"خرید "+listingId+" "+qty);
+      return {...result,replyMarkup:marketKeyboard(ctx.userId)};
+    }
+    if(mode==="local"){
+      const rows=(await ctx.pool.query<any>("SELECT listing_id,amount FROM game_world_market_listings WHERE group_id=$1 AND status='active' AND expires_at>NOW() AND amount>0 ORDER BY created_at DESC LIMIT 20",[ctx.chatId])).rows;
+      return {text:await marketText(ctx.pool,ctx,"local"),replyMarkup:marketLocalKeyboard(ctx.userId,rows)};
+    }
+    return {text:await marketText(ctx.pool,ctx,mode==="mine"?"mine":"help"),replyMarkup:marketKeyboard(ctx.userId)};
   }
 
   if (action === "city") {
