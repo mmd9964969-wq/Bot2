@@ -121,15 +121,14 @@ function expansionMenu(userId:number){
     [{text:"‹ بانک و اقتصاد",callback_data:"world:expand:bank:"+s},{text:"‹ دفتر درآمد",callback_data:"world:expand:economy:"+s}],
     [{text:"‹ ملک و زمین",callback_data:"world:expand:property:"+s},{text:"‹ مزرعه و دامداری",callback_data:"world:expand:farm:"+s}],
     [{text:"‹ اسب و حمل‌ونقل",callback_data:"world:expand:transport:"+s},{text:"‹ انبار و ابزار",callback_data:"world:expand:tools:"+s}],
-    [{text:"‹ انبار و ابزار",callback_data:"world:expand:tools:"+s},{text:"‹ حرفه و مهارت",callback_data:"world:expand:profession:"+s}],
-    [{text:"‹ کسب‌وکار",callback_data:"world:expand:business:"+s},{text:"‹ قانون و شهرت",callback_data:"world:expand:law:"+s}],
-    [{text:"‹ مأموریت و قرارداد",callback_data:"world:expand:missions:"+s},{text:"‹ باند و روابط",callback_data:"world:expand:band:"+s}],
-    [{text:"‹ نقشه و سفر",callback_data:"world:expand:map:"+s},{text:"‹ رویدادهای زنده",callback_data:"world:expand:events:"+s}],
-    [{text:"‹ روزنامه مرزی",callback_data:"world:expand:newspaper:"+s},{text:"‹ وضعیت زندگی",callback_data:"world:expand:life:"+s}],
+    [{text:"‹ حرفه و مهارت",callback_data:"world:expand:profession:"+s},{text:"‹ کسب‌وکار و مغازه",callback_data:"world:expand:business:"+s}],
+    [{text:"‹ قانون و شهرت",callback_data:"world:expand:law:"+s},{text:"‹ مأموریت و قرارداد",callback_data:"world:expand:missions:"+s}],
+    [{text:"‹ باند و روابط",callback_data:"world:expand:band:"+s},{text:"‹ نقشه و سفر",callback_data:"world:expand:map:"+s}],
+    [{text:"‹ رویدادهای زنده",callback_data:"world:expand:events:"+s},{text:"‹ روزنامه مرزی",callback_data:"world:expand:newspaper:"+s}],
+    [{text:"‹ وضعیت زندگی",callback_data:"world:expand:life:"+s},{text:"‹ دفتر بانوان مرز",callback_data:"world:expand:ladies:"+s}],
     [{text:"‹ بازگشت به جهان",callback_data:"world:home:"+s}],
   ]};
 }
-
 async function account(ctx:FrontierExpansionContext){
   return (await ctx.pool.query<any>("SELECT * FROM game_world_accounts WHERE group_id=$1 AND user_id=$2 LIMIT 1",[ctx.chatId,ctx.userId])).rows[0]??null;
 }
@@ -914,18 +913,97 @@ export async function themedFrontierExpansionMenuText(ctx:FrontierExpansionConte
   const a=await account(ctx);
   const woman=isWoman(a);
   const title=woman?"◈ دفتر مرز · بانوی مرز":"◈ دفتر مرز";
-  const lines=[title,"",SEP,"","★ - بانک و اقتصاد","★ - خانه و زمین","★ - مزرعه و دامداری","★ - اسب و حمل‌ونقل","★ - انبار و ابزار","★ - حرفه و مهارت","★ - کسب‌وکار و مغازه","★ - قانون و شهرت","★ - مأموریت و قرارداد","★ - باند و روابط","★ - نقشه و سفر","★ - رویداد و روزنامه","★ - وضعیت زندگی"];
+  const lines=[
+    title,
+    "",
+    "مرکز مدیریت بخش‌های اصلی زندگی و پیشرفتت در مرز.",
+    "",
+    SEP,
+    "",
+    "★ - امور مالی و حسابداری",
+    "⛂ - بانک و اقتصاد | پول، سپرده و اعتبار",
+    "⛂ - دفتر درآمد | درآمد، هزینه و گردش مالی",
+    "",
+    "★ - خانه و دارایی",
+    "⛂ - ملک و زمین | خانه، زمین و انبار",
+    "⛂ - مزرعه و دامداری | کشت، برداشت و دام",
+    "⛂ - اسب و حمل‌ونقل | اسب و وسایل جابه‌جایی",
+    "⛂ - انبار و ابزار | ابزار، تجهیزات و نگهداری",
+    "",
+    "★ - کار و تجارت",
+    "⛂ - حرفه و مهارت | انتخاب شغل و پیشرفت حرفه‌ای",
+    "⛂ - کسب‌وکار و مغازه | خرید و مدیریت کسب‌وکار",
+    "",
+    "★ - قانون و روابط",
+    "⛂ - قانون و شهرت | جرم، جریمه و وضعیت تحت تعقیب",
+    "⛂ - مأموریت و قرارداد | کارهای رسمی و قراردادها",
+    "⛂ - باند و روابط | گروه، اعضا و ارتباطات",
+    "",
+    "★ - جهان و جابه‌جایی",
+    "⛂ - نقشه و سفر | مسیرها، شهرها و رفت‌وآمد",
+    "⛂ - رویدادهای زنده | اتفاقات فعال و حوادث مرزی",
+    "",
+    "★ - خبر و وضعیت",
+    "⛂ - روزنامه مرزی | اخبار، شایعات و رویدادهای مهم",
+    "⛂ - وضعیت زندگی | سلامت، گرسنگی، انرژی و شرایط فعلی",
+  ];
   if(woman){
-    lines.push("","★ - مسیرهای ویژه بانوی مرز","⛂ - کارگاه خیاطی و پوشاک","⛂ - درمان و خدمات سلامت","⛂ - مهمانخانه و میزبانی","⛂ - روزنامه و خبر محلی","⛂ - مدرسه و آموزش","⛂ - مدیریت سالون و رویداد");
+    lines.push(
+      "",
+      "★ - مسیر ویژه بانوی مرز",
+      "⛂ - دفتر بانوان مرز | حرفه‌ها و خدمات تخصصی بانوان",
+    );
   }
-  lines.push("","« اینجا دفتر کاغذی نیست؛ هر تصمیم روی پول، زمان، دارایی یا جایگاهت در مرز اثر می‌گذارد.»","",SEP);
+  lines.push(
+    "",
+    SEP,
+    "",
+    "« اینجا دفتر کاغذی نیست؛ هر تصمیم روی پول، زمان، دارایی یا جایگاهت در مرز اثر می‌گذارد.»",
+    "",
+    SEP,
+  );
   return lines.join("\n");
 }
-
 export function frontierExpansionMenuText(){
-  return ["◈ دفتر مرز","",SEP,"","★ - بانک و اقتصاد","★ - خانه و زمین","★ - مزرعه و دامداری","★ - اسب و حمل‌ونقل","★ - انبار و ابزار","★ - حرفه و مهارت","★ - کسب‌وکار و مغازه","★ - قانون و شهرت","★ - مأموریت و قرارداد","★ - باند و روابط","★ - نقشه و سفر","★ - رویداد و روزنامه","★ - وضعیت زندگی","", "« اینجا دفتر کاغذی نیست؛ هر تصمیم روی پول، زمان، دارایی یا جایگاهت در مرز اثر می‌گذارد.»","",SEP].join("\n");
+  return [
+    "◈ دفتر مرز",
+    "",
+    "مرکز مدیریت بخش‌های اصلی زندگی و پیشرفتت در مرز.",
+    "",
+    SEP,
+    "",
+    "★ - امور مالی و حسابداری",
+    "⛂ - بانک و اقتصاد | پول، سپرده و اعتبار",
+    "⛂ - دفتر درآمد | درآمد، هزینه و گردش مالی",
+    "",
+    "★ - خانه و دارایی",
+    "⛂ - ملک و زمین | خانه، زمین و انبار",
+    "⛂ - مزرعه و دامداری | کشت، برداشت و دام",
+    "⛂ - اسب و حمل‌ونقل | اسب و وسایل جابه‌جایی",
+    "⛂ - انبار و ابزار | ابزار، تجهیزات و نگهداری",
+    "",
+    "★ - کار و تجارت",
+    "⛂ - حرفه و مهارت | انتخاب شغل و پیشرفت حرفه‌ای",
+    "⛂ - کسب‌وکار و مغازه | خرید و مدیریت کسب‌وکار",
+    "",
+    "★ - قانون و روابط",
+    "⛂ - قانون و شهرت | جرم، جریمه و وضعیت تحت تعقیب",
+    "⛂ - مأموریت و قرارداد | کارهای رسمی و قراردادها",
+    "⛂ - باند و روابط | گروه، اعضا و ارتباطات",
+    "",
+    "★ - جهان و جابه‌جایی",
+    "⛂ - نقشه و سفر | مسیرها، شهرها و رفت‌وآمد",
+    "⛂ - رویدادهای زنده | اتفاقات فعال و حوادث مرزی",
+    "",
+    "★ - خبر و وضعیت",
+    "⛂ - روزنامه مرزی | اخبار، شایعات و رویدادهای مهم",
+    "⛂ - وضعیت زندگی | سلامت، گرسنگی، انرژی و شرایط فعلی",
+    "",
+    "« اینجا دفتر کاغذی نیست؛ هر تصمیم روی پول، زمان، دارایی یا جایگاهت در مرز اثر می‌گذارد.»",
+    "",
+    SEP,
+  ].join("\n");
 }
-
 export { recordEconomy };
 
 export async function handleFrontierExpansionText(ctx:FrontierExpansionContext,text:string):Promise<FrontierExpansionResult|null>{
