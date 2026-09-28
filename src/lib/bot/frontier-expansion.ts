@@ -1022,27 +1022,34 @@ function storyChoiceText(choice:number,code:string){
 }
 
 async function advanceCareerStory(ctx:FrontierExpansionContext,choice:number=0){
-  const p=(await ctx.pool.query<any>("SELECT profession_code,level FROM game_world_professions WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId])).rows[0];
-  if(!p)return {text:"✗ ابتدا یک حرفه انتخاب کن.",replyMarkup:back(ctx.userId)};
-  const state=await ensureCareerStory(ctx,String(p.profession_code));
-  const def=careerStoryDef(String(p.profession_code));
-  const nextEpisode=Number(state.episode||0)+1;
-  const chapter=Math.floor((nextEpisode-1)/4)+1;
-  const beat=def.beats[(nextEpisode-1)%def.beats.length];
-  const place=def.places[(nextEpisode-1)%def.places.length];
-  const title=def.chapterTitles[(chapter-1)%def.chapterTitles.length]||"ادامه مسیر";
-  const choiceInfo=storyChoiceText(choice,String(p.profession_code));
-  const repGain=choice===1?3:choice===0?2:1;
-  const narrative="قسمت "+nextEpisode+" · "+beat+"\n\nمحل رویداد : "+place+"\n\nتصمیم تو : "+choiceInfo[0]+"\nپیامد فعلی : "+choiceInfo[1];
-  await ctx.pool.query("UPDATE game_world_career_story_state SET chapter=$3,episode=$4,stage=$5,reputation=GREATEST(-100,LEAST(100,reputation+$6)),decisions=jsonb_set(decisions,ARRAY['episode_'||$4::text],to_jsonb($7::text),true),updated_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,chapter,nextEpisode,place,repGain,choiceInfo[0]]);
-  await ctx.pool.query("INSERT INTO game_world_career_story_history(group_id,user_id,profession_code,chapter,episode,title,narrative,choice,outcome) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",[ctx.chatId,ctx.userId,String(p.profession_code),chapter,nextEpisode,title,narrative,choiceInfo[0],choiceInfo[1]]);
-  return {text:["◈ داستان حرفه‌ای · قسمت "+fa(nextEpisode),"",SEP,"","★ - فصل "+fa(chapter)+" · "+title,"⛂ - "+narrative,"","★ - ادامه مسیر","⛂ - این همان خط داستانی توست؛ هر نوبت قسمت تازه‌ای از آن ساخته می‌شود.","⛂ - انتخاب‌ها در سابقه تو ذخیره می‌شوند و روی اعتبار مسیر اثر می‌گذارند.","",SEP].join("\n"),replyMarkup:{inline_keyboard:[
-    [{text:"‹ ادامه · سرنخ",callback_data:"world:expand:storychoice:0:"+ctx.userId},{text:"‹ ادامه · کمک",callback_data:"world:expand:storychoice:1:"+ctx.userId}],
-    [{text:"‹ ادامه · سود",callback_data:"world:expand:storychoice:2:"+ctx.userId}],
-    [{text:"‹ بازگشت به حرفه",callback_data:"world:expand:profession:"+ctx.userId}]
-  ]}};
+  try{
+    const p=(await ctx.pool.query<any>("SELECT profession_code,level FROM game_world_professions WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId])).rows[0];
+    if(!p)return {text:"✗ ابتدا یک حرفه انتخاب کن.",replyMarkup:back(ctx.userId)};
+    const state=await ensureCareerStory(ctx,String(p.profession_code));
+    const def=careerStoryDef(String(p.profession_code));
+    const nextEpisode=Number(state.episode||0)+1;
+    const chapter=Math.floor((nextEpisode-1)/4)+1;
+    const beat=def.beats[(nextEpisode-1)%def.beats.length];
+    const place=def.places[(nextEpisode-1)%def.places.length];
+    const title=def.chapterTitles[(chapter-1)%def.chapterTitles.length]||"ادامه مسیر";
+    const choiceInfo=storyChoiceText(choice,String(p.profession_code));
+    const repGain=choice===1?3:choice===0?2:1;
+    const narrative="قسمت "+nextEpisode+" · "+beat+"\n\nمحل رویداد : "+place+"\n\nتصمیم تو : "+choiceInfo[0]+"\nپیامد فعلی : "+choiceInfo[1];
+    await ctx.pool.query("UPDATE game_world_career_story_state SET chapter=$3,episode=$4,stage=$5,reputation=GREATEST(-100,LEAST(100,reputation+$6)),decisions=jsonb_set(decisions,ARRAY['episode_'||$4::text],to_jsonb($7::text),true),updated_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,chapter,nextEpisode,place,repGain,choiceInfo[0]]);
+    await ctx.pool.query("INSERT INTO game_world_career_story_history(group_id,user_id,profession_code,chapter,episode,title,narrative,choice,outcome) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",[ctx.chatId,ctx.userId,String(p.profession_code),chapter,nextEpisode,title,narrative,choiceInfo[0],choiceInfo[1]]);
+    return {text:["◈ داستان حرفه‌ای · قسمت "+fa(nextEpisode),"",SEP,"","★ - فصل "+fa(chapter)+" · "+title,"⛂ - "+narrative,"","★ - ادامه مسیر","⛂ - این همان خط داستانی توست؛ هر نوبت قسمت تازه‌ای از آن ساخته می‌شود.","⛂ - انتخاب‌ها در سابقه تو ذخیره می‌شوند و روی اعتبار مسیر اثر می‌گذارند.","",SEP].join("\n"),replyMarkup:{inline_keyboard:[
+      [{text:"‹ ادامه · سرنخ",callback_data:"world:expand:storychoice:0:"+ctx.userId},{text:"‹ ادامه · کمک",callback_data:"world:expand:storychoice:1:"+ctx.userId}],
+      [{text:"‹ ادامه · سود",callback_data:"world:expand:storychoice:2:"+ctx.userId}],
+      [{text:"‹ بازگشت به حرفه",callback_data:"world:expand:profession:"+ctx.userId}]
+    ]}};
+  }catch(error){
+    console.error("[career-story] advance failed",error);
+    return {text:"✗ اجرای قسمت بعدی خط داستانی با خطا روبه‌رو شد. لطفاً دوباره امتحان کن.",replyMarkup:{inline_keyboard:[
+      [{text:"‹ تلاش دوباره",callback_data:"world:expand:storycontinue:"+ctx.userId}],
+      [{text:"‹ بازگشت به کار و حرفه",callback_data:"world:expand:profession:"+ctx.userId}]
+    ]}};
+  }
 }
-
 async function careerStoryText(ctx:FrontierExpansionContext){
   const p=(await ctx.pool.query<any>("SELECT * FROM game_world_professions WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId])).rows[0];
   if(!p)return {text:"✗ ابتدا حرفه را انتخاب کن.",replyMarkup:back(ctx.userId)};
