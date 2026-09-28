@@ -19,6 +19,7 @@ import { sweepGroupSubscriptions } from "../src/lib/bot/group-subscriptions.ts";
 import { ensureInviteLinkSchema, handleInviteLinkCallback, handleInviteLinkJoinRequest, handleInviteLinkTextInput, handleInviteLinkUsage, openInviteLinkCenter } from "../src/lib/bot/invite-links.ts";
 import { handleGameText, handleGameCallback, gameCenterKeyboard, isGameCenterCommand } from "../src/lib/bot/game-core.ts";
 import { ensureEngineSchema, getEngineGame } from "../src/lib/bot/game-engine.ts";
+import { handleWorldCallback, handleWorldText } from "../src/lib/bot/game-world.ts";
 
 const TOKEN = process.env.BOT_TOKEN ?? "";
 if (!TOKEN) { console.error("BOT_TOKEN is missing"); process.exit(1); }
@@ -888,6 +889,26 @@ async function processMessage(msg: TgMessage, edited = false) {
     return;
   }
 
+  const worldResult = await handleWorldText({
+    pool: studioPool,
+    chatId: chat.id,
+    userId: msg.from.id,
+    user: {
+      id: msg.from.id,
+      username: msg.from.username,
+      first_name: msg.from.first_name,
+    },
+  }, text);
+  if (worldResult !== null) {
+    await telegramApi("sendMessage", {
+      chat_id: chat.id,
+      text: worldResult.text,
+      reply_to_message_id: msg.message_id,
+      reply_markup: worldResult.replyMarkup,
+    });
+    return;
+  }
+
   const studioResult = await studioReplyLive(ctx);
   if (studioResult !== null) {
     const payload:any = { chat_id: chat.id, text: studioResult, reply_to_message_id: msg.message_id };
@@ -995,6 +1016,32 @@ async function poll() {
           void (async () => {
             const callback=upd.callback_query as any;
             const data=String(callback.data??"");
+            if (data.startsWith("world:")) {
+              const chat=callback.message.chat as TgChat;
+              const worldResult=await handleWorldCallback({
+                pool:studioPool!,
+                chatId:chat.id,
+                userId:callback.from.id,
+                user:{
+                  id:callback.from.id,
+                  username:callback.from.username,
+                  first_name:callback.from.first_name,
+                },
+              },data);
+              await telegramApi("answerCallbackQuery",{
+                callback_query_id:callback.id,
+                text:worldResult ? "انجام شد." : "عملیات ناشناخته",
+              });
+              if(worldResult){
+                await telegramApi("editMessageText",{
+                  chat_id:chat.id,
+                  message_id:callback.message.message_id,
+                  text:worldResult.text,
+                  reply_markup:worldResult.replyMarkup,
+                });
+              }
+              return;
+            }
             if (data.startsWith("game:")) {
               const chat=callback.message.chat as TgChat;
               const adminIds=chat.type==="private"?new Set<number>():await chatAdmins(chat.id);
