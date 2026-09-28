@@ -18,6 +18,10 @@ const SEP = "                     ─────━━───── ◈ ─�
 const fa = (x:number) => String(Math.max(0, Math.floor(Number(x)||0))).replace(/\d/g,d=>"۰۱۲۳۴۵۶۷۸۹"[Number(d)]);
 const nameOf = (ctx:FrontierExpansionContext) => ctx.user.first_name || ctx.user.username || String(ctx.userId);
 const money = (x:number) => fa(x)+" سکه";
+const isWoman=(a:any)=>String(a?.gender??"") === "female";
+const frontierVoice=(woman:boolean)=>woman
+  ? "« مرز برای کسی که راه خودش را می‌شناسد، جای کوچکی نیست.»"
+  : "« مرز برای کسی که راه خودش را می‌شناسد، جای کوچکی نیست.»";
 
 const CROPS:Record<string,{name:string;minutes:number;yield:number;seed:number}> = {
   wheat:{name:"گندم",minutes:5,yield:10,seed:35},
@@ -26,7 +30,7 @@ const CROPS:Record<string,{name:string;minutes:number;yield:number;seed:number}>
   herbs:{name:"گیاهان دارویی",minutes:8,yield:6,seed:70},
 };
 
-const PROFESSIONS:Record<string,{name:string;pay:number;xp:number;cooldown:number}> = {
+const PROFESSIONS:Record<string,{name:string;pay:number;xp:number;cooldown:number;womenOnly?:boolean}> = {
   farmer:{name:"کشاورز",pay:90,xp:25,cooldown:20},
   miner:{name:"معدنچی",pay:120,xp:30,cooldown:25},
   lumberjack:{name:"چوب‌بُر",pay:100,xp:28,cooldown:20},
@@ -35,6 +39,12 @@ const PROFESSIONS:Record<string,{name:string;pay:number;xp:number;cooldown:numbe
   trader:{name:"تاجر",pay:110,xp:30,cooldown:25},
   rancher:{name:"دامدار",pay:105,xp:28,cooldown:22},
   courier:{name:"پیک مرزی",pay:140,xp:34,cooldown:30},
+  seamstress:{name:"خیاط و دوزنده",pay:135,xp:34,cooldown:24,womenOnly:true},
+  healer:{name:"درمانگر مرزی",pay:160,xp:40,cooldown:30,womenOnly:true},
+  innkeeper:{name:"مهمانخانه‌دار",pay:175,xp:42,cooldown:35,womenOnly:true},
+  frontier_journalist:{name:"روزنامه‌نگار مرزی",pay:150,xp:38,cooldown:28,womenOnly:true},
+  schoolteacher:{name:"معلم مدرسه مرزی",pay:145,xp:40,cooldown:32,womenOnly:true},
+  saloon_keeper:{name:"صاحب سالون",pay:190,xp:45,cooldown:38,womenOnly:true},
 };
 
 const TOOLS:Record<string,{name:string;cost:number;durability:number}> = {
@@ -166,8 +176,30 @@ async function toolsText(ctx:FrontierExpansionContext){
 }
 
 async function professionText(ctx:FrontierExpansionContext){
+  const a=await account(ctx);
   const p=(await ctx.pool.query<any>("SELECT * FROM game_world_professions WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId])).rows[0];
-  return ["◈ کار و مهارت","",SEP,"",p?"★ - حرفه فعلی : "+(PROFESSIONS[String(p.profession_code)]?.name??p.profession_code)+" · سطح "+fa(+p.level)+" · تجربه "+fa(+p.xp):"★ - هنوز حرفه‌ای انتخاب نکرده‌ای.","", "هر حرفه درآمد و زمان خودش را دارد؛ مرز برای وقت تلف‌شده پول نمی‌دهد.","",SEP].join("\n");
+  const woman=isWoman(a);
+  const womenJobs=Object.values(PROFESSIONS).filter(x=>x.womenOnly);
+  return [
+    woman ? "◈ کار و مهارت · مسیر بانوی مرز" : "◈ کار و مهارت",
+    "",
+    SEP,
+    "",
+    p
+      ? "★ - حرفه فعلی : "+(PROFESSIONS[String(p.profession_code)]?.name??p.profession_code)+" · سطح "+fa(+p.level)+" · تجربه "+fa(+p.xp)
+      : "★ - هنوز حرفه‌ای انتخاب نکرده‌ای.",
+    "",
+    woman
+      ? "برای بانوان مرز، چند مسیر شغلی اختصاصی هم در دفتر ثبت شده است؛ شغل‌های عمومی هم همچنان باز هستند."
+      : "هر حرفه درآمد و زمان خودش را دارد؛ مرز برای وقت تلف‌شده پول نمی‌دهد.",
+    "",
+    woman ? "★ - مسیرهای اختصاصی بانوان" : "★ - حرفه‌های ثبت‌شده",
+    ...(woman ? womenJobs.map(x=>"⛂ - "+x.name+" · درآمد "+money(x.pay)) : []),
+    "",
+    frontierVoice(woman),
+    "",
+    SEP
+  ].join("\n");
 }
 
 async function lawText(ctx:FrontierExpansionContext){
@@ -313,9 +345,11 @@ async function buyTool(ctx:FrontierExpansionContext,code:string){
 
 async function chooseProfession(ctx:FrontierExpansionContext,code:string){
   const p=PROFESSIONS[code]; if(!p)return {text:"✗ این حرفه در دفتر مرز ثبت نشده است.",replyMarkup:back(ctx.userId)};
+  const a=await account(ctx);
+  if(p.womenOnly && !isWoman(a))return {text:"⛂ - این مسیر شغلی در دفتر بانوان مرز ثبت شده است؛ حرفه‌های عمومی برای همه باز هستند.",replyMarkup:back(ctx.userId)};
   await ctx.pool.query("INSERT INTO game_world_professions(group_id,user_id,profession_code) VALUES($1,$2,$3) ON CONFLICT(group_id,user_id) DO UPDATE SET profession_code=EXCLUDED.profession_code,updated_at=NOW()",[ctx.chatId,ctx.userId,code]);
   await ctx.pool.query("UPDATE game_world_accounts SET job_code=$3,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,p.name]);
-  return {text:["✓ حرفه ثبت شد.","","⛂ - حرفه : "+p.name,"⛂ - درآمد پایه هر نوبت : "+money(p.pay),"⛂ - تجربه : +"+fa(p.xp),"⛂ - زمان انتظار : "+fa(p.cooldown)+" ثانیه","", "« حالا یک مهارت داری که می‌تواند برایت نان بیاورد.»"].join("\n"),replyMarkup:back(ctx.userId)};
+  return {text:["✓ حرفه ثبت شد.","","⛂ - حرفه : "+p.name,"⛂ - درآمد پایه هر نوبت : "+money(p.pay),"⛂ - تجربه : +"+fa(p.xp),"⛂ - زمان انتظار : "+fa(p.cooldown)+" ثانیه","",isWoman(a)?"« حالا یک مهارت داری که می‌تواند نامت را در این مرز بالا ببرد.»":"« حالا یک مهارت داری که می‌تواند برایت نان بیاورد.»"].join("\n"),replyMarkup:back(ctx.userId)};
 }
 
 async function doWork(ctx:FrontierExpansionContext){
@@ -430,8 +464,9 @@ const TRANSPORTS:Record<string,{name:string;cost:number;condition:number;fuel:nu
 async function lifeStatusText(ctx:FrontierExpansionContext){
   const a=await account(ctx); if(!a)return "✗ هنوز نامت در دفتر مرز ثبت نشده است.";
   const loc=(await ctx.pool.query<any>("SELECT name FROM game_world_settlements WHERE settlement_id=$1",[a.location_settlement_id])).rows[0];
+  const woman=isWoman(a);
   return [
-    "◈ وضعیت زندگی",
+    woman ? "◈ وضعیت زندگی · بانوی مرز" : "◈ وضعیت زندگی",
     "",
     SEP,
     "",
@@ -442,7 +477,7 @@ async function lifeStatusText(ctx:FrontierExpansionContext){
     "⛂ - موقعیت : "+(loc?.name??"روستای خودمان"),
     "⛂ - وضعیت زندان : "+(a.jailed_until&&new Date(a.jailed_until).getTime()>Date.now()?"بازداشت‌شده":"آزاد"),
     "",
-    "« مرد مرزی اگر خودش را جمع نکند، مرز او را جمع می‌کند.»",
+    woman ? "« در این مرز، با وقار زندگی کن و برای خودت جا باز کن.»" : "« مرد مرزی اگر خودش را جمع نکند، مرز او را جمع می‌کند.»",
     "",
     SEP
   ].join("\n");
@@ -567,6 +602,12 @@ async function newspaperText(ctx:FrontierExpansionContext){
   return lines.join("\n");
 }
 
+export async function themedFrontierExpansionMenuText(ctx:FrontierExpansionContext){
+  const a=await account(ctx);
+  const title=isWoman(a)?"◈ دفتر مرز · بانوی مرز":"◈ دفتر مرز";
+  return [title,"",SEP,"","★ - بانک و اقتصاد","★ - خانه و زمین","★ - مزرعه و دامداری","★ - اسب و حمل‌ونقل","★ - انبار و ابزار","★ - حرفه و مهارت","★ - کسب‌وکار و مغازه","★ - قانون و شهرت","★ - مأموریت و قرارداد","★ - باند و روابط","★ - نقشه و سفر","★ - رویداد و روزنامه","★ - وضعیت زندگی","", "« اینجا دفتر کاغذی نیست؛ هر تصمیم روی پول، زمان، دارایی یا جایگاهت در مرز اثر می‌گذارد.»","",SEP].join("\n");
+}
+
 export function frontierExpansionMenuText(){
   return ["◈ دفتر مرز","",SEP,"","★ - بانک و اقتصاد","★ - خانه و زمین","★ - مزرعه و دامداری","★ - اسب و حمل‌ونقل","★ - انبار و ابزار","★ - حرفه و مهارت","★ - کسب‌وکار و مغازه","★ - قانون و شهرت","★ - مأموریت و قرارداد","★ - باند و روابط","★ - نقشه و سفر","★ - رویداد و روزنامه","★ - وضعیت زندگی","", "« اینجا دفتر کاغذی نیست؛ هر تصمیم روی پول، زمان، دارایی یا جایگاهت در مرز اثر می‌گذارد.»","",SEP].join("\n");
 }
@@ -574,6 +615,7 @@ export function frontierExpansionMenuText(){
 export async function handleFrontierExpansionText(ctx:FrontierExpansionContext,text:string):Promise<FrontierExpansionResult|null>{
   const n=String(text??"").trim().replace(/^[\\/!.]+/,"").replace(/\s+/g," ").toLowerCase();
   if(["توسعه مرز","مرکز توسعه","دفتر مرز","frontier expansion","frontier"].includes(n))return menuResult(frontierExpansionMenuText(),ctx.userId);
+  if(n==="دفتر بانوان مرز"||n==="تم بانوان مرز"||n==="frontier lady")return await handleFrontierExpansionCallback(ctx,["world","expand","ladies",String(ctx.userId)]);
   if(n==="وضعیت زندگی"||n==="زندگی من")return {text:await lifeStatusText(ctx),replyMarkup:expansionMenu(ctx.userId)};
   if(n==="دامداری"||n==="دام من")return {text:await livestockText(ctx),replyMarkup:expansionMenu(ctx.userId)};
   if(n==="حمل و نقل"||n==="حمل‌ونقل")return {text:await transportText(ctx),replyMarkup:expansionMenu(ctx.userId)};
@@ -639,10 +681,49 @@ export async function handleFrontierExpansionCallback(ctx:FrontierExpansionConte
     return {text:await toolsText(ctx),replyMarkup:{inline_keyboard:rows}};
   }
   if(sub==="toolbuy")return await buyTool(ctx,String(parts[3]??""));
+  if(sub==="ladies"){
+    const a=await account(ctx);
+    if(!isWoman(a))return {text:"✗ این دفتر برای حساب‌های زنانه فعال می‌شود.",replyMarkup:back(ctx.userId)};
+    const rows:any[]=[];
+    for(const [code,prof] of Object.entries(PROFESSIONS)){
+      if(!prof.womenOnly)continue;
+      rows.push([{text:"‹ "+prof.name+" · "+prof.pay+" سکه",callback_data:"world:expand:profpick:"+code+":"+ctx.userId}]);
+    }
+    return {
+      text:[
+        "◈ دفتر بانوان مرز",
+        "",
+        SEP,
+        "",
+        "★ - مسیرهای شغلی",
+        "⛂ - خیاط و دوزنده · 135 سکه",
+        "⛂ - درمانگر مرزی · 160 سکه",
+        "⛂ - مهمانخانه‌دار · 175 سکه",
+        "⛂ - روزنامه‌نگار مرزی · 150 سکه",
+        "⛂ - معلم مدرسه مرزی · 145 سکه",
+        "⛂ - صاحب سالون · 190 سکه",
+        "",
+        "★ - هویت این تم",
+        "⛂ - سبک : Frontier Lady · کلاسیک و مستقل",
+        "⛂ - شغل‌های عمومی : باز",
+        "⛂ - مسیرهای اختصاصی : فعال",
+        "",
+        "« این مرز فقط یک طرف جاده ندارد؛ راه خودت را بساز.»",
+        "",
+        SEP
+      ].join("\n"),
+      replyMarkup:{inline_keyboard:[...rows,[{text:"‹ بازگشت",callback_data:"world:expand:profession:"+ctx.userId}]]}
+    };
+  }
   if(sub==="profession"){
     const p=(await ctx.pool.query<any>("SELECT * FROM game_world_professions WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId])).rows[0];
+    const a=await account(ctx);
     const rows:any[]=[];
-    for(const [code,prof] of Object.entries(PROFESSIONS))rows.push([{text:"‹ "+prof.name+" · "+prof.pay+" سکه",callback_data:"world:expand:profpick:"+code+":"+ctx.userId}]);
+    for(const [code,prof] of Object.entries(PROFESSIONS)){
+      if(prof.womenOnly && !isWoman(a))continue;
+      rows.push([{text:"‹ "+prof.name+" · "+prof.pay+" سکه",callback_data:"world:expand:profpick:"+code+":"+ctx.userId}]);
+    }
+    if(isWoman(a))rows.push([{text:"‹ دفتر بانوان مرز",callback_data:"world:expand:ladies:"+ctx.userId}]);
     rows.push([{text:"‹ کار امروز",callback_data:"world:expand:work:"+ctx.userId},{text:"‹ بازگشت",callback_data:"world:home:"+ctx.userId}]);
     return {text:await professionText(ctx)+(p?"\n\n★ - برای رفتن سر کار، «کار امروز» را بزن.":""),replyMarkup:{inline_keyboard:rows}};
   }
