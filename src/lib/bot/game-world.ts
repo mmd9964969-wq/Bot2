@@ -33,6 +33,9 @@ const WORLD_COMMANDS = [
   "enter world",
   "persian world",
   "جهان",
+  "راهنما",
+  "راهنمای جهان",
+  "راهنمای سرزمین پرشین",
 ];
 
 const SECTION_NAMES: Record<string, string> = {
@@ -1529,6 +1532,10 @@ export async function handleWorldText(ctx: WorldContext, text: string): Promise<
       text: inactiveText(),
       replyMarkup: backKeyboard(ctx.userId),
     };
+  }
+
+  if(["راهنما","راهنمای جهان","راهنمای سرزمین پرشین"].includes(n)){
+    return {text:helpText(),replyMarkup:backKeyboard(ctx.userId)};
   }
 
   const frontierExpansion=await handleFrontierExpansionText(ctx,text);
