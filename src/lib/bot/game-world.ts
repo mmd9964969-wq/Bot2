@@ -1416,7 +1416,9 @@ function claimText(user: WorldUser, claimed: Array<{ name: string; amount: numbe
 }
 
 export async function handleWorldText(ctx: WorldContext, text: string): Promise<WorldResult | null> {
-  if (!isWorldCommand(text)) return null;
+  const n=norm(text);
+  const auxiliary=n.startsWith("فروش ")||n.startsWith("خرید ")||n.startsWith("sell ")||n.startsWith("buy ");
+  if(!isWorldCommand(text)&&!auxiliary)return null;
 
   try {
     await ensureWorldSchema(ctx.pool);
@@ -1441,6 +1443,13 @@ export async function handleWorldText(ctx: WorldContext, text: string): Promise<
       text: inactiveText(),
       replyMarkup: backKeyboard(ctx.userId),
     };
+  }
+
+  if(auxiliary){
+    const sold=await createMarketListingFromText(ctx.pool,ctx,text);
+    if(sold!==null)return sold;
+    const bought=await buyMarketListingFromText(ctx.pool,ctx,text);
+    if(bought!==null)return bought;
   }
 
   await ensureStarterFactories(ctx.pool, ctx.chatId, ctx.userId);
@@ -1610,6 +1619,36 @@ export async function handleWorldCallback(ctx: WorldContext, data: string): Prom
     };
   }
 
+  if (action === "news") {
+    const scope=String(parts[2]??"local")==="global"?"global":"local";
+    return {text:await newsText(ctx.pool,ctx,scope),replyMarkup:newsKeyboard(ctx.userId)};
+  }
+
+  if (action === "market") {
+    const mode=String(parts[2]??"local");
+    return {text:await marketText(ctx.pool,ctx,mode==="mine"?"mine":mode==="help"?"help":"local"),replyMarkup:marketKeyboard(ctx.userId)};
+  }
+
+  if (action === "city") {
+    const settlementId=Number(parts[2]);
+    const detail=await cityDetailText(ctx.pool,ctx,settlementId);
+    if(!detail)return {text:"« این شهر پیدا نشد.»",replyMarkup:backKeyboard(ctx.userId)};
+    return {text:detail,replyMarkup:cityDetailKeyboard(ctx.userId,settlementId)};
+  }
+
+  if (["citymarket","citybank","citysaloon","citymine","cityjobs","citylaws"].includes(action)) {
+    const settlementId=Number(parts[2]);
+    const detail=await cityDetailText(ctx.pool,ctx,settlementId);
+    if(!detail)return {text:"« این شهر پیدا نشد.»",replyMarkup:backKeyboard(ctx.userId)};
+    const labels:Record<string,string>={citymarket:"بازار",citybank:"بانک",citysaloon:"سالون",citymine:"معدن",cityjobs:"مشاغل شهر",citylaws:"قوانین شهر"};
+    return {text:detail+"\n\n★ - بخش : "+labels[action],replyMarkup:cityDetailKeyboard(ctx.userId,settlementId)};
+  }
+
+  if (action === "travel") {
+    const result=await startTravel(ctx.pool,ctx,Number(parts[2]));
+    return {text:result.text,replyMarkup:backKeyboard(ctx.userId)};
+  }
+
   if (action === "home") {
     const account = await getAccount(ctx.pool, ctx.chatId, ctx.userId);
     if (!account) {
@@ -1655,9 +1694,14 @@ export async function handleWorldCallback(ctx: WorldContext, data: string): Prom
     }
 
     if (section === "city") {
+      const textValue=(await cityText(ctx.pool,ctx)) ?? registrationText(ctx.user);
+      const cities=(await ctx.pool.query<any>(
+        "SELECT settlement_id,name FROM game_world_settlements WHERE is_public=TRUE AND settlement_kind='city' AND group_id<>$1 ORDER BY population_count DESC,settlement_id LIMIT 12",
+        [ctx.chatId],
+      )).rows;
       return {
-        text: (await cityText(ctx.pool, ctx)) ?? registrationText(ctx.user),
-        replyMarkup: backKeyboard(ctx.userId),
+        text:textValue,
+        replyMarkup:cityOverviewKeyboard(ctx.userId,cities),
       };
     }
 
@@ -1672,6 +1716,20 @@ export async function handleWorldCallback(ctx: WorldContext, data: string): Prom
       return {
         text: await resourcesText(ctx.pool, ctx, 0),
         replyMarkup: resourcesKeyboard(ctx.userId, 0),
+      };
+    }
+
+    if (section === "market") {
+      return {
+        text: await marketText(ctx.pool,ctx,"local"),
+        replyMarkup: marketKeyboard(ctx.userId),
+      };
+    }
+
+    if (section === "news") {
+      return {
+        text: await newsText(ctx.pool,ctx,"local"),
+        replyMarkup: newsKeyboard(ctx.userId),
       };
     }
 
