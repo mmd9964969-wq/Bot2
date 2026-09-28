@@ -125,6 +125,8 @@ function expansionMenu(userId:number){
     [{text:"‹ پول و اقتصاد",callback_data:"world:expand:cat:finance:"+s},{text:"‹ دارایی و زندگی",callback_data:"world:expand:cat:life:"+s}],
     [{text:"‹ کار و کسب‌وکار",callback_data:"world:expand:cat:work:"+s},{text:"‹ قانون و روابط",callback_data:"world:expand:cat:law:"+s}],
     [{text:"‹ نقشه و رویدادها",callback_data:"world:expand:cat:world:"+s},{text:"‹ خبر و وضعیت",callback_data:"world:expand:cat:status:"+s}],
+    [{text:"‹ زنجیره تولید و مصرف",callback_data:"world:expand:supply:"+s}],
+    [{text:"‹ راهنمای اقتصاد و نمادها",callback_data:"world:help:"+s}],
     [{text:"‹ بازگشت به جهان",callback_data:"world:home:"+s}],
   ]};
 }
@@ -1246,6 +1248,27 @@ export function frontierExpansionMenuText(){
 }
 export { recordEconomy };
 
+function worldGuideText(){
+  return [
+    "◈ راهنمای اقتصاد و نمادهای سرزمین پرشین","",SEP,"",
+    "★ - اقتصاد پویا",
+    "⛂ - عرضه بیشتر → فشار کاهشی روی قیمت",
+    "⛂ - کمیابی و تقاضای بیشتر → فشار افزایشی روی قیمت",
+    "⛂ - مصرف اهالی و کسب‌وکارها بخشی از تقاضای واقعی بازار است.",
+    "⛂ - خرید و فروش بازیکنان در دفتر بازار ثبت می‌شود.",
+    "⛂ - کارمزد خرید ۳٪ و مالیات فروش ۲٪ به خزانه بازار می‌رود.","",
+    "★ - زنجیره تولید و مصرف",
+    "⛂ - منبع → تولیدکننده → انبار → تاجر → فروشگاه → مصرف‌کننده",
+    "⛂ - موجودی و جریان کالا می‌تواند روی وضعیت بازار اثر بگذارد.","",
+    "★ - نمادهای رابط",
+    "⛂ - ◈ عنوان اصلی","⛂ - ★ - عنوان بخش","⛂ - ⛂ - اطلاعات و جزئیات",
+    "⛂ - ✓ فعال یا تکمیل‌شده","⛂ - ✗ ناموجود یا خطا","⛂ - → مسیر و جریان",
+    "⛂ - ↑ افزایش","⛂ - ↓ کاهش","⛂ - × تعداد و مقدار","",
+    "★ - دسترسی سریع",
+    "⛂ - دفتر مرز → پول و اقتصاد → زنجیره تولید و مصرف","",SEP,
+  ].join("\n");
+}
+
 export async function handleFrontierExpansionText(ctx:FrontierExpansionContext,text:string):Promise<FrontierExpansionResult|null>{
   const n=String(text??"").trim().replace(/^[\\/!.]+/,"").replace(/\s+/g," ").toLowerCase();
   if(["توسعه مرز","مرکز توسعه","دفتر مرز","frontier expansion","frontier"].includes(n))return menuResult(await themedFrontierExpansionMenuText(ctx),ctx.userId);
@@ -1259,6 +1282,7 @@ export async function handleFrontierExpansionText(ctx:FrontierExpansionContext,t
   if(n==="اقتصاد من"||n==="دفتر درآمد"||n==="درآمد من"||n==="گردش مالی")return {text:await economyText(ctx),replyMarkup:expansionMenu(ctx.userId)};
   if(n==="اقتصاد مرزی"||n==="قیمت‌های مرزی"||n==="قیمت پویا"||n==="عرضه و تقاضا")return {text:await dynamicMarketOverview(ctx),replyMarkup:expansionMenu(ctx.userId)};
   if(n==="زنجیره تولید و مصرف"||n==="زنجیره اقتصاد"||n==="جریان کالا"||n==="تولید و مصرف")return {text:await supplyChainText(ctx),replyMarkup:expansionMenu(ctx.userId)};
+  if(n==="راهنمای اقتصاد"||n==="راهنمای اقتصاد و نمادها"||n==="راهنمای سرزمین پرشین")return {text:worldGuideText(),replyMarkup:expansionMenu(ctx.userId)};
   if(n==="کار امروز"||n==="کار")return await doWork(ctx);
   if(n==="کار ویژه"||n==="خدمات بانوی مرز"||n==="کار تخصصی")return {text:await careerText(ctx),replyMarkup:{inline_keyboard:[[ {text:"‹ اجرای کار ویژه",callback_data:"world:expand:career:"+ctx.userId} ],[ {text:"‹ بازگشت",callback_data:"world:home:"+ctx.userId} ]]}};
   if(n==="دوخت لباس")return await doCareerAction(ctx,"craft");
