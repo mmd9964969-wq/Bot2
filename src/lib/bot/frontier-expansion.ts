@@ -106,6 +106,12 @@ export async function ensureFrontierExpansionSchema(pool:Pool){
       await pool.query("CREATE TABLE IF NOT EXISTS game_world_relationships(group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,target_user_id BIGINT NOT NULL,relation TEXT NOT NULL DEFAULT 'شناسا',value INT NOT NULL DEFAULT 0 CHECK(value BETWEEN -100 AND 100),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),PRIMARY KEY(group_id,user_id,target_user_id))");
       await pool.query("CREATE TABLE IF NOT EXISTS game_world_career_stats(group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,profession_code TEXT NOT NULL,action_count INT NOT NULL DEFAULT 0 CHECK(action_count>=0),service_count INT NOT NULL DEFAULT 0 CHECK(service_count>=0),career_revenue BIGINT NOT NULL DEFAULT 0 CHECK(career_revenue>=0),goods_stock INT NOT NULL DEFAULT 0 CHECK(goods_stock>=0),reputation_earned INT NOT NULL DEFAULT 0 CHECK(reputation_earned>=0),last_action_at TIMESTAMPTZ,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),PRIMARY KEY(group_id,user_id,profession_code))");
       await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_career_stats_user ON game_world_career_stats(group_id,user_id,profession_code)");
+      await pool.query("CREATE TABLE IF NOT EXISTS game_world_npcs(id BIGSERIAL PRIMARY KEY,group_id BIGINT NOT NULL,name TEXT NOT NULL,role TEXT NOT NULL,profession_code TEXT,level INT NOT NULL DEFAULT 1 CHECK(level>=1),coins BIGINT NOT NULL DEFAULT 5000 CHECK(coins>=0),reputation INT NOT NULL DEFAULT 50 CHECK(reputation BETWEEN 0 AND 100),active BOOLEAN NOT NULL DEFAULT TRUE,last_action_at TIMESTAMPTZ,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),UNIQUE(group_id,name))");
+      await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_npcs_group ON game_world_npcs(group_id,active)");
+      await pool.query("CREATE TABLE IF NOT EXISTS game_world_player_goods(group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,resource_code TEXT NOT NULL,quantity INT NOT NULL DEFAULT 0 CHECK(quantity>=0),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),PRIMARY KEY(group_id,user_id,resource_code))");
+      await pool.query("CREATE TABLE IF NOT EXISTS game_world_npc_trades(id BIGSERIAL PRIMARY KEY,group_id BIGINT NOT NULL,npc_id BIGINT NOT NULL REFERENCES game_world_npcs(id) ON DELETE CASCADE,seller_user_id BIGINT NOT NULL,resource_code TEXT NOT NULL,quantity INT NOT NULL CHECK(quantity>0),unit_price BIGINT NOT NULL CHECK(unit_price>0),total_amount BIGINT NOT NULL CHECK(total_amount>0),created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+      await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_npc_trades_user ON game_world_npc_trades(group_id,seller_user_id,created_at DESC)");
+      await pool.query("CREATE TABLE IF NOT EXISTS game_world_npc_help(group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,npc_id BIGINT NOT NULL REFERENCES game_world_npcs(id) ON DELETE CASCADE,bonus_percent INT NOT NULL DEFAULT 15 CHECK(bonus_percent BETWEEN 1 AND 50),xp_bonus INT NOT NULL DEFAULT 5 CHECK(xp_bonus>=0),expires_at TIMESTAMPTZ NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),PRIMARY KEY(group_id,user_id))");
       await pool.query("ALTER TABLE game_world_professions ADD COLUMN IF NOT EXISTS career_actions INT NOT NULL DEFAULT 0 CHECK(career_actions>=0)");
       await pool.query("ALTER TABLE game_world_professions ADD COLUMN IF NOT EXISTS career_value BIGINT NOT NULL DEFAULT 0 CHECK(career_value>=0)");
       await pool.query("ALTER TABLE game_world_professions ADD COLUMN IF NOT EXISTS career_last_action_at TIMESTAMPTZ");
@@ -591,6 +597,158 @@ function professionCooldownText(lastWorkAt:any,cooldown:number){
   return remain>0 ? fa(remain)+" ثانیه" : "آماده";
 }
 
+
+const PROFESSION_OUTPUTS:Record<string,string> = {
+  farmer:"wheat", miner:"iron_ore", lumberjack:"wood", hunter:"leather",
+  blacksmith:"iron_ore", trader:"wheat", rancher:"wool", courier:"leather",
+  seamstress:"cotton", healer:"herbs", innkeeper:"fish", frontier_journalist:"paper",
+  schoolteacher:"herbs", saloon_keeper:"wheat",
+};
+
+const NPC_DEFS:Array<{name:string;role:string;profession:string}> = [
+  {name:"آرچر",role:"خریدار بازار",profession:"trader"},
+  {name:"الیس",role:"دستیار مزرعه",profession:"farmer"},
+  {name:"برون",role:"کارشناس معدن",profession:"miner"},
+  {name:"مارکوس",role:"کارگاه‌دار",profession:"blacksmith"},
+  {name:"رُزا",role:"درمانگر سیار",profession:"healer"},
+  {name:"کِیت",role:"پیک و راهنما",profession:"courier"},
+  {name:"سام",role:"دامدار مرزی",profession:"rancher"},
+  {name:"وِرا",role:"خبرنگار شهر",profession:"frontier_journalist"},
+];
+
+async function ensureNPCs(ctx:FrontierExpansionContext){
+  for(const n of NPC_DEFS){
+    await ctx.pool.query(
+      "INSERT INTO game_world_npcs(group_id,name,role,profession_code) VALUES($1,$2,$3,$4) ON CONFLICT(group_id,name) DO NOTHING",
+      [ctx.chatId,n.name,n.role,n.profession],
+    );
+  }
+  return (await ctx.pool.query<any>(
+    "SELECT * FROM game_world_npcs WHERE group_id=$1 AND active=TRUE ORDER BY id",
+    [ctx.chatId],
+  )).rows;
+}
+
+async function ensurePlayerGoods(ctx:FrontierExpansionContext,resourceCode:string,quantity:number){
+  const q=Math.max(0,Math.floor(Number(quantity)||0));
+  if(!q)return;
+  await ctx.pool.query(
+    "INSERT INTO game_world_player_goods(group_id,user_id,resource_code,quantity) VALUES($1,$2,$3,$4) ON CONFLICT(group_id,user_id,resource_code) DO UPDATE SET quantity=game_world_player_goods.quantity+EXCLUDED.quantity,updated_at=NOW()",
+    [ctx.chatId,ctx.userId,resourceCode,q],
+  );
+}
+
+async function npcCenterText(ctx:FrontierExpansionContext){
+  const npcs=await ensureNPCs(ctx);
+  const goods=(await ctx.pool.query<any>(
+    "SELECT resource_code,quantity FROM game_world_player_goods WHERE group_id=$1 AND user_id=$2 AND quantity>0 ORDER BY resource_code",
+    [ctx.chatId,ctx.userId],
+  )).rows;
+  const totalSold=Number((await ctx.pool.query<any>(
+    "SELECT COALESCE(SUM(total_amount),0) total FROM game_world_npc_trades WHERE group_id=$1 AND seller_user_id=$2",
+    [ctx.chatId,ctx.userId],
+  )).rows[0]?.total??0);
+  const lines=[
+    "◈ NPCهای جهان · شهروندان فعال",
+    "",
+    SEP,
+    "",
+    "★ - منطق NPC",
+    "⛂ - NPCها نقش تزئینی ندارند؛ در اقتصاد و کمک به بازیکن فعال‌اند.",
+    "⛂ - می‌توانند کالا بخرند، دستیار باشند و در فعالیت‌های مختلف وارد شوند.",
+    "⛂ - نقش فعلی NPC محدودکننده نیست؛ هر NPC می‌تواند خریدار یا همراه هر بازیکن باشد.",
+    "⛂ - خرید NPC با قیمت پویای بازار انجام می‌شود.",
+    "",
+    "★ - NPCهای فعال",
+    ...npcs.map((n:any)=>"⛂ - "+n.name+" · "+n.role+" · سطح "+fa(+n.level)),
+    "",
+    "★ - کالاهای تولیدشده توسط تو",
+    ...(goods.length?goods.map((g:any)=>"⛂ - "+g.resource_code+" ×"+fa(+g.quantity)):["⛂ - هنوز کالایی برای فروش به NPC نداری."]),
+    "⛂ - فروش ثبت‌شده به NPC : "+money(totalSold),
+    "",
+    SEP,
+  ];
+  return lines.join("\n");
+}
+
+async function npcHelp(ctx:FrontierExpansionContext){
+  const npcs=await ensureNPCs(ctx);
+  const npc=npcs[Math.floor(Math.random()*npcs.length)];
+  await ctx.pool.query(
+    "INSERT INTO game_world_npc_help(group_id,user_id,npc_id,bonus_percent,xp_bonus,expires_at) VALUES($1,$2,$3,15,5,NOW()+INTERVAL '10 minutes') ON CONFLICT(group_id,user_id) DO UPDATE SET npc_id=EXCLUDED.npc_id,bonus_percent=15,xp_bonus=5,expires_at=EXCLUDED.expires_at,created_at=NOW()",
+    [ctx.chatId,ctx.userId,npc.id],
+  );
+  return {
+    text:[
+      "✓ کمک NPC فعال شد.",
+      "",
+      "★ - همراه تو",
+      "⛂ - "+npc.name+" · "+npc.role,
+      "⛂ - پاداش نوبت بعدی : +۱۵٪ مزد",
+      "⛂ - تجربه اضافه : +۵ XP",
+      "⛂ - اعتبار کمک : ۱۰ دقیقه",
+      "⛂ - این کمک در اولین نوبت کاری بعدی مصرف می‌شود.",
+      "",
+      "« NPCها بخشی از جهان‌اند؛ فقط برای پر کردن شهر ساخته نشده‌اند.»",
+      "",
+      SEP
+    ].join("\n"),
+    replyMarkup:{inline_keyboard:[
+      [{text:"‹ رفتن به کار و حرفه",callback_data:"world:expand:profession:"+ctx.userId}],
+      [{text:"‹ بازگشت به NPCها",callback_data:"world:expand:npcs:"+ctx.userId}]
+    ]}
+  };
+}
+
+async function npcSell(ctx:FrontierExpansionContext,resourceCode:string){
+  const row=(await ctx.pool.query<any>(
+    "SELECT * FROM game_world_player_goods WHERE group_id=$1 AND user_id=$2 AND resource_code=$3 FOR UPDATE",
+    [ctx.chatId,ctx.userId,resourceCode],
+  )).rows[0];
+  if(!row || +row.quantity<=0)return {text:"✗ از این کالا موجودی قابل فروش نداری.",replyMarkup:back(ctx.userId)};
+  const npcs=await ensureNPCs(ctx);
+  const npc=npcs.find((n:any)=>String(n.role)==="خریدار بازار")??npcs[0];
+  const base=await marketReferencePrice(ctx.pool,ctx.chatId,resourceCode);
+  const unit=Math.max(1,Math.round(base*1.05));
+  const quantity=Math.min(+row.quantity,5);
+  const total=unit*quantity;
+  if(+npc.coins<total){
+    return {text:"✗ این NPC فعلاً بودجه کافی برای خرید این مقدار را ندارد.",replyMarkup:back(ctx.userId)};
+  }
+  const client=await ctx.pool.connect();
+  try{
+    await client.query("BEGIN");
+    const locked=(await client.query<any>("SELECT quantity FROM game_world_player_goods WHERE group_id=$1 AND user_id=$2 AND resource_code=$3 FOR UPDATE",[ctx.chatId,ctx.userId,resourceCode])).rows[0];
+    if(!locked || +locked.quantity<quantity){await client.query("ROLLBACK");return {text:"✗ موجودی کالا تغییر کرده است.",replyMarkup:back(ctx.userId)};}
+    await client.query("UPDATE game_world_player_goods SET quantity=quantity-$4,updated_at=NOW() WHERE group_id=$1 AND user_id=$2 AND resource_code=$3",[ctx.chatId,ctx.userId,resourceCode,quantity]);
+    await client.query("UPDATE game_world_npcs SET coins=coins-$3,last_action_at=NOW() WHERE id=$1 AND group_id=$2",[npc.id,ctx.chatId,total]);
+    await client.query("UPDATE game_world_accounts SET coins=coins+$3,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,total]);
+    await client.query("INSERT INTO game_world_npc_trades(group_id,npc_id,seller_user_id,resource_code,quantity,unit_price,total_amount) VALUES($1,$2,$3,$4,$5,$6,$7)",[ctx.chatId,npc.id,ctx.userId,resourceCode,quantity,unit,total]);
+    await client.query("COMMIT");
+  }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e;}finally{client.release();}
+  await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"income",""+total,"فروش به NPC",String(npc.id));
+  await recalculateDynamicMarketPrice(ctx.pool,ctx.chatId,resourceCode);
+  return {
+    text:[
+      "✓ فروش به NPC انجام شد.",
+      "",
+      "⛂ - خریدار : "+npc.name,
+      "⛂ - کالا : "+resourceCode,
+      "⛂ - مقدار : ×"+fa(quantity),
+      "⛂ - قیمت واحد : "+money(unit),
+      "⛂ - دریافتی : +"+money(total),
+      "",
+      "⛂ - پول مستقیم وارد موجودی نقد شد.",
+      "",
+      SEP
+    ].join("\n"),
+    replyMarkup:{inline_keyboard:[
+      [{text:"‹ NPCهای جهان",callback_data:"world:expand:npcs:"+ctx.userId}],
+      [{text:"‹ کار و حرفه",callback_data:"world:expand:profession:"+ctx.userId}]
+    ]}
+  };
+}
+
 async function professionText(ctx:FrontierExpansionContext){
   const a=await account(ctx);
   const p=(await ctx.pool.query<any>("SELECT * FROM game_world_professions WHERE group_id=$1 AND user_id=$2 LIMIT 1",[ctx.chatId,ctx.userId])).rows[0];
@@ -620,6 +778,7 @@ async function professionText(ctx:FrontierExpansionContext){
       "★ - عملیات",
       "⛂ - «شروع نوبت کاری» یک نوبت واقعی ثبت و مزد را مستقیم تسویه می‌کند.",
       "⛂ - «تاریخچه نوبت‌ها» تمام نوبت‌های ثبت‌شده را نشان می‌دهد.",
+      "⛂ - هر نوبت کاری یک کالای حرفه‌ای هم تولید می‌کند؛ NPCها می‌توانند آن را بخرند.",
       "",
     );
   } else {
@@ -998,6 +1157,11 @@ async function doWork(ctx:FrontierExpansionContext){
     levelBefore=+p.level;
     pay=prof.pay+(levelBefore-1)*25;
     xp=prof.xp;
+    const help=(await client.query<any>("SELECT * FROM game_world_npc_help WHERE group_id=$1 AND user_id=$2 AND expires_at>NOW() FOR UPDATE",[ctx.chatId,ctx.userId])).rows[0];
+    if(help){
+      pay=Math.max(1,Math.round(pay*(1+(Number(help.bonus_percent)||0)/100)));
+      xp+=Number(help.xp_bonus)||0;
+    }
     const nextXp=+p.xp+xp;
     levelAfter=professionLevelInfo(nextXp).level;
     profName=prof.name;
@@ -1007,6 +1171,9 @@ async function doWork(ctx:FrontierExpansionContext){
     await client.query("UPDATE game_world_accounts SET coins=coins+$3,xp=xp+$4,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,pay,xp]);
     await client.query("UPDATE game_world_professions SET xp=xp+$3,level=$4,last_work_at=NOW(),updated_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,xp,levelAfter]);
     await client.query("INSERT INTO game_world_work_history(group_id,user_id,profession_code,profession_name,pay,xp_gained,level_before,level_after) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",[ctx.chatId,ctx.userId,String(p.profession_code),prof.name,pay,xp,levelBefore,levelAfter]);
+    const output=PROFESSION_OUTPUTS[String(p.profession_code)];
+    if(output) await client.query("INSERT INTO game_world_player_goods(group_id,user_id,resource_code,quantity) VALUES($1,$2,$3,1) ON CONFLICT(group_id,user_id,resource_code) DO UPDATE SET quantity=game_world_player_goods.quantity+1,updated_at=NOW()",[ctx.chatId,ctx.userId,output]);
+    if(help) await client.query("DELETE FROM game_world_npc_help WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId]);
     await client.query("UPDATE game_world_player_missions SET progress=LEAST(target,progress+1),updated_at=NOW() WHERE group_id=$1 AND user_id=$2 AND code='work_3' AND claim_key=$3",[ctx.chatId,ctx.userId,new Date().toISOString().slice(0,10)]);
     await client.query("COMMIT");
   }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e;}finally{client.release();}
@@ -1488,6 +1655,18 @@ export async function handleFrontierExpansionCallback(ctx:FrontierExpansionConte
       replyMarkup:{inline_keyboard:[...rows,[{text:"‹ میز کار حرفه‌ای",callback_data:"world:expand:career:"+ctx.userId}],[{text:"‹ بازگشت",callback_data:"world:expand:profession:"+ctx.userId}]]}
     };
   }
+  if(sub==="npcs"){
+    const text=await npcCenterText(ctx);
+    const goods=(await ctx.pool.query<any>("SELECT resource_code,quantity FROM game_world_player_goods WHERE group_id=$1 AND user_id=$2 AND quantity>0 ORDER BY resource_code",[ctx.chatId,ctx.userId])).rows;
+    const rows:any[]=[
+      [{text:"‹ درخواست کمک از NPC",callback_data:"world:expand:npchelp:"+ctx.userId}],
+    ];
+    for(const g of goods) rows.push([{text:"‹ فروش "+String(g.resource_code)+" ×"+String(Math.min(+g.quantity,5)),callback_data:"world:expand:npcsell:"+String(g.resource_code)+":"+ctx.userId}]);
+    rows.push([{text:"‹ بازگشت به کار و حرفه",callback_data:"world:expand:profession:"+ctx.userId}]);
+    return {text,replyMarkup:{inline_keyboard:rows}};
+  }
+  if(sub==="npchelp")return await npcHelp(ctx);
+  if(sub==="npcsell")return await npcSell(ctx,String(parts[3]??""));
   if(sub==="profession"){
     const p=(await ctx.pool.query<any>("SELECT * FROM game_world_professions WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId])).rows[0];
     const a=await account(ctx);
