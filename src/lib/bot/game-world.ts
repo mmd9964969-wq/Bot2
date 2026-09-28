@@ -571,7 +571,7 @@ function categoryKeyboard(category:string,userId:number,woman:boolean){
     rows.push([{text:"‹ دفتر درآمد",callback_data:"world:expand:economy:"+s},{text:"‹ بانک و اقتصاد",callback_data:"world:expand:bank:"+s}],
       [{text:"‹ بازار مرزی",callback_data:"world:section:market:"+s},{text:"‹ کسب‌وکار",callback_data:"world:expand:business:"+s}]);
   }else if(category==="work"){
-    rows.push([{text:"‹ کار و حرفه",callback_data:"world:section:job:"+s},{text:"‹ منابع و استخراج",callback_data:"world:section:resources:"+s}],
+    rows.push([{text:"‹ کار و حرفه",callback_data:"world:expand:profession:"+s},{text:"‹ منابع و استخراج",callback_data:"world:section:resources:"+s}],
       [{text:"‹ مزرعه و دامداری",callback_data:"world:expand:farm:"+s},{text:"‹ حرفه و مهارت",callback_data:"world:expand:profession:"+s}]);
     if(woman)rows.push([{text:"‹ دفتر بانوان مرز",callback_data:"world:expand:ladies:"+s}]);
     rows.push([{text:"‹ انبار و ابزار",callback_data:"world:expand:tools:"+s},{text:"‹ کسب‌وکار",callback_data:"world:expand:business:"+s}]);
