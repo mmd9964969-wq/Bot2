@@ -50,7 +50,7 @@ function norm(value: string) {
     .toLowerCase();
 }
 
-const fa = (x: number) => String(x).replace(/\\d/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[Number(d)] ?? d);
+const fa = (x: number) => String(x);
 
 function displayName(user: WorldUser) {
   return user.first_name || user.username || String(user.id);
@@ -160,20 +160,31 @@ function registrationText(user: WorldUser) {
     "",
     WORLD_SEPARATOR,
     "",
-    "دنیای پرشین یک بازی متنی اجتماعی است.",
-    "اینجا هر بازیکن یک اکانت مستقل در همین گروه دارد.",
+    "دنیای پرشین یک بازی متنی اجتماعی هست.",
+    "اینجا هر بازیکن یک اکانت مستقل در همین گروه داره",
     "",
-    "برای ورود، ابتدا باید اکانت بازی خودت را بسازی.",
-    "تا قبل از ثبت‌نام، هیچ پیشرفت، دارایی، شغل یا تراکنشی برای تو ثبت نمی‌شود.",
-    "",
-    WORLD_SEPARATOR,
+    "برای ورود ابتدا باید اکانت بازی خودت را بسازی.",
     "",
     "★ - بازیکن : " + displayName(user),
     "⛂ - شناسه : " + fa(user.id),
     "⛂ - وضعیت اکانت : ثبت‌نشده",
     "",
-    "با ساخت اکانت، اطلاعات بازی برای همین گروه ایجاد می‌شود.",
-  ].join("\n");
+    WORLD_SEPARATOR,
+    "",
+  ].join("\\n");
+}
+
+async function levelRequired(level: number) {
+  return level * level * 100;
+}
+
+function progressBar(xp: number, level: number) {
+  const previous = levelRequired(Math.max(0, level - 1));
+  const next = levelRequired(level);
+  const span = Math.max(1, next - previous);
+  const percent = Math.max(0, Math.min(100, Math.floor(((xp - previous) / span) * 100)));
+  const filled = Math.floor(percent / 10);
+  return { percent, bar: "▰".repeat(filled) + "▱".repeat(10 - filled), remaining: Math.max(0, next - xp) };
 }
 
 async function centerText(pool: Pool, ctx: WorldContext, account?: any) {
@@ -189,7 +200,7 @@ async function centerText(pool: Pool, ctx: WorldContext, account?: any) {
     "★ - " + a.display_name,
     "⛂ - اکانت : #" + fa(Number(a.account_id)),
     "⛂ - سطح : " + fa(Number(a.level)),
-    "⛂ - تجربه : " + fa(Number(a.xp)),
+    "⛂ - تجربه : " + fa(Number(a.xp)) + " XP",
     "⛂ - سکه : " + fa(Number(a.coins)),
     "⛂ - اعتبار : " + fa(Number(a.reputation)),
     "⛂ - جنسیت : " + gender,
@@ -202,189 +213,70 @@ async function centerText(pool: Pool, ctx: WorldContext, account?: any) {
     "",
     WORLD_SEPARATOR,
     "",
-    "این شهر همه‌کاره است؛ مسیر، شغل، دارایی و سبک زندگی را خودت می‌سازی.",
-    "دو مسیر اصلی جهان در ساختار بازی قرار دارد:",
     "★ - رول‌پلی و ماجراجویی داستان‌محور",
     "★ - زندگی شهری و حرفه بازیکنان",
     "",
-    "برای ادامه، یکی از بخش‌ها را انتخاب کن.",
+    "هر چیزی که بعداً به دست می‌آوری، از همین اکانت و همین گروه شروع می‌شود.",
   ].join("\n");
 }
 
-async function registerAccount(pool: Pool, ctx: WorldContext, gender: string) {
-  await ensureWorldSchema(pool);
-  const existing = await getAccount(pool, ctx.chatId, ctx.userId);
-  if (existing) return { text: await centerText(pool, ctx, existing)!, replyMarkup: mainKeyboard(ctx.userId) };
-
-  if (!["male", "female", "unspecified"].includes(gender)) {
-    return { text: "✗ انتخاب جنسیت معتبر نیست.", replyMarkup: genderKeyboard(ctx.userId) };
-  }
-
-  const name = displayName(ctx.user);
-  const result = await pool.query<any>(
-    `INSERT INTO game_world_accounts(group_id,user_id,username,first_name,display_name,gender)
-     VALUES($1,$2,$3,$4,$5,$6)
-     ON CONFLICT(group_id,user_id) DO UPDATE SET
-       username=EXCLUDED.username,
-       first_name=EXCLUDED.first_name,
-       display_name=EXCLUDED.display_name,
-       last_active_at=NOW()
-     RETURNING *`,
-    [ctx.chatId, ctx.userId, ctx.user.username ?? null, ctx.user.first_name ?? null, name, gender],
-  );
-
-  const account = result.rows[0];
-  return {
-    text: [
-      "◈ اکانت ساخته شد",
-      "",
-      WORLD_SEPARATOR,
-      "",
-      "★ - خوش آمدی، " + account.display_name,
-      "⛂ - شماره اکانت : #" + fa(Number(account.account_id)),
-      "⛂ - سطح شروع : " + fa(1),
-      "⛂ - سرمایه شروع : " + fa(1000) + " سکه",
-      "⛂ - خانه : خانه آغازین",
-      "⛂ - شغل : انتخاب نشده",
-      "",
-      WORLD_SEPARATOR,
-      "",
-      "از این لحظه پیشرفت تو در این گروه ذخیره می‌شود.",
-      "هیچ شغل یا مسیر از قبل برای تو قفل نشده؛ خودت زندگی‌ات را می‌سازی.",
-      "",
-      "‹ مرکز جهان را باز کن.",
-    ].join("\n"),
-    replyMarkup: mainKeyboard(ctx.userId),
-  };
-}
-
-async function sectionText(pool: Pool, ctx: WorldContext, section: string) {
+async function profileText(pool: Pool, ctx: WorldContext) {
   const a = await getAccount(pool, ctx.chatId, ctx.userId);
   if (!a) return null;
-  const name = SECTION_NAMES[section] ?? "بخش";
-  const descriptions: Record<string, string> = {
-    profile: "اطلاعات، پیشرفت، آمار و هویت اکانت در این بخش مدیریت می‌شود.",
-    life: "خانه، سبک زندگی، وسایل شخصی و مسیر روزمره بازیکن در این بخش قرار می‌گیرد.",
-    city: "شهر مشترک گروه، ساختمان‌ها، شهروندان و رشد شهری در این بخش قرار می‌گیرد.",
-    job: "هر بازیکن یک حرفه اصلی خواهد داشت و کسب‌وکار اختصاصی خودش را از صفر می‌سازد.",
-    market: "خرید، فروش، سفارش، قیمت کالاها و بازار بازیکنان در این بخش قرار می‌گیرد.",
-    assets: "پول، منابع، ابزار، خانه و دارایی‌های قابل مالکیت در این بخش قرار می‌گیرند.",
-    adventure: "مسیر رول‌پلی داستان‌محور و نقشه ماجراجویی در این بخش قرار می‌گیرد.",
-    games: "سرگرمی‌ها و بازی‌های سبک در کنار جهان اصلی در این بخش قرار می‌گیرند.",
-    missions: "مأموریت‌های روزانه، هفتگی، داستانی و گروهی در این بخش قرار می‌گیرند.",
-    collection: "مجموعه، آیتم‌های کمیاب، نشان‌ها و دارایی‌های نمایشی در این بخش قرار می‌گیرند.",
-    events: "رویدادهای محدود، فصل‌ها و اتفاقات زنده جهان در این بخش قرار می‌گیرند.",
-    ranking: "رتبه بازیکنان، ثروت، اعتبار، تجارت، ماجراجویی و رقابت‌های گروهی در این بخش قرار می‌گیرند.",
-    help: "راهنمای کامل جهان و قوانین آن از این بخش در دسترس خواهد بود.",
-    settings: "تنظیمات تجربه بازی، اعلان‌ها و نمایش اطلاعات در این بخش مدیریت می‌شود.",
-  };
+  const p = progressBar(Number(a.xp), Number(a.level));
+  const gender =
+    a.gender === "male" ? "مرد" :
+    a.gender === "female" ? "زن" :
+    "بدون تعیین";
   return [
-    "◈ Pᴇʀsɪᴀɴ Wᴏʀʟᴅ · " + name,
+    "◈ پروفایل",
     "",
     WORLD_SEPARATOR,
     "",
-    "★ - وضعیت : آماده‌سازی هسته",
+    "★ - " + a.display_name,
+    "⛂ - شناسه : " + fa(Number(a.user_id)),
     "⛂ - اکانت : #" + fa(Number(a.account_id)),
+    "⛂ - جنسیت : " + gender,
     "",
-    descriptions[section] ?? "ساختار این بخش ثبت شده و قابلیت‌های آن در مراحل بعدی توسعه می‌یابد.",
+    WORLD_SEPARATOR,
     "",
-    "این بخش هنوز قابلیت عملیاتی کامل ندارد و عمداً در این مرحله فعال نشده است.",
+    "⛂ - سطح : " + fa(Number(a.level)),
+    "⛂ - تجربه : " + fa(Number(a.xp)) + " XP",
+    "[" + p.bar + "] " + fa(p.percent) + "%",
+    "⛂ - تا سطح بعد : " + fa(p.remaining) + " XP",
+    "",
+    "⛂ - سکه : " + fa(Number(a.coins)),
+    "⛂ - اعتبار : " + fa(Number(a.reputation)),
+    "",
+    WORLD_SEPARATOR,
+    "",
+    "⛂ - خانه : " + (a.home_code === "starter_home" ? "خانه آغازین" : a.home_code),
+    "⛂ - شغل : " + (a.job_code ? a.job_code : "انتخاب نشده"),
   ].join("\n");
 }
 
-export async function handleWorldText(ctx: WorldContext, text: string) {
-  const raw = String(text ?? "").trim();
-  if (!isWorldCommand(raw)) return null;
-  await ensureWorldSchema(ctx.pool);
-  const existing = await getAccount(ctx.pool, ctx.chatId, ctx.userId);
-  if (!existing) {
-    return {
-      text: registrationText(ctx.user),
-      replyMarkup: registrationKeyboard(ctx.userId),
-    };
-  }
-  await ctx.pool.query(
-    "UPDATE game_world_accounts SET username=$3,first_name=$4,display_name=$5,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",
-    [ctx.chatId, ctx.userId, ctx.user.username ?? null, ctx.user.first_name ?? null, displayName(ctx.user)],
-  );
-  return { text: await centerText(ctx.pool, ctx)!, replyMarkup: mainKeyboard(ctx.userId) };
+async function lifeText(pool: Pool, ctx: WorldContext) {
+  const a = await getAccount(pool, ctx.chatId, ctx.userId);
+  if (!a) return null;
+  return [
+    "◈ زندگی من",
+    "",
+    WORLD_SEPARATOR,
+    "",
+    "★ - " + a.display_name,
+    "⛂ - خانه : خانه آغازین",
+    "⛂ - سطح خانه : 1",
+    "⛂ - ظرفیت انبار : 10",
+    "⛂ - ویترین : آماده نشده",
+    "",
+    "⛂ - شغل : " + (a.job_code ? a.job_code : "هنوز انتخاب نشده"),
+    "⛂ - درآمد : هنوز شروع نشده",
+    "",
+    WORLD_SEPARATOR,
+    "",
+    "زندگی از همین‌جا شروع می‌شود.",
+    "خانه و شغل بعداً قابل توسعه هستند و انتخاب‌هایت مسیر اکانتت را شکل می‌دهند.",
+  ].join("\n");
 }
 
-export async function handleWorldCallback(ctx: WorldContext, data: string) {
-  const parts = String(data ?? "").split(":");
-  if (parts[0] !== "world") return null;
-  await ensureWorldSchema(ctx.pool);
 
-  const action = parts[1] ?? "";
-  const owner = Number(parts[2] ?? 0);
-  if (owner && owner !== ctx.userId) {
-    return { text: "⛂ - این پنل متعلق به بازیکن دیگری است.", replyMarkup: { inline_keyboard: [] } };
-  }
-
-  const account = await getAccount(ctx.pool, ctx.chatId, ctx.userId);
-
-  if (action === "help") {
-    return {
-      text: [
-        "◈ راهنمای Pᴇʀsɪᴀɴ Wᴏʀʟᴅ",
-        "",
-        WORLD_SEPARATOR,
-        "",
-        "دستور اصلی : جهان",
-        "English : world",
-        "دنیای من : my world",
-        "",
-        "اولین بار که این دستور را در یک گروه استفاده کنی، باید اکانت بسازی.",
-        "پس از ثبت‌نام، منوی کامل جهان برای اکانتت باز می‌شود.",
-      ].join("\n"),
-      replyMarkup: account ? mainKeyboard(ctx.userId) : registrationKeyboard(ctx.userId),
-    };
-  }
-
-  if (action === "cancel") {
-    return {
-      text: account ? await centerText(ctx.pool, ctx)! : "⛂ - ساخت اکانت لغو شد. برای شروع دوباره، دستور «جهان» را ارسال کن.",
-      replyMarkup: account ? mainKeyboard(ctx.userId) : registrationKeyboard(ctx.userId),
-    };
-  }
-
-  if (action === "register") {
-    if (account) return { text: await centerText(ctx.pool, ctx)!, replyMarkup: mainKeyboard(ctx.userId) };
-    return {
-      text: [
-        "◈ ساخت اکانت",
-        "",
-        WORLD_SEPARATOR,
-        "",
-        "نام نمایشی تو از اطلاعات تلگرام گرفته می‌شود.",
-        "اکانت برای همین گروه ساخته می‌شود و پیشرفتت در گروه دیگر مشترک نیست.",
-        "",
-        "جنسیت شخصیتت را انتخاب کن:",
-      ].join("\n"),
-      replyMarkup: genderKeyboard(ctx.userId),
-    };
-  }
-
-  if (action === "gender") {
-    if (account) return { text: await centerText(ctx.pool, ctx)!, replyMarkup: mainKeyboard(ctx.userId) };
-    const gender = parts[3] ?? "unspecified";
-    return await registerAccount(ctx.pool, ctx, gender);
-  }
-
-  if (action === "section") {
-    if (!account) {
-      return { text: registrationText(ctx.user), replyMarkup: registrationKeyboard(ctx.userId) };
-    }
-    const section = parts[2] ?? "";
-    if (!SECTION_NAMES[section]) return { text: "✗ این بخش پیدا نشد.", replyMarkup: mainKeyboard(ctx.userId) };
-    if (section === "profile") {
-      return { text: await centerText(ctx.pool, ctx)!, replyMarkup: mainKeyboard(ctx.userId) };
-    }
-    return {
-      text: await sectionText(ctx.pool, ctx, section),
-      replyMarkup: mainKeyboard(ctx.userId),
-    };
-  }
-
-  return null;
-}
