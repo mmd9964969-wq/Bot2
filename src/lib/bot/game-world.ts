@@ -1542,6 +1542,8 @@ export async function handleWorldCallback(ctx: WorldContext, data: string): Prom
   const frontierExpansion=await handleFrontierExpansionCallback(ctx,parts);
   if(frontierExpansion!==null)return frontierExpansion;
 
+  const hubAccount = await getAccount(ctx.pool,ctx.chatId,ctx.userId);
+
   if (action === "register") {
     const account = await getAccount(ctx.pool, ctx.chatId, ctx.userId);
     if (account) {
@@ -1759,7 +1761,7 @@ export async function handleWorldCallback(ctx: WorldContext, data: string): Prom
 
   if (action === "hub") {
     const hub=String(parts[2]??"guide");
-    return {text:hubText(hub,account?.gender==="female"),replyMarkup:hubKeyboard(ctx.userId,hub)};
+    return {text:hubText(hub,hubAccount?.gender==="female"),replyMarkup:hubKeyboard(ctx.userId,hub)};
   }
 
   if (action === "home") {
