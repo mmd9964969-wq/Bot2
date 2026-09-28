@@ -125,8 +125,10 @@ function expansionMenu(userId:number){
   ]};
 }
 
-function expansionCategoryMenu(ctx:FrontierExpansionContext,category:string){
+async function expansionCategoryMenu(ctx:FrontierExpansionContext,category:string){
   const s=String(ctx.userId);
+  const currentAccount=await account(ctx);
+  const woman=isWoman(currentAccount);
   const a:any={finance:{
     title:"◈ دفتر مرز · پول و اقتصاد",
     subtitle:"مدیریت پول، درآمد، سرمایه و کسب‌وکار",
@@ -150,7 +152,7 @@ function expansionCategoryMenu(ctx:FrontierExpansionContext,category:string){
       subtitle:"حرفه، مهارت، کار تخصصی و مسیر درآمدی",
       items:[
         ["‹ حرفه و مهارت","world:expand:profession:"+s],
-        ...(isWoman(ctx.user)?[["‹ دفتر بانوان مرز","world:expand:ladies:"+s]]:[]),
+        ...(woman?[["‹ دفتر بانوان مرز","world:expand:ladies:"+s]]:[]),
       ]},
     law:{
       title:"◈ دفتر مرز · قانون و روابط",
@@ -188,7 +190,7 @@ function expansionCategoryMenu(ctx:FrontierExpansionContext,category:string){
       "",
       SEP,
       "",
-      frontierVoice(isWoman(ctx.user)),
+      frontierVoice(woman),
     ].join("\n"),
     replyMarkup:{inline_keyboard:[
       ...a.items.map((x:string[])=>[{text:x[0],callback_data:x[1]}]),
@@ -1083,7 +1085,7 @@ export async function handleFrontierExpansionCallback(ctx:FrontierExpansionConte
 
   if(sub==="center")return menuResult(await themedFrontierExpansionMenuText(ctx),ctx.userId);
   if(sub==="cat"){
-    const result=expansionCategoryMenu(ctx,String(parts[3]??""));
+    const result=await expansionCategoryMenu(ctx,String(parts[3]??""));
     if(result)return result;
   }
   if(sub==="bank"){
