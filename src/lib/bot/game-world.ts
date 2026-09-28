@@ -263,7 +263,7 @@ function unauthorizedText() {
     "",
     WORLD_SEPARATOR,
     "",
-    "این دکمه برای بازیکنی که آن را ساخته شده.",
+    "این دکمه برای بازیکن دیگری ساخته شده.",
     "برای ورود به جهان خودت، دستور جهان را بنویس.",
     "",
     WORLD_SEPARATOR,
@@ -285,7 +285,7 @@ function inactiveText() {
   ].join("\n");
 }
 
-async function levelRequired(level: number) {
+function levelRequired(level: number) {
   return level * level * 100;
 }
 
