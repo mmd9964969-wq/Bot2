@@ -1037,7 +1037,10 @@ async function poll() {
                   first_name:callback.from.first_name,
                 },
                 chatTitle: chat.title,
-                userRank: String(ctx.userRank),
+                userRank: rankOf(
+                  callback.from.id,
+                  chat.type==="private" ? new Set<number>() : await chatAdmins(chat.id),
+                ),
               },data);
 
               if(worldResult){
