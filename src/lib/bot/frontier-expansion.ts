@@ -536,13 +536,14 @@ async function doCareerAction(ctx:FrontierExpansionContext,action:string,targetR
       await ctx.pool.query("UPDATE game_world_career_stats SET goods_stock=goods_stock-1,career_revenue=career_revenue+$3,updated_at=NOW() WHERE group_id=$1 AND user_id=$2 AND profession_code='seamstress' AND goods_stock>0",[ctx.chatId,ctx.userId,amount]);
       await ctx.pool.query("UPDATE game_world_accounts SET coins=coins+$3,xp=xp+18,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,amount]);
       await ctx.pool.query("UPDATE game_world_professions SET career_actions=career_actions+1,career_value=career_value+$3,career_last_action_at=NOW(),updated_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,amount]);
+      await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"income",amount,"فروش لباس","seamstress");
       return {text:["✓ لباس فروخته شد.","","⛂ - قیمت فروش : "+money(amount),"⛂ - تجربه : +"+fa(18),"⛂ - موجودی لباس : "+fa(+s.goods_stock-1),"","« دوخت خوب وقتی وارد بازار شود، دیگر فقط نخ و پارچه نیست؛ کالاست.»"].join("\n"),replyMarkup:back(ctx.userId)};
     }
     const cost=25;
     if(+a.coins<cost)return {text:"✗ برای پارچه و مواد اولیه "+money(cost)+" لازم داری.",replyMarkup:back(ctx.userId)};
     await ctx.pool.query("UPDATE game_world_accounts SET coins=coins-$3,xp=xp+20,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,cost]);
     await touchCareer(ctx,"seamstress",0,false,2,1);
-    await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"income",0,"دوخت لباس","محصول");
+    await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"expense",25,"مواد اولیه خیاطی","دوخت لباس");
     return {text:["✓ یک لباس مرزی دوخته شد.","","⛂ - هزینه مواد : "+money(cost),"⛂ - محصول آماده : +1 لباس","⛂ - Reputation : +2","⛂ - تجربه : +20","",careerInstruction("seamstress")].join("\n"),replyMarkup:{inline_keyboard:[
       [{text:"‹ فروش یک لباس · 95",callback_data:"world:expand:career:sell:"+ctx.userId}],
       [{text:"‹ دفتر کار",callback_data:"world:expand:career:"+ctx.userId}]
@@ -572,6 +573,7 @@ async function doCareerAction(ctx:FrontierExpansionContext,action:string,targetR
     }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e;}finally{client.release();}
     await touchCareer(ctx,"healer",self?2:price,true,3,0);
     await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"income",self?2:price,"درمان مرزی","healer");
+    if(!self)await recordEconomy(ctx.pool,ctx.chatId,+target.user_id,"expense",price,"خدمات درمانی","healer");
     return {text:["✓ درمان مرزی انجام شد.","","⛂ - بیمار : "+(self?"خودت":String(target.first_name??target.username??target.user_id)),"⛂ - سلامت : "+fa(before)+"% → "+fa(before+healed)+"%","⛂ - درآمد درمانگر : +"+money(self?2:price),"⛂ - Reputation : +3","","« درمانگر خوب منتظر نمی‌ماند زخمی عمیق‌تر شود.»"].join("\n"),replyMarkup:back(ctx.userId)};
   }
 
@@ -594,6 +596,7 @@ async function doCareerAction(ctx:FrontierExpansionContext,action:string,targetR
     }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e;}finally{client.release();}
     await touchCareer(ctx,"innkeeper",self?2:price,true,2,0);
     await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"income",self?2:price,"اقامت مرزی","innkeeper");
+    if(!self)await recordEconomy(ctx.pool,ctx.chatId,+target.user_id,"expense",price,"اقامت مرزی","innkeeper");
     return {text:["✓ اقامت ثبت شد.","","⛂ - مهمان : "+(self?"خودت":String(target.first_name??target.username??target.user_id)),"⛂ - انرژی : +25","⛂ - گرسنگی : +20","⛂ - درآمد مهمانخانه : +"+money(self?2:price),"⛂ - Reputation : +2","","« مهمانخانه خوب جایی است که مسافر صبح بتواند راهش را ادامه بدهد.»"].join("\n"),replyMarkup:back(ctx.userId)};
   }
 
@@ -628,6 +631,7 @@ async function doCareerAction(ctx:FrontierExpansionContext,action:string,targetR
     }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e;}finally{client.release();}
     await touchCareer(ctx,"schoolteacher",self?2:price,true,3,0);
     await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"income",self?2:price,"آموزش مرزی","teacher");
+    if(!self)await recordEconomy(ctx.pool,ctx.chatId,+target.user_id,"expense",price,"هزینه آموزش","teacher");
     return {text:["✓ کلاس مرزی برگزار شد.","","⛂ - شاگرد : "+(self?"خودت":String(target.first_name??target.username??target.user_id)),"⛂ - تجربه شاگرد : +35","⛂ - درآمد معلم : +"+money(self?2:price),"⛂ - Reputation : +3","","« کلاس خوب چیزی به آدم می‌دهد که فردا بتواند از آن استفاده کند.»"].join("\n"),replyMarkup:back(ctx.userId)};
   }
 
@@ -699,6 +703,7 @@ async function payFine(ctx:FrontierExpansionContext){
   if(+ac.coins<+w.bounty)return {text:"✗ سکه کافی برای تسویه پرونده نداری.",replyMarkup:back(ctx.userId)};
   await ctx.pool.query("UPDATE game_world_accounts SET coins=coins-$3 WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,w.bounty]);
   await ctx.pool.query("UPDATE game_world_wanted SET wanted_level=0,bounty=0,last_incident_at=NULL,updated_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId]);
+  await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"expense",+w.bounty,"تسویه جریمه","wanted");
   return {text:"✓ جریمه پرداخت شد و نامت از دفتر تحت تعقیب پاک شد.",replyMarkup:back(ctx.userId)};
 }
 
@@ -709,6 +714,7 @@ async function claimMission(ctx:FrontierExpansionContext,code:string){
   if(+m.progress<+m.target)return {text:"⛂ - مأموریت هنوز کامل نشده است.",replyMarkup:back(ctx.userId)};
   await ctx.pool.query("UPDATE game_world_accounts SET coins=coins+$3,xp=xp+$4 WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,m.reward_coins,m.reward_xp]);
   await ctx.pool.query("UPDATE game_world_player_missions SET claimed=TRUE,updated_at=NOW() WHERE group_id=$1 AND user_id=$2 AND code=$3",[ctx.chatId,ctx.userId,code]);
+  await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"income",+m.reward_coins,"جایزه مأموریت",code);
   return {text:"✓ جایزه مأموریت دریافت شد: "+money(+m.reward_coins)+" · تجربه +"+fa(+m.reward_xp),replyMarkup:back(ctx.userId)};
 }
 
