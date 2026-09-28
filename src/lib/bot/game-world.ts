@@ -878,68 +878,117 @@ async function lifeText(pool: Pool, ctx: WorldContext) {
 }
 async function cityText(pool: Pool, ctx: WorldContext) {
   const settlement = await ensureSettlement(pool, ctx.chatId, ctx.chatTitle);
-  if (!settlement) return null;
-
+  await ensureNewsSeed(pool, ctx.chatId, String(settlement.name));
   const publicCities = (await pool.query<any>(
-    `SELECT settlement_id,name,group_id,region_name
-     FROM game_world_settlements
-     WHERE is_public=TRUE AND settlement_kind='city' AND group_id<>$1
-     ORDER BY population_count DESC,settlement_id
-     LIMIT 5`,
+    "SELECT * FROM game_world_settlements WHERE is_public=TRUE AND settlement_kind='city' AND group_id<>$1 ORDER BY population_count DESC,settlement_id LIMIT 12",
     [ctx.chatId],
   )).rows;
-
+  const playerCount = Number((await pool.query<any>(
+    "SELECT COUNT(*)::int AS count FROM game_world_accounts WHERE group_id=$1 AND status='active'",
+    [ctx.chatId],
+  )).rows[0]?.count ?? 0);
   const travel = (await pool.query<any>(
-    `SELECT t.*, s.name AS destination_name
-     FROM game_world_travels t
-     LEFT JOIN game_world_settlements s ON s.settlement_id=t.to_settlement_id
-     WHERE t.group_id=$1 AND t.user_id=$2 AND t.status='travelling'
-     ORDER BY t.arrival_at ASC
-     LIMIT 1`,
-    [ctx.chatId, ctx.userId],
+    "SELECT t.*,s.name AS destination_name FROM game_world_travels t LEFT JOIN game_world_settlements s ON s.settlement_id=t.to_settlement_id WHERE t.group_id=$1 AND t.user_id=$2 AND t.status='travelling' AND t.arrival_at>NOW() ORDER BY t.arrival_at LIMIT 1",
+    [ctx.chatId,ctx.userId],
   )).rows[0];
-
   const lines = [
     "◈ شهر و سفر",
     "",
     WORLD_SEPARATOR,
     "",
-    "★ - قلمرو فعلی",
+    "★ - روستای خودمان",
     "⛂ - نام : " + String(settlement.name),
-    "⛂ - نوع : روستای شخصی گروه",
-    "⛂ - گپ : " + (ctx.chatTitle || "بدون نام"),
-    "⛂ - منطقه : " + String(settlement.region_name),
+    "⛂ - نوع : روستای شخصی",
+    "⛂ - جمعیت بازیکنان : " + fa(playerCount),
+    "⛂ - زمین‌های شخصی : فعال",
+    "⛂ - خانه‌ها : فعال",
+    "⛂ - مزرعه‌ها : فعال",
+    "⛂ - منابع : فعال",
+    "⛂ - کارگاه‌ها : فعال",
+    "⛂ - بازارچه : فعال",
+    "⛂ - ربات محلی : " + String(settlement.local_bot_name),
+    "⛂ - اتفاقات محلی : فعال",
     "",
-    "★ - ساختار مرزی",
-    "⛂ - گپ خودمان : روستای شخصی",
-    "⛂ - گپ‌های همگانی : شهرهای بزرگ",
-    "⛂ - سفر : وابسته به زمان و هزینه",
+    WORLD_SEPARATOR,
     "",
+    "★ - شهرهای همگانی",
   ];
-
-  if (travel) {
-    lines.push("★ - در راهی");
-    lines.push("⛂ - مقصد : " + String(travel.destination_name ?? "شهر مقصد"));
-    lines.push("⛂ - زمان رسیدن : " + new Date(travel.arrival_at).toLocaleString("en-GB", { timeZone: "UTC" }) + " UTC");
-    lines.push("⛂ - هزینه سفر : " + fa(Number(travel.cost_coins)) + " سکه");
-  } else if (!publicCities.length) {
-    lines.push("★ - شهرهای همگانی");
-    lines.push("⛂ - فعلاً شهری برای سفر ثبت نشده.");
-    lines.push("⛂ - وقتی شهرهای همگانی فعال شوند، مقصد، زمان سفر و هزینه هر مسیر اینجا نشان داده می‌شود.");
+  if(travel){
+    lines.push("⛂ - سفر در جریان : " + String(travel.destination_name ?? "مقصد"));
+    lines.push("⛂ - زمان رسیدن : " + new Date(travel.arrival_at).toLocaleString("en-GB",{timeZone:"UTC"}) + " UTC");
+    lines.push("⛂ - هزینه پرداخت‌شده : " + fa(Number(travel.cost_coins)) + " سکه");
+    lines.push("");
+  }
+  if(!publicCities.length){
+    lines.push("⛂ - هنوز شهر همگانی ثبت نشده است.");
   } else {
-    lines.push("★ - شهرهای همگانی");
-    for (const city of publicCities) {
-      lines.push("⛂ - " + String(city.name) + " | مقصد آماده سفر");
+    for(const city of publicCities){
+      lines.push("⛂ - " + String(city.name) + " | جمعیت " + fa(Number(city.population_count)) + " | بازار " + (city.market_active?"فعال":"بسته") + " | قطار " + (city.train_station_active?"فعال":"بسته"));
     }
   }
-
-  lines.push("");
-  lines.push(westernLine("city"));
-  lines.push("");
-  lines.push(WORLD_SEPARATOR);
+  lines.push("",westernLine("city"),"",WORLD_SEPARATOR);
   return lines.join("\n");
 }
 
+async function cityDetailText(pool: Pool, ctx: WorldContext, settlementId: number) {
+  const city = (await pool.query<any>("SELECT * FROM game_world_settlements WHERE settlement_id=$1 LIMIT 1",[settlementId])).rows[0];
+  if(!city) return null;
+  return [
+    "◈ " + String(city.name),
+    "",
+    WORLD_SEPARATOR,
+    "",
+    "★ - " + (city.is_public && city.settlement_kind==="city" ? "شهر بزرگ" : "روستا"),
+    "⛂ - جمعیت : " + fa(Number(city.population_count)),
+    "⛂ - بازار : " + (city.market_active ? "فعال" : "بسته"),
+    "⛂ - بانک : " + (city.bank_active ? "فعال" : "بسته"),
+    "⛂ - سالون : " + (city.saloon_active ? "فعال" : "بسته"),
+    "⛂ - ایستگاه قطار : " + (city.train_station_active ? "فعال" : "بسته"),
+    "⛂ - معدن : " + (city.mine_active ? "فعال" : "بسته"),
+    "⛂ - مشاغل شهری : " + (city.jobs_active ? "فعال" : "بسته"),
+    "⛂ - ربات شهری : " + String(city.city_bot_name),
+    "⛂ - قوانین : " + String(city.laws_profile),
+    "",
+    "★ - خدمات قلمرو",
+    "⛂ - بازار، بانک، سالون، قطار، معدن و مشاغل مستقل هستند.",
+    "⛂ - اخبار و اتفاقات شهر در سامانه محلی ثبت می‌شوند.",
+    "",
+    westernLine("city"),
+    "",
+    WORLD_SEPARATOR,
+  ].join("\n");
+}
+
+async function startTravel(pool: Pool, ctx: WorldContext, destinationId: number) {
+  const source = await ensureSettlement(pool, ctx.chatId, ctx.chatTitle);
+  const destination = (await pool.query<any>(
+    "SELECT * FROM game_world_settlements WHERE settlement_id=$1 AND is_public=TRUE AND settlement_kind='city' LIMIT 1",
+    [destinationId],
+  )).rows[0];
+  if(!destination) return {ok:false,text:"« این شهر مقصد در دسترس نیست.»"};
+  if(Number(destination.group_id)===ctx.chatId) return {ok:false,text:"« مقصدت همین‌جاست. نیازی به سفر نیست.»"};
+  const active = (await pool.query<any>(
+    "SELECT travel_id FROM game_world_travels WHERE group_id=$1 AND user_id=$2 AND status='travelling' AND arrival_at>NOW() LIMIT 1",
+    [ctx.chatId,ctx.userId],
+  )).rows[0];
+  if(active) return {ok:false,text:"« هنوز در راهی. سفر بعدی بعد از رسیدن باز می‌شود.»"};
+  const account = await getAccount(pool,ctx.chatId,ctx.userId);
+  if(!account) return {ok:false,text:registrationText(ctx.user)};
+  const distance = Math.max(1,Math.abs(Number(destination.settlement_id)-Number(source.settlement_id))+1);
+  const duration = 5 + distance*3;
+  const cost = 20 + distance*25;
+  if(Number(account.coins)<cost) return {ok:false,text:"« هزینه این مسیر "+fa(cost)+" سکه است؛ موجودی تو کافی نیست.»"};
+  const client=await pool.connect();
+  try{
+    await client.query("BEGIN");
+    const locked=(await client.query<any>("SELECT * FROM game_world_accounts WHERE group_id=$1 AND user_id=$2 FOR UPDATE",[ctx.chatId,ctx.userId])).rows[0];
+    if(!locked||Number(locked.coins)<cost){await client.query("ROLLBACK");return {ok:false,text:"« هزینه سفر دیگر کامل نیست.»"};}
+    await client.query("UPDATE game_world_accounts SET coins=coins-$3,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,cost]);
+    await client.query("INSERT INTO game_world_travels(group_id,user_id,from_settlement_id,to_settlement_id,arrival_at,cost_coins) VALUES($1,$2,$3,$4,NOW()+($5 || ' minutes')::interval,$6)",[ctx.chatId,ctx.userId,source.settlement_id,destination.settlement_id,duration,cost]);
+    await client.query("COMMIT");
+  }catch(error){await client.query("ROLLBACK").catch(()=>{});throw error;}finally{client.release();}
+  return {ok:true,text:["◈ آغاز سفر","","",WORLD_SEPARATOR,"","★ - مقصد : "+String(destination.name),"⛂ - مدت سفر : "+fa(duration)+" دقیقه","⛂ - هزینه : "+fa(cost)+" سکه","⛂ - وسیله : اسب و مسیر مرزی","","« راه افتادی. تا رسیدن، مقصد منتظر توست.»","",WORLD_SEPARATOR].join("\n")};
+}
 async function personalAssetsText(pool: Pool, ctx: WorldContext) {
   const assets = await ensurePersonalAssets(pool, ctx.chatId, ctx.userId);
   if (!assets) return null;
