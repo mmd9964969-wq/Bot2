@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import { handleFrontierExpansionText, handleFrontierExpansionCallback, ensureFrontierExpansionSchema, recordEconomy } from "./frontier-expansion.ts";
+import { handleFrontierExpansionText, handleFrontierExpansionCallback, ensureFrontierExpansionSchema, recordEconomy, marketReferencePrice, recalculateDynamicMarketPrice } from "./frontier-expansion.ts";
 
 export type WorldUser = {
   id: number;
@@ -253,6 +253,9 @@ export async function ensureWorldSchema(pool: Pool) {
   await pool.query("CREATE TABLE IF NOT EXISTS game_world_news( news_id BIGSERIAL PRIMARY KEY, scope TEXT NOT NULL CHECK(scope IN ('local','global')), group_id BIGINT, title TEXT NOT NULL, body TEXT NOT NULL, severity TEXT NOT NULL DEFAULT 'info' CHECK(severity IN ('info','notice','warning','event')), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), expires_at TIMESTAMPTZ )");
 
   await pool.query("CREATE TABLE IF NOT EXISTS game_world_market_listings( listing_id BIGSERIAL PRIMARY KEY, group_id BIGINT NOT NULL, seller_user_id BIGINT NOT NULL, resource_code TEXT NOT NULL, amount NUMERIC(20,6) NOT NULL CHECK(amount>0), min_purchase NUMERIC(20,6) NOT NULL DEFAULT 1 CHECK(min_purchase>0), unit_price BIGINT NOT NULL CHECK(unit_price>=0), status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','sold','cancelled','expired')), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '7 days') )");
+  await pool.query("ALTER TABLE game_world_market_listings DROP CONSTRAINT IF EXISTS game_world_market_listings_amount_check");
+  await pool.query("ALTER TABLE game_world_market_listings ADD CONSTRAINT game_world_market_listings_amount_check CHECK(amount>=0)");
+
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS game_world_resource_factories(
@@ -688,6 +691,7 @@ async function marketSellItemText(pool:Pool,ctx:WorldContext,resourceCode:string
   )).rows[0];
   const amount=Math.floor(Number(row?.amount??0));
   if(amount<=0)return {text:"« از این کالا چیزی برای فروش در انبارت نیست.»",replyMarkup:marketKeyboard(ctx.userId)};
+  const referencePrice=await marketReferencePrice(pool,ctx.chatId,resource.code);
   return {
     text:[
       "◈ ثبت آگهی فروش",
@@ -697,9 +701,12 @@ async function marketSellItemText(pool:Pool,ctx:WorldContext,resourceCode:string
       "★ - کالا : "+resource.name,
       "⛂ - موجودی : "+fa(amount),
       "",
-      "حالا مقدار و قیمت واحد را مشخص کن.",
-      "فرمت : فروش "+resource.name+" <تعداد> <قیمت واحد>",
-      "نمونه : فروش "+resource.name+" 10 8",
+      "قیمت مرجع فعلی بازار : "+fa(referencePrice)+" سکه برای هر واحد",
+      "",
+      "حالا مقدار را مشخص کن؛ قیمت را می‌توانی دستی تعیین کنی یا خالی بگذاری تا قیمت مرجع بازار استفاده شود.",
+      "فرمت : فروش "+resource.name+" <تعداد> [قیمت واحد]",
+      "نمونه : فروش "+resource.name+" 10",
+      "نمونه با قیمت دستی : فروش "+resource.name+" 10 8",
       "",
       "برای ثبت نهایی، همین دستور را در چت بفرست.",
       "",
@@ -719,8 +726,9 @@ async function marketText(pool:Pool,ctx:WorldContext,mode:"local"|"mine"|"help")
       WORLD_SEPARATOR,
       "",
       "★ - فروش کالا",
-      "فرمت : فروش <نام کالا> <تعداد> <قیمت واحد>",
-      "نمونه : فروش چوب جنگلی 10 8",
+      "فرمت : فروش <نام کالا> <تعداد> [قیمت واحد]",
+      "نمونه : فروش چوب جنگلی 10",
+      "اگر قیمت را ننویسی، قیمت مرجع همان لحظه بازار محاسبه می‌شود.",
       "",
       "★ - خرید کالا",
       "فرمت : خرید <شناسه آگهی> <تعداد>",
@@ -754,7 +762,9 @@ async function marketText(pool:Pool,ctx:WorldContext,mode:"local"|"mine"|"help")
     lines.push("★ - آگهی #"+fa(Number(row.listing_id)));
     lines.push("⛂ - کالا : "+(resource?.name??String(row.resource_code)));
     lines.push("⛂ - مقدار : "+fa(Number(row.amount)));
-    lines.push("⛂ - قیمت هر واحد : "+fa(Number(row.unit_price))+" سکه");
+    const referencePrice=await marketReferencePrice(pool,ctx.chatId,String(row.resource_code));
+    lines.push("⛂ - قیمت آگهی هر واحد : "+fa(Number(row.unit_price))+" سکه");
+    lines.push("⛂ - قیمت مرجع بازار : "+fa(referencePrice)+" سکه");
     lines.push("⛂ - فروشنده : "+fa(Number(row.seller_user_id)));
     if(mode==="local")lines.push("‹ برای خرید، آگهی را از دکمه‌های زیر انتخاب کن.");
     lines.push("");
@@ -765,15 +775,33 @@ async function marketText(pool:Pool,ctx:WorldContext,mode:"local"|"mine"|"help")
 
 async function createMarketListingFromText(pool:Pool,ctx:WorldContext,rawText:string) {
   const parts=rawText.trim().replace(/^[\\/!.]+/,"").split(/\s+/);
-  if(parts.length<4||!["فروش","sell"].includes(norm(parts[0])))return null;
-  const amount=Number(parts[parts.length-2]);
-  const unitPrice=Number(parts[parts.length-1]);
-  const itemName=parts.slice(1,-2).join(" ").trim();
-  if(!itemName||!Number.isSafeInteger(amount)||amount<=0||!Number.isSafeInteger(unitPrice)||unitPrice<0){
-    return {text:["◈ بازار","",WORLD_SEPARATOR,"","⛂ - فرمت درست : فروش <نام کالا> <تعداد> <قیمت واحد>","⛂ - نمونه : فروش چوب جنگلی 10 8"].join("\n"),replyMarkup:marketKeyboard(ctx.userId)};
+  if(parts.length<3||!["فروش","sell"].includes(norm(parts[0])))return null;
+
+  const last=Number(parts[parts.length-1]);
+  const secondLast=Number(parts[parts.length-2]);
+  let amount:number;
+  let unitPrice:number|null=null;
+  let itemName:string;
+
+  if(parts.length>=4 && Number.isSafeInteger(secondLast) && secondLast>0 && Number.isSafeInteger(last) && last>=0){
+    amount=secondLast;
+    unitPrice=last;
+    itemName=parts.slice(1,-2).join(" ").trim();
+  }else if(Number.isSafeInteger(last) && last>0){
+    amount=last;
+    itemName=parts.slice(1,-1).join(" ").trim();
+  }else{
+    return {text:["◈ بازار","",WORLD_SEPARATOR,"","⛂ - فرمت درست : فروش <نام کالا> <تعداد> [قیمت واحد]","⛂ - نمونه : فروش چوب جنگلی 10"].join("\n"),replyMarkup:marketKeyboard(ctx.userId)};
   }
+
+  if(!itemName||!Number.isSafeInteger(amount)||amount<=0){
+    return {text:["◈ بازار","",WORLD_SEPARATOR,"","⛂ - فرمت درست : فروش <نام کالا> <تعداد> [قیمت واحد]","⛂ - نمونه : فروش چوب جنگلی 10"].join("\n"),replyMarkup:marketKeyboard(ctx.userId)};
+  }
+
   const resource=normalizeResourceInput(itemName);
   if(!resource)return {text:"« این کالا در فهرست منابع شناخته‌شده نیست.»",replyMarkup:marketKeyboard(ctx.userId)};
+  const dynamicPrice=await marketReferencePrice(pool,ctx.chatId,resource.code);
+  const finalPrice=unitPrice===null?dynamicPrice:unitPrice;
 
   const client=await pool.connect();
   try{
@@ -785,10 +813,11 @@ async function createMarketListingFromText(pool:Pool,ctx:WorldContext,rawText:st
       return {text:"« موجودی کافی نیست. ابتدا سهم تولید را برداشت کن.»",replyMarkup:marketKeyboard(ctx.userId)};
     }
     await client.query("UPDATE game_world_resource_inventory SET amount=amount-$4,updated_at=NOW() WHERE group_id=$1 AND user_id=$2 AND resource_code=$3",[ctx.chatId,ctx.userId,resource.code,amount]);
-    const listing=(await client.query<any>("INSERT INTO game_world_market_listings(group_id,seller_user_id,resource_code,amount,min_purchase,unit_price) VALUES($1,$2,$3,$4,1,$5) RETURNING listing_id",[ctx.chatId,ctx.userId,resource.code,amount,unitPrice])).rows[0];
+    const listing=(await client.query<any>("INSERT INTO game_world_market_listings(group_id,seller_user_id,resource_code,amount,min_purchase,unit_price) VALUES($1,$2,$3,$4,1,$5) RETURNING listing_id",[ctx.chatId,ctx.userId,resource.code,amount,finalPrice])).rows[0];
     await client.query("INSERT INTO game_world_news(scope,group_id,title,body,severity) VALUES('local',$1,$2,$3,'notice')",[ctx.chatId,"کالای تازه در بازار","آگهی #"+Number(listing.listing_id)+" برای "+resource.name+" ثبت شد."]);
     await client.query("COMMIT");
-    return {text:["◈ آگهی ثبت شد","",WORLD_SEPARATOR,"","★ - "+mentionHtml(ctx.user),"⛂ - شناسه آگهی : #"+fa(Number(listing.listing_id)),"⛂ - کالا : "+resource.name,"⛂ - مقدار : "+fa(amount),"⛂ - قیمت واحد : "+fa(unitPrice)+" سکه","","« کالا در بازار قرار گرفت؛ قیمت را خودت تعیین کردی.»","",WORLD_SEPARATOR].join("\n"),replyMarkup:marketKeyboard(ctx.userId),parseMode:"HTML" as const};
+    await recalculateDynamicMarketPrice(pool,ctx.chatId,resource.code);
+    return {text:["◈ آگهی ثبت شد","",WORLD_SEPARATOR,"","★ - "+mentionHtml(ctx.user),"⛂ - شناسه آگهی : #"+fa(Number(listing.listing_id)),"⛂ - کالا : "+resource.name,"⛂ - مقدار : "+fa(amount),"⛂ - قیمت واحد : "+fa(finalPrice)+" سکه","⛂ - قیمت مرجع بازار : "+fa(dynamicPrice)+" سکه","","« جنس وارد بازار شد؛ فشار عرضه از همین معامله روی قیمت اثر می‌گذارد.»","",WORLD_SEPARATOR].join("\n"),replyMarkup:marketKeyboard(ctx.userId),parseMode:"HTML" as const};
   }catch(error){await client.query("ROLLBACK").catch(()=>{});throw error;}
   finally{client.release();}
 }
@@ -798,6 +827,7 @@ async function buyMarketListingFromText(pool:Pool,ctx:WorldContext,rawText:strin
   if(parts.length<3||!["خرید","buy"].includes(norm(parts[0])))return null;
   const listingId=Number(parts[1]),qty=Number(parts[2]);
   if(!Number.isSafeInteger(listingId)||!Number.isSafeInteger(qty)||qty<=0)return {text:"« فرمت درست : خرید <شناسه آگهی> <تعداد> »",replyMarkup:marketKeyboard(ctx.userId)};
+
   const client=await pool.connect();
   try{
     await client.query("BEGIN");
@@ -805,20 +835,33 @@ async function buyMarketListingFromText(pool:Pool,ctx:WorldContext,rawText:strin
     if(!listing){await client.query("ROLLBACK");return {text:"« این آگهی دیگر فعال نیست.»",replyMarkup:marketKeyboard(ctx.userId)};}
     if(Number(listing.seller_user_id)===ctx.userId){await client.query("ROLLBACK");return {text:"« خرید از خودت معامله نیست.»",replyMarkup:marketKeyboard(ctx.userId)};}
     if(qty<Number(listing.min_purchase)||qty>Math.floor(Number(listing.amount))){await client.query("ROLLBACK");return {text:"« مقدار خرید با این آگهی سازگار نیست.»",replyMarkup:marketKeyboard(ctx.userId)};}
-    const total=qty*Number(listing.unit_price);
+
+    const gross=qty*Number(listing.unit_price);
+    const marketFee=Math.floor(gross*0.03);
+    const marketTax=Math.floor(gross*0.02);
+    const buyerTotal=gross+marketFee;
+    const sellerNet=Math.max(0,gross-marketTax);
+
     const buyer=(await client.query<any>("SELECT * FROM game_world_accounts WHERE group_id=$1 AND user_id=$2 FOR UPDATE",[ctx.chatId,ctx.userId])).rows[0];
     const seller=(await client.query<any>("SELECT * FROM game_world_accounts WHERE group_id=$1 AND user_id=$2 FOR UPDATE",[ctx.chatId,Number(listing.seller_user_id)])).rows[0];
-    if(!buyer||!seller||Number(buyer.coins)<total){await client.query("ROLLBACK");return {text:"« موجودی سکه برای این معامله کافی نیست.»",replyMarkup:marketKeyboard(ctx.userId)};}
-    await client.query("UPDATE game_world_accounts SET coins=coins-$3 WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,total]);
-    await client.query("UPDATE game_world_accounts SET coins=coins+$3 WHERE group_id=$1 AND user_id=$2",[ctx.chatId,Number(listing.seller_user_id),total]);
+    if(!buyer||!seller||Number(buyer.coins)<buyerTotal){await client.query("ROLLBACK");return {text:"« موجودی سکه برای مبلغ معامله و کارمزد بازار کافی نیست.»",replyMarkup:marketKeyboard(ctx.userId)};}
+
+    await client.query("UPDATE game_world_accounts SET coins=coins-$3 WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,buyerTotal]);
+    await client.query("UPDATE game_world_accounts SET coins=coins+$3 WHERE group_id=$1 AND user_id=$2",[ctx.chatId,Number(listing.seller_user_id),sellerNet]);
+    await client.query("INSERT INTO game_world_market_treasury(group_id,balance) VALUES($1,$2) ON CONFLICT(group_id) DO UPDATE SET balance=game_world_market_treasury.balance+$2,updated_at=NOW()",[ctx.chatId,marketFee+marketTax]);
+    await client.query("INSERT INTO game_world_market_trades(group_id,listing_id,buyer_user_id,seller_user_id,resource_code,quantity,gross_amount,market_fee,market_tax) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",[ctx.chatId,listingId,ctx.userId,Number(listing.seller_user_id),String(listing.resource_code),qty,gross,marketFee,marketTax]);
     await client.query("INSERT INTO game_world_resource_inventory(group_id,user_id,resource_code,amount) VALUES($1,$2,$3,$4) ON CONFLICT(group_id,user_id,resource_code) DO UPDATE SET amount=game_world_resource_inventory.amount+EXCLUDED.amount,updated_at=NOW()",[ctx.chatId,ctx.userId,String(listing.resource_code),qty]);
-    const remaining=Math.floor(Number(listing.amount)-qty);
+
+    const remaining=Math.max(0,Math.floor(Number(listing.amount)-qty));
     await client.query("UPDATE game_world_market_listings SET amount=$2,status=$3 WHERE listing_id=$1",[listingId,remaining,remaining<=0?"sold":"active"]);
-    await client.query("INSERT INTO game_world_news(scope,group_id,title,body,severity) VALUES('local',$1,$2,$3,'notice')",[ctx.chatId,"معامله جدید در بازار","آگهی #"+listingId+" با مبلغ "+total+" سکه معامله شد."]);
+    await client.query("INSERT INTO game_world_news(scope,group_id,title,body,severity) VALUES('local',$1,$2,$3,'notice')",[ctx.chatId,"معامله جدید در بازار","آگهی #"+listingId+" با مبلغ "+gross+" سکه معامله شد؛ کارمزد و مالیات به خزانه بازار رفت."]);
     await client.query("COMMIT");
-    await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"expense",total,"خرید از بازار","#"+listingId);
-    await recordEconomy(ctx.pool,ctx.chatId,Number(listing.seller_user_id),"income",total,"فروش در بازار","#"+listingId);
-    return {text:["◈ معامله انجام شد","",WORLD_SEPARATOR,"","★ - خریدار : "+mentionHtml(ctx.user),"⛂ - کالا : "+(resourceByCode(String(listing.resource_code))?.name??String(listing.resource_code)),"⛂ - مقدار : "+fa(qty),"⛂ - مبلغ : "+fa(total)+" سکه","","« معامله ثبت شد و کالا به انبارت اضافه شد.»","",WORLD_SEPARATOR].join("\n"),replyMarkup:marketKeyboard(ctx.userId),parseMode:"HTML" as const};
+
+    await recalculateDynamicMarketPrice(pool,ctx.chatId,String(listing.resource_code));
+    await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"expense",buyerTotal,"خرید از بازار","#"+listingId);
+    await recordEconomy(ctx.pool,ctx.chatId,Number(listing.seller_user_id),"income",sellerNet,"فروش در بازار","#"+listingId);
+
+    return {text:["◈ معامله انجام شد","",WORLD_SEPARATOR,"","★ - خریدار : "+mentionHtml(ctx.user),"⛂ - کالا : "+(resourceByCode(String(listing.resource_code))?.name??String(listing.resource_code)),"⛂ - مقدار : "+fa(qty),"⛂ - قیمت کالا : "+fa(gross)+" سکه","⛂ - کارمزد بازار : "+fa(marketFee)+" سکه","⛂ - مالیات فروش : "+fa(marketTax)+" سکه","⛂ - پرداخت خریدار : "+fa(buyerTotal)+" سکه","⛂ - دریافتی فروشنده : "+fa(sellerNet)+" سکه","","« کالا به مصرف‌کننده رسید؛ بخشی از پول هم به خزانه بازار برگشت.»","",WORLD_SEPARATOR].join("\n"),replyMarkup:marketKeyboard(ctx.userId),parseMode:"HTML" as const};
   }catch(error){await client.query("ROLLBACK").catch(()=>{});throw error;}
   finally{client.release();}
 }
