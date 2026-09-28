@@ -11,6 +11,7 @@ export type WorldContext = {
   chatId: number;
   userId: number;
   user: WorldUser;
+  chatTitle?: string;
 };
 
 export type WorldResult = {
@@ -22,31 +23,66 @@ export type WorldResult = {
 export const WORLD_SEPARATOR = "                     ─────━━───── ◈ ─────━━─────";
 
 const WORLD_COMMANDS = [
-  "جهان",
+  "ورود به جهان",
   "دنیای من",
   "جهان من",
   "world",
   "my world",
+  "enter world",
   "persian world",
+  "جهان",
 ];
 
 const SECTION_NAMES: Record<string, string> = {
   profile: "پروفایل",
-  life: "زندگی من",
-  city: "شهر",
+  life: "زندگی شخصی",
+  city: "شهر و سفر",
   job: "کار و حرفه",
-  market: "بازار",
-  assets: "دارایی",
-  resources: "منابع",
-  adventure: "ماجراجویی",
-  games: "سرگرمی",
-  missions: "مأموریت‌ها",
+  market: "بازار مرزی",
+  assets: "ملک و دارایی",
+  resources: "منابع و استخراج",
+  adventure: "ماجرا",
+  games: "سرگرمی‌های سالون",
+  missions: "کار و مأموریت",
   collection: "مجموعه",
-  events: "رویدادها",
+  events: "رویدادهای مرزی",
   ranking: "رتبه‌بندی",
   help: "راهنما",
   settings: "تنظیمات",
 };
+
+const FRONTIER_LOCAL_BOT = "کلانتر محلی";
+const FRONTIER_CITY_BOT = "مارشال شهر";
+
+const WESTERN_SETTLEMENT_PREFIXES = [
+  "Dust",
+  "Red",
+  "Black",
+  "Silver",
+  "Dry",
+  "Dead",
+  "Copper",
+  "Golden",
+  "Wild",
+  "Broken",
+  "High",
+  "Rust",
+];
+
+const WESTERN_SETTLEMENT_SUFFIXES = [
+  "Creek",
+  "Ridge",
+  "Hollow",
+  "Gulch",
+  "Mesa",
+  "Crossing",
+  "Canyon",
+  "Pines",
+  "Springs",
+  "Prairie",
+  "Pass",
+  "Rock",
+];
 
 type ResourceDefinition = {
   code: string;
@@ -55,39 +91,39 @@ type ResourceDefinition = {
 };
 
 const RESOURCE_CATALOG: ResourceDefinition[] = [
-  { code: "wood", name: "چوب", category: "طبیعی" },
-  { code: "stone", name: "سنگ", category: "طبیعی" },
-  { code: "water", name: "آب", category: "طبیعی" },
-  { code: "sand", name: "شن", category: "طبیعی" },
-  { code: "clay", name: "خاک رس", category: "طبیعی" },
-  { code: "limestone", name: "سنگ آهک", category: "طبیعی" },
-  { code: "granite", name: "گرانیت", category: "طبیعی" },
-  { code: "quartz", name: "کوارتز", category: "طبیعی" },
-  { code: "salt", name: "نمک", category: "طبیعی" },
-  { code: "sulfur", name: "گوگرد", category: "طبیعی" },
+  { code: "wood", name: "چوب جنگلی", category: "چوب و مصالح" },
+  { code: "stone", name: "سنگ ساختمانی", category: "چوب و مصالح" },
+  { code: "water", name: "آب چاه", category: "آب و بقا" },
+  { code: "sand", name: "شن رودخانه", category: "چوب و مصالح" },
+  { code: "clay", name: "خاک رس", category: "چوب و مصالح" },
+  { code: "limestone", name: "سنگ آهک", category: "چوب و مصالح" },
+  { code: "granite", name: "گرانیت", category: "چوب و مصالح" },
+  { code: "quartz", name: "کوارتز", category: "معدنی" },
+  { code: "salt", name: "نمک", category: "معدنی" },
+  { code: "sulfur", name: "گوگرد", category: "معدنی" },
   { code: "coal", name: "زغال سنگ", category: "انرژی" },
   { code: "oil", name: "نفت خام", category: "انرژی" },
   { code: "natural_gas", name: "گاز طبیعی", category: "انرژی" },
   { code: "iron_ore", name: "سنگ آهن", category: "معدنی" },
   { code: "copper_ore", name: "سنگ مس", category: "معدنی" },
-  { code: "aluminum_ore", name: "سنگ آلومینیوم", category: "معدنی" },
+  { code: "aluminum_ore", name: "سنگ فلز سبک", category: "معدنی" },
   { code: "lead_ore", name: "سنگ سرب", category: "معدنی" },
   { code: "zinc_ore", name: "سنگ روی", category: "معدنی" },
-  { code: "nickel_ore", name: "سنگ نیکل", category: "معدنی" },
-  { code: "titanium_ore", name: "سنگ تیتانیوم", category: "معدنی" },
+  { code: "nickel_ore", name: "سنگ قلع", category: "معدنی" },
+  { code: "titanium_ore", name: "سنگ آنتیموان", category: "معدنی" },
   { code: "gold_ore", name: "سنگ طلا", category: "معدنی" },
   { code: "silver_ore", name: "سنگ نقره", category: "معدنی" },
-  { code: "diamond_ore", name: "سنگ الماس", category: "معدنی" },
-  { code: "emerald_ore", name: "سنگ زمرد", category: "معدنی" },
+  { code: "diamond_ore", name: "سنگ فیروزه", category: "معدنی" },
+  { code: "emerald_ore", name: "سنگ عقیق", category: "معدنی" },
   { code: "wheat", name: "گندم", category: "کشاورزی" },
   { code: "corn", name: "ذرت", category: "کشاورزی" },
   { code: "cotton", name: "پنبه", category: "کشاورزی" },
   { code: "sugar_cane", name: "نیشکر", category: "کشاورزی" },
-  { code: "herbs", name: "گیاهان دارویی", category: "کشاورزی" },
-  { code: "rubber", name: "لاستیک طبیعی", category: "کشاورزی" },
-  { code: "wool", name: "پشم", category: "دامداری" },
-  { code: "leather", name: "چرم خام", category: "دامداری" },
-  { code: "fish", name: "ماهی", category: "آبزیان" },
+  { code: "herbs", name: "گیاهان دارویی", category: "طبیعت" },
+  { code: "rubber", name: "صمغ درختی", category: "طبیعت" },
+  { code: "wool", name: "پشم گوسفند", category: "دامداری" },
+  { code: "leather", name: "پوست و چرم خام", category: "شکار و دامداری" },
+  { code: "fish", name: "ماهی رودخانه", category: "شکار و بقا" },
 ];
 
 type StarterFactory = {
@@ -166,6 +202,52 @@ export async function ensureWorldSchema(pool: Pool) {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS game_world_settlements(
+      settlement_id BIGSERIAL PRIMARY KEY,
+      group_id BIGINT NOT NULL UNIQUE,
+      chat_title TEXT,
+      name TEXT NOT NULL,
+      settlement_kind TEXT NOT NULL DEFAULT 'village' CHECK(settlement_kind IN ('village','city')),
+      is_public BOOLEAN NOT NULL DEFAULT FALSE,
+      region_name TEXT NOT NULL DEFAULT 'The Frontier',
+      population_count INT NOT NULL DEFAULT 0 CHECK(population_count>=0),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS game_world_personal_assets(
+      asset_id BIGSERIAL PRIMARY KEY,
+      group_id BIGINT NOT NULL,
+      user_id BIGINT NOT NULL,
+      home_code TEXT NOT NULL DEFAULT 'frontier_cabin',
+      home_level INT NOT NULL DEFAULT 1 CHECK(home_level>=1),
+      farm_level INT NOT NULL DEFAULT 1 CHECK(farm_level>=0),
+      stable_level INT NOT NULL DEFAULT 0 CHECK(stable_level>=0),
+      horse_name TEXT,
+      horse_level INT NOT NULL DEFAULT 0 CHECK(horse_level>=0),
+      horse_energy INT NOT NULL DEFAULT 100 CHECK(horse_energy BETWEEN 0 AND 100),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(group_id,user_id)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS game_world_travels(
+      travel_id BIGSERIAL PRIMARY KEY,
+      group_id BIGINT NOT NULL,
+      user_id BIGINT NOT NULL,
+      from_settlement_id BIGINT NOT NULL,
+      to_settlement_id BIGINT NOT NULL,
+      departure_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      arrival_at TIMESTAMPTZ NOT NULL,
+      cost_coins BIGINT NOT NULL DEFAULT 0 CHECK(cost_coins>=0),
+      status TEXT NOT NULL DEFAULT 'travelling' CHECK(status IN ('travelling','arrived','cancelled'))
+    )
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS game_world_resource_factories(
       factory_id BIGSERIAL PRIMARY KEY,
       group_id BIGINT NOT NULL,
@@ -196,6 +278,9 @@ export async function ensureWorldSchema(pool: Pool) {
 
   await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_accounts_group_level ON game_world_accounts(group_id,level DESC,coins DESC)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_accounts_group_activity ON game_world_accounts(group_id,last_active_at DESC)");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_settlements_public_kind ON game_world_settlements(is_public,settlement_kind)");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_travels_user_status ON game_world_travels(group_id,user_id,status,arrival_at)");
+
   await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_resource_factories_group_user ON game_world_resource_factories(group_id,user_id,active)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_resource_inventory_group_user ON game_world_resource_inventory(group_id,user_id)");
 }
@@ -208,6 +293,92 @@ async function getAccount(pool: Pool, groupId: number, userId: number) {
   return result.rows[0] ?? null;
 }
 
+async function ensureSettlement(pool: Pool, groupId: number, chatTitle?: string) {
+  const existing = await pool.query<any>(
+    "SELECT * FROM game_world_settlements WHERE group_id=$1 LIMIT 1",
+    [groupId],
+  );
+  if (existing.rows[0]) {
+    await pool.query(
+      "UPDATE game_world_settlements SET chat_title=COALESCE($2,chat_title),updated_at=NOW() WHERE group_id=$1",
+      [groupId, chatTitle ?? null],
+    );
+    return (await pool.query<any>(
+      "SELECT * FROM game_world_settlements WHERE group_id=$1 LIMIT 1",
+      [groupId],
+    )).rows[0];
+  }
+
+  const inserted = await pool.query<any>(
+    `INSERT INTO game_world_settlements(group_id,chat_title,name,settlement_kind,is_public,region_name)
+     VALUES($1,$2,'Frontier Post','village',FALSE,'The Frontier')
+     RETURNING *`,
+    [groupId, chatTitle ?? null],
+  );
+  const row = inserted.rows[0];
+  const id = Number(row.settlement_id);
+  const prefix = WESTERN_SETTLEMENT_PREFIXES[id % WESTERN_SETTLEMENT_PREFIXES.length];
+  const suffix = WESTERN_SETTLEMENT_SUFFIXES[id % WESTERN_SETTLEMENT_SUFFIXES.length];
+  const generatedName = prefix + " " + suffix + " #" + id;
+
+  await pool.query(
+    "UPDATE game_world_settlements SET name=$2,updated_at=NOW() WHERE settlement_id=$1",
+    [row.settlement_id, generatedName],
+  );
+
+  return (await pool.query<any>(
+    "SELECT * FROM game_world_settlements WHERE settlement_id=$1 LIMIT 1",
+    [row.settlement_id],
+  )).rows[0];
+}
+
+async function ensurePersonalAssets(pool: Pool, groupId: number, userId: number) {
+  await pool.query(
+    `INSERT INTO game_world_personal_assets(group_id,user_id)
+     VALUES($1,$2)
+     ON CONFLICT(group_id,user_id) DO NOTHING`,
+    [groupId, userId],
+  );
+  return (await pool.query<any>(
+    "SELECT * FROM game_world_personal_assets WHERE group_id=$1 AND user_id=$2 LIMIT 1",
+    [groupId, userId],
+  )).rows[0] ?? null;
+}
+
+function westernLine(section: string) {
+  const lines: Record<string, string[]> = {
+    city: [
+      "« این جاده برای آدم‌های عجول ساخته نشده. مقصد داری، راهش هم هزینه داره.»",
+      "« اسم شهرت رو بلد باش. این حوالی هر شهر قانون خودش رو داره.»",
+    ],
+    job: [
+      "« اینجا کسی برای اسم قشنگ حقوق نمی‌ده. بلد باش چیزی بسازی یا چیزی بیاری.»",
+      "« دست خالی زیاد دور نمی‌ری. حرفه‌ات رو پیدا کن و به درد شهر بخور.»",
+    ],
+    market: [
+      "« قیمت رو بازار تعیین می‌کنه، نه صاحب دکان. جنس خوب خودش خریدار پیدا می‌کنه.»",
+      "« مشتری دنبال حرف نیست؛ جنس سالم می‌خواد و قیمت حساب‌شده.»",
+    ],
+    resources: [
+      "« معدن مال تو نیست، رفیق. سهم خودت رو با ابزار خودت دربیار.»",
+      "« اگه کلنگ داری، برو. اگه نداری، دنبال دردسر نگرد.»",
+    ],
+    life: [
+      "« خانه فقط سقف نیست. اینجا وسایلت، اسبت و چیزی که ساختی امن می‌مونه.»",
+      "« مزرعه از زمین شروع می‌شه. اسب هم تا وقتی که خودت خرجش رو بدی، مال خودته.»",
+    ],
+    adventure: [
+      "« جاده همیشه یه چیزی رو از آدم می‌گیره؛ زمان، پول یا اعصاب. انتخاب با خودته.»",
+      "« هر ردپایی داستانی پشت سرش داره. دنبال هر کدوم نرو.»",
+    ],
+    default: [
+      "« اینجا مرز آخر دنیاست؛ خودت باید جایی برای خودت بسازی.»",
+      "« کسی برات زندگی آماده نکرده. شهر فقط فرصت می‌ده.»",
+    ],
+  };
+  const pool = lines[section] ?? lines.default;
+  return pool[Math.floor(Date.now() / 60000) % pool.length];
+}
 async function ensureStarterFactories(pool: Pool, groupId: number, userId: number) {
   for (const factory of STARTER_FACTORIES) {
     await pool.query(
@@ -224,7 +395,7 @@ function registrationKeyboard(userId: number) {
   const s = String(userId);
   return {
     inline_keyboard: [
-      [{ text: "‹ ساخت اکانت", callback_data: "world:register:" + s }],
+      [{ text: "‹ ثبت هویت", callback_data: "world:register:" + s }],
       [{ text: "‹ راهنما", callback_data: "world:help:" + s }],
     ],
   };
@@ -283,27 +454,27 @@ function mainKeyboard(userId: number) {
     inline_keyboard: [
       [
         { text: "‹ پروفایل", callback_data: "world:section:profile:" + s },
-        { text: "‹ زندگی من", callback_data: "world:section:life:" + s },
+        { text: "‹ زندگی شخصی", callback_data: "world:section:life:" + s },
       ],
       [
-        { text: "‹ شهر", callback_data: "world:section:city:" + s },
+        { text: "‹ شهر و سفر", callback_data: "world:section:city:" + s },
         { text: "‹ کار و حرفه", callback_data: "world:section:job:" + s },
       ],
       [
-        { text: "‹ منابع", callback_data: "world:section:resources:" + s },
-        { text: "‹ بازار", callback_data: "world:section:market:" + s },
+        { text: "‹ منابع و استخراج", callback_data: "world:section:resources:" + s },
+        { text: "‹ بازار مرزی", callback_data: "world:section:market:" + s },
       ],
       [
-        { text: "‹ دارایی", callback_data: "world:section:assets:" + s },
-        { text: "‹ ماجراجویی", callback_data: "world:section:adventure:" + s },
+        { text: "‹ ملک و دارایی", callback_data: "world:section:assets:" + s },
+        { text: "‹ ماجرا", callback_data: "world:section:adventure:" + s },
       ],
       [
-        { text: "‹ سرگرمی", callback_data: "world:section:games:" + s },
-        { text: "‹ مأموریت‌ها", callback_data: "world:section:missions:" + s },
+        { text: "‹ سالون", callback_data: "world:section:games:" + s },
+        { text: "‹ کار و مأموریت", callback_data: "world:section:missions:" + s },
       ],
       [
         { text: "‹ مجموعه", callback_data: "world:section:collection:" + s },
-        { text: "‹ رویدادها", callback_data: "world:section:events:" + s },
+        { text: "‹ رویدادهای مرزی", callback_data: "world:section:events:" + s },
       ],
       [
         { text: "‹ رتبه‌بندی", callback_data: "world:section:ranking:" + s },
@@ -318,38 +489,42 @@ function mainKeyboard(userId: number) {
 
 function registrationText(user: WorldUser) {
   return [
-    "◈ Pᴇʀsɪᴀɴ Wᴏʀʟᴅ",
+    "◈ Pᴇʀsɪᴀɴ Wᴏʀʟᴅ · Fʀᴏɴᴛɪᴇʀ",
     "",
     WORLD_SEPARATOR,
     "",
-    "دنیای پرشین یک بازی متنی اجتماعی هست.",
-    "اینجا هر بازیکن یک اکانت مستقل در همین گروه داره",
+    "شهر هنوز اسمت رو نمی‌شناسه.",
+    "برای شروع زندگی تو این سرزمین، باید هویتت رو ثبت کنی.",
     "",
-    "برای ورود ابتدا باید اکانت بازی خودت را بسازی.",
+    "این شهر برای تازه‌واردها جای راحتی نیست.",
+    "از صفر شروع می‌کنی؛ بقیه‌اش دست خودته.",
     "",
-    "★ - بازیکن : " + displayName(user),
+    "★ - تازه‌وارد : " + displayName(user),
     "⛂ - شناسه : " + fa(user.id),
-    "⛂ - وضعیت اکانت : ثبت‌نشده",
+    "⛂ - وضعیت هویت : ثبت‌نشده",
     "",
     WORLD_SEPARATOR,
     "",
   ].join("\n");
 }
-
 function helpText() {
   return [
-    "◈ راهنمای دنیای پرشین",
+    "◈ راهنمای سرزمین پرشین",
     "",
     WORLD_SEPARATOR,
     "",
-    "برای شروع، اکانتت را بساز.",
-    "بعد از ساخت اکانت، جهان شخصی خودت را همین‌جا مدیریت می‌کنی.",
+    "برای شروع، هویتت را ثبت کن.",
+    "هر گپ در این جهان یک قلمرو دارد؛ روستای شخصی، شهر همگانی یا مقصدی که بعداً به آن سفر می‌کنی.",
     "",
-    "★ - هر بازیکن اکانت مستقل خودش را دارد.",
-    "★ - اکانت به همین گروه و همین بازیکن متصل است.",
-    "★ - خانه، شغل، منابع، بازار و ماجراجویی کم‌کم به جهان اضافه می‌شوند.",
+    "★ - خانه، مزرعه، اصطبل و اسب متعلق به اکانت خودت هستند.",
+    "★ - منابع در زمین و کارگاه‌های خودت تولید می‌شوند.",
+    "★ - سفر بین شهرها زمان می‌برد و هزینه دارد.",
+    "★ - اهالی شهر و شخصیت‌های محلی در جهان زنده‌اند.",
     "",
-    "دستور اصلی : جهان",
+    "ربات محلی : " + FRONTIER_LOCAL_BOT,
+    "ربات شهری : " + FRONTIER_CITY_BOT,
+    "",
+    "دستور ورود : ورود به جهان",
     "",
     WORLD_SEPARATOR,
     "",
@@ -358,36 +533,37 @@ function helpText() {
 
 function registrationGenderText(user: WorldUser) {
   return [
-    "◈ ساخت اکانت",
+    "◈ ثبت هویت",
     "",
     WORLD_SEPARATOR,
     "",
-    "قبل از ورود، جنسیت کاراکترت را انتخاب کن.",
+    "این سرزمین قبل از هر چیز، اسم و هویتت رو می‌خواد.",
+    "یک انتخاب اولیه برای کاراکترت ثبت کن.",
     "",
-    "★ - بازیکن : " + displayName(user),
+    "★ - تازه‌وارد : " + displayName(user),
     "⛂ - شناسه : " + fa(user.id),
     "",
     WORLD_SEPARATOR,
     "",
-    "این انتخاب فعلاً برای ساخت هویت اولیه اکانت استفاده می‌شود.",
+    "بعد از ثبت هویت، روستای شخصی‌ات برایت ساخته می‌شود.",
   ].join("\n");
 }
 
 function sectionText(section: string, account: any) {
-  const title = SECTION_NAMES[section] ?? "جهان";
+  const title = SECTION_NAMES[section] ?? "سرزمین";
   const descriptions: Record<string, string> = {
-    city: "اینجا شهر زندگی می‌کنی؛ محله‌ها، ساختمان‌ها و اتفاقات شهری بعداً از همین بخش شکل می‌گیرند.",
-    job: "اینجا مسیر کار و حرفه‌ات ساخته می‌شود؛ هر بازیکن در ادامه حرفه خودش را انتخاب می‌کند.",
-    market: "اینجا بازار جهان شکل می‌گیرد؛ خرید، فروش و معامله بین بازیکنان و NPCها.",
-    assets: "اینجا دارایی‌ها، ابزارها و چیزهایی را که به دست می‌آوری مدیریت می‌کنی.",
-    adventure: "اینجا مسیر داستان‌ها و اتفاقات جهان را دنبال می‌کنی.",
-    games: "اینجا سرگرمی‌ها و بازی‌های داخل جهان قرار می‌گیرند.",
-    missions: "اینجا مأموریت‌ها، هدف‌ها و پاداش‌هایی که برایت تعریف می‌شوند قرار می‌گیرند.",
-    collection: "اینجا مجموعه چیزهایی را که در طول بازی جمع می‌کنی می‌بینی.",
-    events: "اینجا رویدادهای محدود، اتفاقات ویژه و فصل‌های جهان قرار می‌گیرند.",
-    ranking: "اینجا رتبه‌بندی بازیکنان همین گروه را می‌بینی.",
-    help: "راهنمای جهان و روش استفاده از بخش‌ها از اینجا در دسترس است.",
-    settings: "تنظیمات اکانت و انتخاب‌های شخصی جهان از اینجا مدیریت می‌شود.",
+    city: "روستای شخصی، شهرهای همگانی و مسیرهایی که بینشان طی می‌کنی از همین‌جا مدیریت می‌شوند.",
+    job: "حرفه‌ات باید چیزی به این مرزها اضافه کند؛ معدن، مزرعه، چوب‌بری، آهنگری، شکار، تجارت و کارهای دیگر.",
+    market: "بازار مرزی با قیمت، عرضه و تقاضای واقعی بین بازیکنان و اهالی شهر شکل می‌گیرد.",
+    assets: "خانه، مزرعه، اصطبل، اسب، ابزار و دارایی‌های شخصی‌ات اینجاست.",
+    adventure: "ردپای آدم‌ها، جاده‌های خطرناک، سفرها و داستان‌هایی که در مرز باز می‌شوند.",
+    games: "سالون محل بازی، دورهمی و سرگرمی‌های داخل جهان است.",
+    missions: "کارهایی که شهر، اهالی یا مسیر زندگی خودت پیش پایت می‌گذارند.",
+    collection: "چیزهایی که در سفر، شکار، معدن و معامله جمع کرده‌ای.",
+    events: "اتفاقات محدود، حوادث شهر و رویدادهایی که می‌توانند مسیر یک شهر را عوض کنند.",
+    ranking: "مقایسه وضعیت و پیشرفت بازیکنان همین قلمرو.",
+    help: "قوانین مرز و راه استفاده از بخش‌های مختلف جهان.",
+    settings: "تنظیمات اکانت و انتخاب‌های شخصی‌ات در جهان.",
   };
   return [
     "◈ " + title,
@@ -398,22 +574,23 @@ function sectionText(section: string, account: any) {
     "⛂ - سطح : " + fa(Number(account.level)),
     "⛂ - سکه : " + fa(Number(account.coins)),
     "",
-    descriptions[section] ?? "این بخش برای توسعه مرحله‌ای جهان آماده شده.",
+    westernLine(section),
+    "",
+    descriptions[section] ?? "این بخش هنوز قفل توسعه دارد، اما از همین حالا جزئی از ساختار جهان است.",
     "",
     WORLD_SEPARATOR,
     "",
-    "اکانتت و اطلاعات اصلی‌ات همین حالا ذخیره می‌شوند.",
+    "اهالی این سرزمین حرف خودشان را می‌زنند؛ لازم نیست هر چیزی را از ربات بپرسی.",
   ].join("\n");
 }
-
 function unauthorizedText() {
   return [
-    "◈ دنیای پرشین",
+    "◈ Pᴇʀsɪᴀɴ Wᴏʀʟᴅ · Fʀᴏɴᴛɪᴇʀ",
     "",
     WORLD_SEPARATOR,
     "",
     "این دکمه برای بازیکن دیگری ساخته شده.",
-    "برای ورود به جهان خودت، دستور جهان را بنویس.",
+    "برای ورود به جهان خودت، بنویس: ورود به جهان",
     "",
     WORLD_SEPARATOR,
     "",
@@ -422,7 +599,7 @@ function unauthorizedText() {
 
 function inactiveText() {
   return [
-    "◈ دنیای پرشین",
+    "◈ Pᴇʀsɪᴀɴ Wᴏʀʟᴅ · Fʀᴏɴᴛɪᴇʀ",
     "",
     WORLD_SEPARATOR,
     "",
@@ -454,14 +631,17 @@ function progressBar(xp: number, level: number) {
 async function centerText(pool: Pool, ctx: WorldContext, account?: any) {
   const a = account ?? await getAccount(pool, ctx.chatId, ctx.userId);
   if (!a) return null;
+  const settlement = await ensureSettlement(pool, ctx.chatId, ctx.chatTitle);
+  const assets = await ensurePersonalAssets(pool, ctx.chatId, ctx.userId);
   const gender =
     a.gender === "male" ? "مرد" :
     a.gender === "female" ? "زن" :
     "بدون تعیین";
+  const homeName = assets?.home_code === "frontier_cabin" ? "کلبه مرزی" : String(assets?.home_code ?? "کلبه مرزی");
   return [
-    "◈ Pᴇʀsɪᴀɴ Wᴏʀʟᴅ",
+    "◈ Pᴇʀsɪᴀɴ Wᴏʀʟᴅ · Fʀᴏɴᴛɪᴇʀ",
     "",
-    "★ - " + a.display_name,
+    "★ - " + a.display_name + " | " + (settlement?.name ?? "Frontier"),
     "⛂ - اکانت : #" + fa(Number(a.account_id)),
     "⛂ - سطح : " + fa(Number(a.level)),
     "⛂ - تجربه : " + fa(Number(a.xp)) + " XP",
@@ -471,19 +651,22 @@ async function centerText(pool: Pool, ctx: WorldContext, account?: any) {
     "",
     WORLD_SEPARATOR,
     "",
-    "⛂ - خانه : " + (a.home_code === "starter_home" ? "خانه آغازین" : a.home_code),
-    "⛂ - شغل : " + (a.job_code ? a.job_code : "هنوز انتخاب نشده"),
-    "⛂ - وضعیت : " + (a.status === "active" ? "فعال" : a.status),
+    "⛂ - روستای من : " + (settlement?.name ?? "Frontier"),
+    "⛂ - خانه : " + homeName,
+    "⛂ - مزرعه : " + (assets && Number(assets.farm_level) > 0 ? "فعال" : "ندارد"),
+    "⛂ - اسب : " + (assets?.horse_name ? String(assets.horse_name) : "هنوز نداری"),
+    "⛂ - حرفه : " + (a.job_code ? a.job_code : "هنوز انتخاب نشده"),
     "",
     WORLD_SEPARATOR,
     "",
-    "★ - زندگی شهری با بازیکنان آنلاین",
-    "★ - زندگی مستقل با بات‌ها",
+    "⛂ - ربات محلی : " + FRONTIER_LOCAL_BOT,
+    "⛂ - ربات شهری : " + FRONTIER_CITY_BOT,
+    "⛂ - وضعیت : " + (a.status === "active" ? "فعال" : a.status),
     "",
-    "هر چیزی که بعداً به دست می‌آوری، از همین اکانت و همین گروه شروع می‌شود.",
+    "★ - اینجا از صفر شروع می‌کنی.",
+    "★ - هر چیزی که می‌سازی، خرج می‌کنی یا به دست می‌آری به همین اکانت تعلق دارد.",
   ].join("\n");
 }
-
 async function profileText(pool: Pool, ctx: WorldContext) {
   const a = await getAccount(pool, ctx.chatId, ctx.userId);
   if (!a) return null;
@@ -522,24 +705,118 @@ async function profileText(pool: Pool, ctx: WorldContext) {
 async function lifeText(pool: Pool, ctx: WorldContext) {
   const a = await getAccount(pool, ctx.chatId, ctx.userId);
   if (!a) return null;
+  const assets = await ensurePersonalAssets(pool, ctx.chatId, ctx.userId);
   return [
-    "◈ زندگی من",
+    "◈ زندگی شخصی",
     "",
     WORLD_SEPARATOR,
     "",
     "★ - " + a.display_name,
-    "⛂ - خانه : خانه آغازین",
-    "⛂ - سطح خانه : 1",
-    "⛂ - ظرفیت انبار : 10",
-    "⛂ - ویترین : آماده نشده",
+    "⛂ - خانه : " + (assets?.home_code === "frontier_cabin" ? "کلبه مرزی" : String(assets?.home_code ?? "کلبه مرزی")),
+    "⛂ - سطح خانه : " + fa(Number(assets?.home_level ?? 1)),
+    "⛂ - مزرعه شخصی : " + (assets && Number(assets.farm_level) > 0 ? "فعال | سطح " + fa(Number(assets.farm_level)) : "ندارد"),
+    "⛂ - اصطبل : " + (assets && Number(assets.stable_level) > 0 ? "فعال | سطح " + fa(Number(assets.stable_level)) : "ساخته نشده"),
+    "⛂ - اسب شخصی : " + (assets?.horse_name ? String(assets.horse_name) : "هنوز اسبی نداری"),
     "",
-    "⛂ - شغل : " + (a.job_code ? a.job_code : "هنوز انتخاب نشده"),
+    "⛂ - حرفه : " + (a.job_code ? a.job_code : "هنوز انتخاب نشده"),
     "⛂ - درآمد : هنوز شروع نشده",
     "",
     WORLD_SEPARATOR,
     "",
-    "زندگی از همین‌جا شروع می‌شود.",
-    "خانه و شغل بعداً قابل توسعه هستند و انتخاب‌هایت مسیر اکانتت را شکل می‌دهند.",
+    westernLine("life"),
+    "",
+    "خانه، زمین، اسب و ابزارها از دارایی‌های واقعی اکانتت هستند؛ هر کدام بعداً قابلیت توسعه و هزینه نگهداری خواهند داشت.",
+  ].join("\n");
+}
+async function cityText(pool: Pool, ctx: WorldContext) {
+  const settlement = await ensureSettlement(pool, ctx.chatId, ctx.chatTitle);
+  if (!settlement) return null;
+
+  const publicCities = (await pool.query<any>(
+    `SELECT settlement_id,name,group_id,region_name
+     FROM game_world_settlements
+     WHERE is_public=TRUE AND settlement_kind='city' AND group_id<>$1
+     ORDER BY population_count DESC,settlement_id
+     LIMIT 5`,
+    [ctx.chatId],
+  )).rows;
+
+  const travel = (await pool.query<any>(
+    `SELECT t.*, s.name AS destination_name
+     FROM game_world_travels t
+     LEFT JOIN game_world_settlements s ON s.settlement_id=t.to_settlement_id
+     WHERE t.group_id=$1 AND t.user_id=$2 AND t.status='travelling'
+     ORDER BY t.arrival_at ASC
+     LIMIT 1`,
+    [ctx.chatId, ctx.userId],
+  )).rows[0];
+
+  const lines = [
+    "◈ شهر و سفر",
+    "",
+    WORLD_SEPARATOR,
+    "",
+    "★ - قلمرو فعلی",
+    "⛂ - نام : " + String(settlement.name),
+    "⛂ - نوع : روستای شخصی گروه",
+    "⛂ - گپ : " + (ctx.chatTitle || "بدون نام"),
+    "⛂ - منطقه : " + String(settlement.region_name),
+    "",
+    "★ - ساختار مرزی",
+    "⛂ - گپ خودمان : روستای شخصی",
+    "⛂ - گپ‌های همگانی : شهرهای بزرگ",
+    "⛂ - سفر : وابسته به زمان و هزینه",
+    "",
+  ];
+
+  if (travel) {
+    lines.push("★ - در راهی");
+    lines.push("⛂ - مقصد : " + String(travel.destination_name ?? "شهر مقصد"));
+    lines.push("⛂ - زمان رسیدن : " + new Date(travel.arrival_at).toLocaleString("en-GB", { timeZone: "UTC" }) + " UTC");
+    lines.push("⛂ - هزینه سفر : " + fa(Number(travel.cost_coins)) + " سکه");
+  } else if (!publicCities.length) {
+    lines.push("★ - شهرهای همگانی");
+    lines.push("⛂ - فعلاً شهری برای سفر ثبت نشده.");
+    lines.push("⛂ - وقتی شهرهای همگانی فعال شوند، مقصد، زمان سفر و هزینه هر مسیر اینجا نشان داده می‌شود.");
+  } else {
+    lines.push("★ - شهرهای همگانی");
+    for (const city of publicCities) {
+      lines.push("⛂ - " + String(city.name) + " | مقصد آماده سفر");
+    }
+  }
+
+  lines.push("");
+  lines.push(westernLine("city"));
+  lines.push("");
+  lines.push(WORLD_SEPARATOR);
+  return lines.join("\n");
+}
+
+async function personalAssetsText(pool: Pool, ctx: WorldContext) {
+  const assets = await ensurePersonalAssets(pool, ctx.chatId, ctx.userId);
+  if (!assets) return null;
+  const homeName = assets.home_code === "frontier_cabin" ? "کلبه مرزی" : String(assets.home_code);
+  const farm = Number(assets.farm_level);
+  const stable = Number(assets.stable_level);
+  const horse = assets.horse_name ? String(assets.horse_name) : "هنوز اسبی نداری";
+
+  return [
+    "◈ ملک و دارایی شخصی",
+    "",
+    WORLD_SEPARATOR,
+    "",
+    "★ - صاحب ملک : " + displayName(ctx.user),
+    "⛂ - خانه : " + homeName,
+    "⛂ - سطح خانه : " + fa(Number(assets.home_level)),
+    "⛂ - مزرعه شخصی : " + (farm > 0 ? "فعال | سطح " + fa(farm) : "ساخته نشده"),
+    "⛂ - اصطبل : " + (stable > 0 ? "فعال | سطح " + fa(stable) : "ساخته نشده"),
+    "⛂ - اسب : " + horse,
+    "⛂ - سطح اسب : " + fa(Number(assets.horse_level)),
+    "⛂ - آمادگی اسب : " + fa(Number(assets.horse_energy)) + "%",
+    "",
+    WORLD_SEPARATOR,
+    "",
+    "« اینجا چیزهایی ثبت می‌شن که واقعاً مال خودت باشن؛ خانه، زمین، اسب و دارایی‌های شخصی.»",
   ].join("\n");
 }
 
@@ -593,7 +870,7 @@ async function resourcesText(pool: Pool, ctx: WorldContext, page = 0) {
     "",
     WORLD_SEPARATOR,
     "",
-    "★ - کارخانه‌های فعال",
+    "★ - کارگاه‌ها و منابع فعال",
   ];
 
   for (const factory of factories) {
@@ -615,14 +892,14 @@ async function resourcesText(pool: Pool, ctx: WorldContext, page = 0) {
     const factory = active.get(resource.code);
     lines.push(
       "⛂ - " + resource.name + " : " +
-      (factory ? "کارخانه فعال" : "کارخانه هنوز ساخته نشده"),
+      (factory ? "محل تولید فعال" : "محل تولید هنوز ساخته نشده"),
     );
   }
 
   lines.push("");
   lines.push(WORLD_SEPARATOR);
   lines.push("");
-  lines.push("برای کارخانه‌های فعال، روی خود منبع بزن تا همان لحظه سهم تولیدش برداشت شود.");
+  lines.push("برای منبع فعال، روی همان مورد بزن تا سهم تولیدش را همان لحظه برداشت کنی.");
   return lines.join("\n");
 }
 
@@ -775,6 +1052,7 @@ export async function handleWorldText(ctx: WorldContext, text: string): Promise<
     };
   }
 
+  await ensureSettlement(ctx.pool, ctx.chatId, ctx.chatTitle);
   const account = await getAccount(ctx.pool, ctx.chatId, ctx.userId);
   if (!account) {
     return {
@@ -791,6 +1069,7 @@ export async function handleWorldText(ctx: WorldContext, text: string): Promise<
   }
 
   await ensureStarterFactories(ctx.pool, ctx.chatId, ctx.userId);
+  await ensurePersonalAssets(ctx.pool, ctx.chatId, ctx.userId);
 
   await ctx.pool.query(
     "UPDATE game_world_accounts SET username=$3,first_name=$4,display_name=$5,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",
@@ -856,6 +1135,8 @@ export async function handleWorldCallback(ctx: WorldContext, data: string): Prom
       );
       const account = inserted.rows[0] ?? await getAccount(ctx.pool, ctx.chatId, ctx.userId);
       await ensureStarterFactories(ctx.pool, ctx.chatId, ctx.userId);
+      await ensurePersonalAssets(ctx.pool, ctx.chatId, ctx.userId);
+      await ensureSettlement(ctx.pool, ctx.chatId, ctx.chatTitle);
       return {
         text: (await centerText(ctx.pool, ctx, account)) ?? registrationText(ctx.user),
         replyMarkup: mainKeyboard(ctx.userId),
@@ -863,6 +1144,8 @@ export async function handleWorldCallback(ctx: WorldContext, data: string): Prom
     }
 
     await ensureStarterFactories(ctx.pool, ctx.chatId, ctx.userId);
+    await ensurePersonalAssets(ctx.pool, ctx.chatId, ctx.userId);
+    await ensureSettlement(ctx.pool, ctx.chatId, ctx.chatTitle);
     return {
       text: (await centerText(ctx.pool, ctx, existing)) ?? registrationText(ctx.user),
       replyMarkup: mainKeyboard(ctx.userId),
@@ -912,9 +1195,9 @@ export async function handleWorldCallback(ctx: WorldContext, data: string): Prom
           WORLD_SEPARATOR,
           "",
           "⛂ - دسته : " + resource.category,
-          "⛂ - کارخانه : هنوز ساخته نشده",
+          "⛂ - محل تولید : هنوز ساخته نشده",
           "",
-          "این منبع در دنیای پرشین وجود دارد و بعداً می‌توانی کارخانه‌اش را راه‌اندازی کنی.",
+          "این منبع در مرز وجود دارد و بعداً می‌توانی محل استخراج یا تولیدش را راه‌اندازی کنی.",
           "",
           WORLD_SEPARATOR,
         ].join("\n"),
@@ -992,6 +1275,20 @@ export async function handleWorldCallback(ctx: WorldContext, data: string): Prom
     if (section === "life") {
       return {
         text: (await lifeText(ctx.pool, ctx)) ?? registrationText(ctx.user),
+        replyMarkup: backKeyboard(ctx.userId),
+      };
+    }
+
+    if (section === "city") {
+      return {
+        text: (await cityText(ctx.pool, ctx)) ?? registrationText(ctx.user),
+        replyMarkup: backKeyboard(ctx.userId),
+      };
+    }
+
+    if (section === "assets") {
+      return {
+        text: (await personalAssetsText(ctx.pool, ctx)) ?? registrationText(ctx.user),
         replyMarkup: backKeyboard(ctx.userId),
       };
     }
