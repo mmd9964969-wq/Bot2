@@ -409,6 +409,7 @@ async function upgradeHome(ctx:FrontierExpansionContext){
     if(+locked.coins<cost){await client.query("ROLLBACK");return {text:"✗ برای ارتقای خانه "+money(cost)+" لازم داری."};}
     await client.query("UPDATE game_world_accounts SET coins=coins-$3 WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,cost]);
     await client.query("UPDATE game_world_personal_assets SET home_level=home_level+1,land_value=land_value+$3,updated_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,cost]);
+    await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"expense",cost,"ارتقای خانه","home");
     await client.query("COMMIT");
   }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e;}finally{client.release();}
   return {text:"✓ خانه‌ات یک پله بالاتر رفت. مرز حالا کمی بیشتر روی نام تو حساب می‌کند.",replyMarkup:back(ctx.userId)};
@@ -424,6 +425,7 @@ async function upgradeLand(ctx:FrontierExpansionContext){
     if(+locked.coins<cost){await client.query("ROLLBACK");return {text:"✗ برای خرید قطعه زمین بعدی "+money(cost)+" لازم داری.",replyMarkup:back(ctx.userId)};}
     await client.query("UPDATE game_world_accounts SET coins=coins-$3 WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,cost]);
     await client.query("UPDATE game_world_personal_assets SET land_level=land_level+1,land_value=land_value+$3,updated_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,cost]);
+    await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"expense",cost,"توسعه زمین","land");
     await client.query("COMMIT");
   }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e;}finally{client.release();}
   return {text:"✓ زمینت توسعه پیدا کرد. قطعه بعدی حالا به ملک تو اضافه شده است.",replyMarkup:back(ctx.userId)};
@@ -435,6 +437,7 @@ async function upgradeStorage(ctx:FrontierExpansionContext){
   if(+a.coins<cost)return {text:"✗ برای ارتقای انبار "+money(cost)+" لازم داری.",replyMarkup:back(ctx.userId)};
   await ctx.pool.query("UPDATE game_world_accounts SET coins=coins-$3 WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,cost]);
   await ctx.pool.query("UPDATE game_world_personal_assets SET storage_level=storage_level+1,updated_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId]);
+  await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"expense",cost,"ارتقای انبار","storage");
   return {text:"✓ انبار توسعه پیدا کرد؛ حالا می‌توانی کالای بیشتری نگه داری.",replyMarkup:back(ctx.userId)};
 }
 
@@ -446,6 +449,7 @@ async function plant(ctx:FrontierExpansionContext,code:string){
   const ready=new Date(Date.now()+crop.minutes*60000);
   await ctx.pool.query("UPDATE game_world_accounts SET coins=coins-$3 WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,crop.seed]);
   await ctx.pool.query("UPDATE game_world_personal_assets SET farm_crop=$3,farm_planted_at=NOW(),farm_ready_at=$4,farm_water=100,farm_health=100,updated_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,code,ready]);
+  await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"expense",crop.seed,"خرید بذر",code);
   return {text:["✓ کاشت انجام شد.","","⛂ - محصول : "+crop.name,"⛂ - زمان رشد : "+fa(crop.minutes)+" دقیقه","⛂ - برداشت : "+fa(crop.yield),"","« حالا باید بگذاری زمین کار خودش را بکند.»"].join("\n"),replyMarkup:back(ctx.userId)};
 }
 
@@ -457,6 +461,7 @@ async function harvest(ctx:FrontierExpansionContext){
   const value=yieldAmount*10;
   await ctx.pool.query("UPDATE game_world_personal_assets SET farm_crop=NULL,farm_planted_at=NULL,farm_ready_at=NULL,farm_water=100,updated_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId]);
   await ctx.pool.query("UPDATE game_world_accounts SET coins=coins+$3,xp=xp+$4,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,value,Math.floor(yieldAmount*4)]);
+  await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"income",value,"برداشت مزرعه",String(crop?.name??a.farm_crop));
   await ctx.pool.query("UPDATE game_world_player_missions SET progress=LEAST(target,progress+1),updated_at=NOW() WHERE group_id=$1 AND user_id=$2 AND code='farm_1' AND claim_key=$3",[ctx.chatId,ctx.userId,new Date().toISOString().slice(0,10)]);
   return {text:["✓ برداشت انجام شد.","","⛂ - محصول : "+(crop?.name??String(a.farm_crop)),"⛂ - مقدار : "+fa(yieldAmount),"⛂ - ارزش فروش : "+money(value),"⛂ - تجربه : +"+fa(Math.floor(yieldAmount*4)),"","« محصول خوب همیشه مشتری خودش را پیدا می‌کند.»"].join("\n"),replyMarkup:back(ctx.userId)};
 }
@@ -468,6 +473,7 @@ async function buyHorse(ctx:FrontierExpansionContext){
   if(+ac.coins<cost)return {text:"✗ اسب مرزی "+money(cost)+" قیمت دارد.",replyMarkup:back(ctx.userId)};
   await ctx.pool.query("UPDATE game_world_accounts SET coins=coins-$3 WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,cost]);
   await ctx.pool.query("UPDATE game_world_personal_assets SET horse_name=$3,horse_breed='Quarter Horse',horse_level=1,horse_health=100,horse_speed=7,horse_stamina=80,stable_level=1,updated_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,"Dusty"]);
+  await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"expense",cost,"خرید اسب","horse");
   return {text:["✓ اسب خریداری شد.","","⛂ - نام : Dusty","⛂ - نژاد : Quarter Horse","⛂ - سرعت : 7","⛂ - استقامت : 80","⛂ - هزینه : "+money(cost),"","« از این به بعد بخشی از راه را چهار پا طی می‌کنی؛ خرجش هم با توست.»"].join("\n"),replyMarkup:back(ctx.userId)};
 }
 
@@ -476,6 +482,7 @@ async function buyTool(ctx:FrontierExpansionContext,code:string){
   if(+a.coins<t.cost)return {text:"✗ برای این ابزار "+money(t.cost)+" لازم داری.",replyMarkup:back(ctx.userId)};
   await ctx.pool.query("UPDATE game_world_accounts SET coins=coins-$3 WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,t.cost]);
   await ctx.pool.query("INSERT INTO game_world_tools(group_id,user_id,tool_code,level,durability,quantity) VALUES($1,$2,$3,1,$4,1) ON CONFLICT(group_id,user_id,tool_code) DO UPDATE SET quantity=game_world_tools.quantity+1,durability=GREATEST(game_world_tools.durability,$4),updated_at=NOW()",[ctx.chatId,ctx.userId,code,t.durability]);
+  await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"expense",t.cost,"خرید ابزار",t.name);
   await ctx.pool.query("UPDATE game_world_player_missions SET progress=LEAST(target,progress+1),updated_at=NOW() WHERE group_id=$1 AND user_id=$2 AND code='tool_1' AND claim_key=$3",[ctx.chatId,ctx.userId,new Date().toISOString().slice(0,10)]);
   return {text:"✓ "+t.name+" به انبارت اضافه شد.",replyMarkup:back(ctx.userId)};
 }
@@ -647,6 +654,7 @@ async function doWork(ctx:FrontierExpansionContext){
   const nextXp=+p.xp+xp;
   const nextLevel=Math.max(1,Math.floor(Math.sqrt(nextXp/100))+1);
   await ctx.pool.query("UPDATE game_world_accounts SET coins=coins+$3,xp=xp+$4,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,pay,xp]);
+  await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"income",pay,"حقوق حرفه",prof.name);
   await ctx.pool.query("UPDATE game_world_professions SET xp=xp+$3,level=GREATEST(level,$4),last_work_at=NOW(),updated_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,xp,nextLevel]);
   await ctx.pool.query("UPDATE game_world_player_missions SET progress=LEAST(target,progress+1),updated_at=NOW() WHERE group_id=$1 AND user_id=$2 AND code='work_3' AND claim_key=$3",[ctx.chatId,ctx.userId,new Date().toISOString().slice(0,10)]);
   return {text:["✓ کار انجام شد.","","⛂ - حرفه : "+prof.name,"⛂ - درآمد : +"+money(pay),"⛂ - تجربه : +"+fa(xp),"⛂ - سطح حرفه : "+fa(nextLevel),"","« کار تمام شد. مزدش را گرفتی؛ فردا باز همین مرز سر جایش است.»"].join("\n"),replyMarkup:back(ctx.userId)};
@@ -784,6 +792,7 @@ async function buyLivestock(ctx:FrontierExpansionContext,code:string){
   if(+a.coins<d.cost)return {text:"✗ برای خرید "+d.name+" "+money(d.cost)+" لازم داری.",replyMarkup:back(ctx.userId)};
   await ctx.pool.query("UPDATE game_world_accounts SET coins=coins-$3,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,d.cost]);
   await ctx.pool.query("INSERT INTO game_world_livestock(group_id,user_id,animal_code,count,health,feed) VALUES($1,$2,$3,1,100,100) ON CONFLICT(group_id,user_id,animal_code) DO UPDATE SET count=game_world_livestock.count+1,health=100,feed=100,updated_at=NOW()",[ctx.chatId,ctx.userId,code]);
+  await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"expense",d.cost,"خرید دام",d.name);
   return {text:["✓ دام خریداری شد.","","⛂ - دام : "+d.name,"⛂ - هزینه : "+money(d.cost),"⛂ - سلامت اولیه : 100%","⛂ - خوراک : 100%","","« حیوان اگر خرج داشته باشد، باز هم می‌تواند برایت پول بسازد.»"].join("\n"),replyMarkup:back(ctx.userId)};
 }
 
@@ -797,6 +806,7 @@ async function collectLivestock(ctx:FrontierExpansionContext,code:string){
   const amount=d.collect*+row.count;
   await ctx.pool.query("UPDATE game_world_livestock SET last_collected_at=NOW(),feed=GREATEST(0,feed-10),updated_at=NOW() WHERE group_id=$1 AND user_id=$2 AND animal_code=$3",[ctx.chatId,ctx.userId,code]);
   await ctx.pool.query("UPDATE game_world_accounts SET coins=coins+$3,xp=xp+$4,energy=GREATEST(0,energy-3),last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,amount,Math.max(5,Math.floor(amount/2))]);
+  await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"income",amount,"تولید دام",d.name);
   return {text:["✓ تولید دام جمع‌آوری شد.","","⛂ - دام : "+d.name,"⛂ - درآمد : +"+money(amount),"⛂ - تجربه : +"+fa(Math.max(5,Math.floor(amount/2))),"⛂ - مصرف خوراک : 10%","","« طویله‌ای که به حال خودش رها شود، سودش را هم از دست می‌دهد.»"].join("\n"),replyMarkup:back(ctx.userId)};
 }
 
@@ -821,6 +831,7 @@ async function buyTransport(ctx:FrontierExpansionContext,code:string){
   if(+a.coins<t.cost)return {text:"✗ برای این وسیله "+money(t.cost)+" لازم داری.",replyMarkup:back(ctx.userId)};
   await ctx.pool.query("UPDATE game_world_accounts SET coins=coins-$3 WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,t.cost]);
   await ctx.pool.query("INSERT INTO game_world_transport(group_id,user_id,transport_code,level,condition,fuel) VALUES($1,$2,$3,1,$4,$5) ON CONFLICT(group_id,user_id,transport_code) DO UPDATE SET level=game_world_transport.level+1,condition=100,fuel=100,updated_at=NOW()",[ctx.chatId,ctx.userId,code,t.condition,t.fuel]);
+  await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"expense",t.cost,"خرید وسیله",t.name);
   return {text:"✓ "+t.name+" به دارایی‌هایت اضافه شد؛ جاده حالا انتخاب‌های بیشتری دارد.",replyMarkup:back(ctx.userId)};
 }
 
@@ -849,6 +860,7 @@ async function buyBusiness(ctx:FrontierExpansionContext,code:string){
   if(+a.coins<b.cost)return {text:"✗ سرمایه کافی نیست؛ "+b.name+" "+money(b.cost)+" خرج دارد.",replyMarkup:back(ctx.userId)};
   await ctx.pool.query("UPDATE game_world_accounts SET coins=coins-$3 WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,b.cost]);
   await ctx.pool.query("INSERT INTO game_world_businesses(group_id,user_id,business_code,business_name) VALUES($1,$2,$3,$4)",[ctx.chatId,ctx.userId,code,b.name]);
+  await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"expense",b.cost,"خرید کسب‌وکار",b.name);
   return {text:["✓ کسب‌وکار ثبت شد.","","⛂ - نام : "+b.name,"⛂ - سرمایه آغازین : "+money(b.cost),"⛂ - درآمد پایه : "+money(b.income)+" در هر چرخه","","« حالا دیگر فقط برای خودت کار نمی‌کنی؛ دخل مغازه هم هر روز حسابش را پس می‌دهد.»"].join("\n"),replyMarkup:back(ctx.userId)};
 }
 
@@ -874,6 +886,7 @@ async function withdrawBusiness(ctx:FrontierExpansionContext,code:string){
   if(amount<=0)return {text:"⛂ - صندوق خالی است.",replyMarkup:back(ctx.userId)};
   await ctx.pool.query("UPDATE game_world_businesses SET cashbox=0,updated_at=NOW() WHERE id=$1",[row.id]);
   await ctx.pool.query("UPDATE game_world_accounts SET coins=coins+$3,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,amount]);
+  await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"income",amount,"برداشت سود کسب‌وکار",row.business_name);
   return {text:"✓ "+money(amount)+" از صندوق "+row.business_name+" به موجودی نقدت منتقل شد.",replyMarkup:back(ctx.userId)};
 }
 
