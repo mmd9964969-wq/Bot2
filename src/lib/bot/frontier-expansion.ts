@@ -253,6 +253,13 @@ export async function ensureDynamicMarketPrice(pool:Pool,groupId:number,resource
   )).rows[0];
 }
 
+const MARKET_DAILY_CONSUMPTION:Record<string,number> = {
+  wood:10,stone:6,water:20,sand:4,clay:5,limestone:3,granite:2,quartz:1,salt:4,sulfur:1,
+  coal:5,oil:3,natural_gas:2,iron_ore:4,copper_ore:3,aluminum_ore:2,lead_ore:1,zinc_ore:2,
+  nickel_ore:1,titanium_ore:0.5,gold_ore:0.2,silver_ore:0.3,diamond_ore:0.05,emerald_ore:0.05,
+  wheat:14,corn:10,cotton:6,sugar_cane:5,herbs:4,rubber:2,wool:3,leather:3,fish:8
+};
+
 export async function recalculateDynamicMarketPrice(pool:Pool,groupId:number,resourceCode:string){
   const code=String(resourceCode);
   const current=await ensureDynamicMarketPrice(pool,groupId,code);
@@ -260,19 +267,40 @@ export async function recalculateDynamicMarketPrice(pool:Pool,groupId:number,res
     "SELECT COALESCE(SUM(amount),0) supply FROM game_world_market_listings WHERE group_id=$1 AND resource_code=$2 AND status='active' AND expires_at>NOW()",
     [groupId,code],
   )).rows[0]?.supply??0);
-  const demand=Number((await pool.query<any>(
+
+  const tradedDemand=Number((await pool.query<any>(
     "SELECT COALESCE(SUM(quantity),0) demand FROM game_world_market_trades WHERE group_id=$1 AND resource_code=$2 AND created_at>=NOW()-INTERVAL '24 hours'",
     [groupId,code],
   )).rows[0]?.demand??0);
+
+  const pop=Number((await pool.query<any>(
+    "SELECT COALESCE(population_count,0) population FROM game_world_settlements WHERE group_id=$1 LIMIT 1",
+    [groupId],
+  )).rows[0]?.population??0);
+
+  const businesses=Number((await pool.query<any>(
+    "SELECT COUNT(*)::int count FROM game_world_businesses WHERE group_id=$1 AND status='open'",
+    [groupId],
+  )).rows[0]?.count??0);
+
+  // NPC households create a small baseline of real consumption even before
+  // players trade the resource; open businesses add additional pressure.
+  const baseDaily=Number(MARKET_DAILY_CONSUMPTION[code]??2);
+  const householdDemand=pop*baseDaily;
+  const businessDemand=businesses*baseDaily*0.35;
+  const demand=Math.max(0,tradedDemand+householdDemand+businessDemand);
+
   const ratio=Math.max(0.5,Math.min(2.5,(demand+5)/(supply+5)));
   const raw=marketBasePrice(code)*ratio;
   const previous=Math.max(1,Number(current.current_price)||marketBasePrice(code));
   const next=Math.max(1,Math.round(previous*0.7+raw*0.3));
   const trend=next>previous?"up":next<previous?"down":"stable";
+
   await pool.query(
     "UPDATE game_world_market_prices SET current_price=$3,supply_24h=$4,demand_24h=$5,trend=$6,updated_at=NOW() WHERE group_id=$1 AND resource_code=$2",
     [groupId,code,next,supply,demand,trend],
   );
+
   return (await pool.query<any>(
     "SELECT * FROM game_world_market_prices WHERE group_id=$1 AND resource_code=$2",
     [groupId,code],
@@ -301,10 +329,11 @@ async function dynamicMarketOverview(ctx:FrontierExpansionContext){
     SEP,
     "",
     "★ - موتور قیمت",
-    "⛂ - قیمت پایه با عرضه و تقاضای واقعی تعدیل می‌شود.",
+    "⛂ - قیمت پایه با عرضه، خریدهای واقعی و مصرف مرزی تعدیل می‌شود.",
     "⛂ - عرضه بیشتر → فشار کاهشی روی قیمت.",
-    "⛂ - تقاضای بیشتر یا کمبود عرضه → فشار افزایشی.",
-    "⛂ - بازه کنترل‌شده است تا بازار از تعادل خارج نشود.",
+    "⛂ - کمبود کالا یا تقاضای بیشتر → فشار افزایشی.",
+    "⛂ - جمعیت و کسب‌وکارهای فعال، مصرف پایه بازار را می‌سازند.",
+    "⛂ - قیمت‌ها با نوسان کنترل‌شده حرکت می‌کنند تا اقتصاد منفجر نشود.",
     "",
     "★ - زنجیره پول و کالا",
     "⛂ - تولیدکننده → تاجر → فروشگاه → مصرف‌کننده",
