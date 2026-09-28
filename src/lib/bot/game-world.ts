@@ -12,6 +12,7 @@ export type WorldContext = {
   userId: number;
   user: WorldUser;
   chatTitle?: string;
+  userRank?: string;
 };
 
 export type WorldResult = {
@@ -49,6 +50,7 @@ const SECTION_NAMES: Record<string, string> = {
   ranking: "رتبه‌بندی",
   help: "راهنما",
   settings: "تنظیمات",
+  news: "اخبار",
 };
 
 const FRONTIER_LOCAL_BOT = "کلانتر محلی";
@@ -247,6 +249,10 @@ export async function ensureWorldSchema(pool: Pool) {
     )
   `);
 
+  await pool.query("CREATE TABLE IF NOT EXISTS game_world_news( news_id BIGSERIAL PRIMARY KEY, scope TEXT NOT NULL CHECK(scope IN ('local','global')), group_id BIGINT, title TEXT NOT NULL, body TEXT NOT NULL, severity TEXT NOT NULL DEFAULT 'info' CHECK(severity IN ('info','notice','warning','event')), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), expires_at TIMESTAMPTZ )");
+
+  await pool.query("CREATE TABLE IF NOT EXISTS game_world_market_listings( listing_id BIGSERIAL PRIMARY KEY, group_id BIGINT NOT NULL, seller_user_id BIGINT NOT NULL, resource_code TEXT NOT NULL, amount NUMERIC(20,6) NOT NULL CHECK(amount>0), min_purchase NUMERIC(20,6) NOT NULL DEFAULT 1 CHECK(min_purchase>0), unit_price BIGINT NOT NULL CHECK(unit_price>=0), status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','sold','cancelled','expired')), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '7 days') )");
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS game_world_resource_factories(
       factory_id BIGSERIAL PRIMARY KEY,
@@ -279,7 +285,18 @@ export async function ensureWorldSchema(pool: Pool) {
   await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_accounts_group_level ON game_world_accounts(group_id,level DESC,coins DESC)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_accounts_group_activity ON game_world_accounts(group_id,last_active_at DESC)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_settlements_public_kind ON game_world_settlements(is_public,settlement_kind)");
+  await pool.query("ALTER TABLE game_world_settlements ADD COLUMN IF NOT EXISTS market_active BOOLEAN NOT NULL DEFAULT TRUE");
+  await pool.query("ALTER TABLE game_world_settlements ADD COLUMN IF NOT EXISTS bank_active BOOLEAN NOT NULL DEFAULT TRUE");
+  await pool.query("ALTER TABLE game_world_settlements ADD COLUMN IF NOT EXISTS saloon_active BOOLEAN NOT NULL DEFAULT TRUE");
+  await pool.query("ALTER TABLE game_world_settlements ADD COLUMN IF NOT EXISTS train_station_active BOOLEAN NOT NULL DEFAULT TRUE");
+  await pool.query("ALTER TABLE game_world_settlements ADD COLUMN IF NOT EXISTS mine_active BOOLEAN NOT NULL DEFAULT TRUE");
+  await pool.query("ALTER TABLE game_world_settlements ADD COLUMN IF NOT EXISTS jobs_active BOOLEAN NOT NULL DEFAULT TRUE");
+  await pool.query("ALTER TABLE game_world_settlements ADD COLUMN IF NOT EXISTS laws_profile TEXT NOT NULL DEFAULT 'frontier'");
+  await pool.query("ALTER TABLE game_world_settlements ADD COLUMN IF NOT EXISTS local_bot_name TEXT NOT NULL DEFAULT 'کلانتر محلی'");
+  await pool.query("ALTER TABLE game_world_settlements ADD COLUMN IF NOT EXISTS city_bot_name TEXT NOT NULL DEFAULT 'مارشال شهر'");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_travels_user_status ON game_world_travels(group_id,user_id,status,arrival_at)");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_news_scope_group_created ON game_world_news(scope,group_id,created_at DESC)");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_market_group_status ON game_world_market_listings(group_id,status,created_at DESC)");
 
   await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_resource_factories_group_user ON game_world_resource_factories(group_id,user_id,active)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_resource_inventory_group_user ON game_world_resource_inventory(group_id,user_id)");
