@@ -475,51 +475,84 @@ function mainKeyboard(userId: number) {
   const s = String(userId);
   return {
     inline_keyboard: [
-      [
-        { text: "‹ دفتر مرز", callback_data: "world:expand:center:" + s },
-        { text: "‹ پروفایل", callback_data: "world:section:profile:" + s },
-      ],
-      [
-        { text: "‹ زندگی شخصی", callback_data: "world:section:life:" + s },
-      ],
-      [
-        { text: "‹ شهر و سفر", callback_data: "world:section:city:" + s },
-        { text: "‹ کار و حرفه", callback_data: "world:section:job:" + s },
-      ],
-      [
-        { text: "‹ منابع و استخراج", callback_data: "world:section:resources:" + s },
-        { text: "‹ بازار مرزی", callback_data: "world:section:market:" + s },
-      ],
-      [
-        { text: "‹ ملک و دارایی", callback_data: "world:section:assets:" + s },
-        { text: "‹ مزرعه و اسب", callback_data: "world:expand:farm:" + s },
-      ],
-      [
-        { text: "‹ بانک و پول", callback_data: "world:expand:bank:" + s },
-        { text: "‹ انبار و ابزار", callback_data: "world:expand:tools:" + s },
-      ],
-      [
-        { text: "‹ ماجرا", callback_data: "world:section:adventure:" + s },
-        { text: "‹ قانون و شهرت", callback_data: "world:expand:law:" + s },
-      ],
-      [
-        { text: "‹ سالون", callback_data: "world:section:games:" + s },
-        { text: "‹ کار و مأموریت", callback_data: "world:section:missions:" + s },
-      ],
-      [
-        { text: "‹ مجموعه", callback_data: "world:section:collection:" + s },
-        { text: "‹ رویدادهای مرزی", callback_data: "world:section:events:" + s },
-      ],
-      [
-        { text: "‹ رتبه‌بندی", callback_data: "world:section:ranking:" + s },
-        { text: "‹ اخبار", callback_data: "world:section:news:" + s },
-      ],
-      [
-        { text: "‹ راهنما", callback_data: "world:section:help:" + s },
-        { text: "‹ تنظیمات", callback_data: "world:section:settings:" + s },
-      ],
+      [{ text: "‹ آشنایی با بازی", callback_data: "world:hub:guide:" + s }],
+      [{ text: "‹ شخصیت و زندگی", callback_data: "world:hub:character:" + s }],
+      [{ text: "‹ اقتصاد و کسب‌وکار", callback_data: "world:hub:economy:" + s }],
+      [{ text: "‹ زمین و تولید", callback_data: "world:hub:production:" + s }],
+      [{ text: "‹ شهر و سفر", callback_data: "world:hub:city:" + s }],
+      [{ text: "‹ قانون و ماجرا", callback_data: "world:hub:adventure:" + s }],
+      [{ text: "‹ روابط و اجتماع", callback_data: "world:hub:social:" + s }],
+      [{ text: "‹ اخبار و مجموعه", callback_data: "world:hub:world:" + s }],
+      [{ text: "‹ تنظیمات", callback_data: "world:hub:settings:" + s }],
     ],
   };
+}
+
+function hubKeyboard(userId:number,hub:string){
+  const s=String(userId);
+  const map:Record<string,string[][]>={
+    guide:[["‹ ثبت و هویت","world:section:profile:" + s],["‹ وضعیت زندگی","world:section:life:" + s],["‹ راهنمای بخش‌ها","world:section:help:" + s]],
+    character:[["‹ پروفایل","world:section:profile:" + s],["‹ زندگی شخصی","world:section:life:" + s],["‹ ملک و دارایی","world:section:assets:" + s],["‹ مزرعه و اسب","world:expand:farm:" + s]],
+    economy:[["‹ بانک و پول","world:expand:bank:" + s],["‹ دفتر درآمد","world:expand:economy:" + s],["‹ بازار مرزی","world:section:market:" + s],["‹ کسب‌وکار","world:expand:business:" + s],["‹ کار و حرفه","world:section:job:" + s]],
+    production:[["‹ منابع و استخراج","world:section:resources:" + s],["‹ انبار و ابزار","world:expand:tools:" + s],["‹ مزرعه و دامداری","world:expand:farm:" + s],["‹ حرفه و مهارت","world:expand:profession:" + s]],
+    city:[["‹ شهرها","world:section:city:" + s],["‹ نقشه و سفر","world:expand:map:" + s],["‹ حمل‌ونقل","world:expand:transport:" + s],["‹ قراردادهای شهر","world:expand:missions:" + s]],
+    adventure:[["‹ ماجرا","world:section:adventure:" + s],["‹ مأموریت‌ها","world:section:missions:" + s],["‹ قانون و شهرت","world:expand:law:" + s],["‹ رویدادهای مرزی","world:section:events:" + s],["‹ سالون","world:section:games:" + s]],
+    social:[["‹ باند و روابط","world:expand:band:" + s],["‹ رتبه‌بندی","world:section:ranking:" + s],["‹ قراردادها","world:expand:missions:" + s],["‹ شهر و اهالی","world:section:city:" + s]],
+    world:[["‹ اخبار","world:section:news:" + s],["‹ روزنامه مرزی","world:expand:newspaper:" + s],["‹ رویدادهای مرزی","world:section:events:" + s],["‹ مجموعه","world:section:collection:" + s]],
+    settings:[["‹ تنظیمات اکانت","world:section:settings:" + s],["‹ راهنما","world:section:help:" + s]],
+  };
+  const rows=(map[hub]??map.guide).map(([text,callback_data])=>[{text,callback_data}]);
+  rows.push([{text:"‹ بازگشت به جهان",callback_data:"world:home:"+s}]);
+  return {inline_keyboard:rows};
+}
+
+function hubText(hub:string,woman:boolean){
+  const common:Record<string,string>={
+    guide:"اینجا نقطه شروع توست. هویتت را ثبت کن، زندگی‌ات را بساز و بعد سراغ پول، کار و جاده برو.",
+    character:"این بخش مربوط به خود توست؛ نام، وضعیت زندگی، خانه، زمین و دارایی‌هایی که کم‌کم به دست می‌آوری.",
+    economy:"اینجا پول مرز حرکت می‌کند؛ درآمد می‌سازی، خرج می‌کنی، معامله می‌کنی و کسب‌وکارت را بزرگ می‌کنی.",
+    production:"هر چیزی که می‌فروشی یا مصرف می‌کنی از جایی می‌آید؛ مزرعه، معدن، منابع، ابزار و مهارت اینجا به هم می‌رسند.",
+    city:"مرز فقط روستا نیست. شهرها، جاده‌ها و وسیله‌های حمل‌ونقل راه تو را به قلمروهای دیگر باز می‌کنند.",
+    adventure:"اینجا بخش آرام مرز تمام می‌شود؛ مأموریت، قانون، شهرت، رویداد و سالون می‌توانند مسیرت را عوض کنند.",
+    social:"هیچ آدمی در مرز تنها بزرگ نمی‌شود؛ باند، قرارداد، اهالی و رتبه‌ات جای تو را میان دیگران مشخص می‌کنند.",
+    world:"اتفاقات مرز می‌مانند. خبر، روزنامه، رویداد و چیزهایی که جمع کرده‌ای تاریخ زندگی تو را می‌سازند.",
+    settings:"انتخاب‌های شخصی و تنظیمات اکانتت از اینجا مدیریت می‌شوند.",
+  };
+  const women:Record<string,string>={
+    guide:"این بخش نقشه راه توست؛ اول هویتت را ثبت کن و بعد با خیال راحت سراغ زندگی، حرفه و اقتصاد برو.",
+    character:"خانه، زمین، سلامت، مزرعه و دارایی‌های شخصی تو در این بخش دنبال می‌شوند؛ زندگی مرزی را به سبک خودت بساز.",
+    economy:"پول فقط برای خرج‌کردن نیست؛ درآمد، پس‌انداز، معامله و کسب‌وکار پایه استقلال مالی تو در مرز است.",
+    production:"از زمین و مزرعه تا ابزار و مهارت؛ اینجا چیزهایی ساخته می‌شوند که بعداً می‌توانند وارد بازار و کار حرفه‌ای تو شوند.",
+    city:"شهرها فرصت‌های تازه دارند؛ سفر، حمل‌ونقل و ارتباط با شهرهای دیگر مسیرهای بیشتری جلوی پایت می‌گذارند.",
+    adventure:"مأموریت، شهرت، قانون و رویدادهای مرز همیشه خشن نیستند؛ انتخاب درست می‌تواند مسیر حرفه‌ای و اجتماعی تو را بهتر کند.",
+    social:"روابط، باندها و جایگاه اجتماعی بخشی از زندگی تو هستند؛ نامت در مرز با رفتار و همکاری‌ات شناخته می‌شود.",
+    world:"اخبار، روزنامه و مجموعه، ردپای زندگی تو را در مرز نگه می‌دارند؛ چیزی که امروز کوچک است، شاید فردا خبر شود.",
+    settings:"تنظیمات شخصی و شیوه مدیریت اکانتت را از اینجا کنترل کن.",
+  };
+  const title:Record<string,string>={
+    guide:"◈ آشنایی با بازی",
+    character:"◈ شخصیت و زندگی",
+    economy:"◈ اقتصاد و کسب‌وکار",
+    production:"◈ زمین و تولید",
+    city:"◈ شهر و سفر",
+    adventure:"◈ قانون و ماجرا",
+    social:"◈ روابط و اجتماع",
+    world:"◈ اخبار و مجموعه",
+    settings:"◈ تنظیمات",
+  };
+  return [
+    title[hub]??title.guide,
+    "",
+    WORLD_SEPARATOR,
+    "",
+    common[hub]??common.guide,
+    "",
+    woman && women[hub] ? women[hub] : "",
+    woman && women[hub] ? "" : null,
+    "★ - از گزینه‌های زیر وارد بخش موردنظر شو.",
+    "",
+    WORLD_SEPARATOR,
+  ].filter(x=>x!==null).join("\n");
 }
 
 function newsKeyboard(userId: number) {
@@ -1722,6 +1755,11 @@ export async function handleWorldCallback(ctx: WorldContext, data: string): Prom
   if (action === "travel") {
     const result=await startTravel(ctx.pool,ctx,Number(parts[2]));
     return {text:result.text,replyMarkup:backKeyboard(ctx.userId)};
+  }
+
+  if (action === "hub") {
+    const hub=String(parts[2]??"guide");
+    return {text:hubText(hub,account?.gender==="female"),replyMarkup:hubKeyboard(ctx.userId,hub)};
   }
 
   if (action === "home") {
