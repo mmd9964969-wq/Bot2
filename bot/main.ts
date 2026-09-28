@@ -905,6 +905,7 @@ async function processMessage(msg: TgMessage, edited = false) {
       text: worldResult.text,
       reply_to_message_id: msg.message_id,
       reply_markup: worldResult.replyMarkup,
+      ...(worldResult.parseMode ? { parse_mode: worldResult.parseMode } : {}),
     });
     return;
   }
@@ -1041,6 +1042,7 @@ async function poll() {
                   message_id:callback.message.message_id,
                   text:worldResult.text,
                   reply_markup:worldResult.replyMarkup,
+                  ...(worldResult.parseMode ? { parse_mode: worldResult.parseMode } : {}),
                 });
               }
               return;
