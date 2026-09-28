@@ -14,7 +14,7 @@ export type FrontierExpansionResult = {
   parseMode?: "HTML";
 };
 
-const SEP = "                     ─────━━───── ◈ ─────━━─────";
+const SEP = "─────━━───── ◈ ─────━━─────";
 const fa = (x:number) => String(Math.max(0, Math.floor(Number(x)||0))).replace(/\d/g,d=>"۰۱۲۳۴۵۶۷۸۹"[Number(d)]);
 const nameOf = (ctx:FrontierExpansionContext) => ctx.user.first_name || ctx.user.username || String(ctx.userId);
 const money = (x:number) => fa(x)+" سکه";
@@ -140,6 +140,7 @@ async function expansionCategoryMenu(ctx:FrontierExpansionContext,category:strin
       ["‹ بانک و اقتصاد","world:expand:bank:"+s],
       ["‹ دفتر درآمد","world:expand:economy:"+s],
       ["‹ اقتصاد مرزی · قیمت و بازار","world:expand:dynamics:"+s],
+      ["‹ زنجیره تولید و مصرف","world:expand:supply:"+s],
       ["‹ کسب‌وکار و مغازه","world:expand:business:"+s],
     ]},
     life:{
@@ -260,6 +261,17 @@ const MARKET_DAILY_CONSUMPTION:Record<string,number> = {
   wheat:14,corn:10,cotton:6,sugar_cane:5,herbs:4,rubber:2,wool:3,leather:3,fish:8
 };
 
+const SUPPLY_CHAIN_RECIPES:Record<string,{inputs:string;output:string;consumers:string}> = {
+  wood:{inputs:"چوب",output:"تخته و مصالح چوبی",consumers:"نجاری، ساخت‌وساز، فروشگاه مصالح"},
+  stone:{inputs:"سنگ",output:"مصالح سنگی",consumers:"ساختمان، کارگاه، فروشگاه مصالح"},
+  iron_ore:{inputs:"سنگ‌آهن + زغال",output:"آهن و ابزار",consumers:"آهنگری، ابزارفروشی، ساخت‌وساز"},
+  wheat:{inputs:"گندم + آب",output:"آرد و نان",consumers:"نانوایی، اهالی شهر، فروشگاه غذا"},
+  wool:{inputs:"پشم",output:"پارچه و پوشاک",consumers:"خیاطی، فروشگاه پوشاک"},
+  leather:{inputs:"چرم",output:"پوشاک و تجهیزات",consumers:"خیاطی، تولیدکنندگان تجهیزات"},
+  fish:{inputs:"ماهی",output:"غذای تازه",consumers:"بازار غذا، اهالی شهر، مهمانخانه"},
+};
+
+
 export async function recalculateDynamicMarketPrice(pool:Pool,groupId:number,resourceCode:string){
   const code=String(resourceCode);
   const current=await ensureDynamicMarketPrice(pool,groupId,code);
@@ -348,6 +360,67 @@ async function dynamicMarketOverview(ctx:FrontierExpansionContext){
     lines.push("⛂ - "+String(row.resource_code)+" : "+fa(+row.current_price)+" سکه "+arrow+" | عرضه "+fa(+row.supply_24h)+" | تقاضا "+fa(+row.demand_24h));
   }
   lines.push("","⛂ - خزانه بازار : "+money(+treasury.balance),"","« بازار وقتی زنده است که جنس حرکت کند و قیمت هم از حرکت جا نماند.»","",SEP);
+  return lines.join("\n");
+}
+
+async function supplyChainText(ctx:FrontierExpansionContext){
+  await Promise.all(Object.keys(SUPPLY_CHAIN_RECIPES).map(code=>recalculateDynamicMarketPrice(ctx.pool,ctx.chatId,code)));
+  const prices=(await ctx.pool.query<any>(
+    "SELECT resource_code,current_price,supply_24h,demand_24h,trend FROM game_world_market_prices WHERE group_id=$1 AND resource_code=ANY($2::text[]) ORDER BY resource_code",
+    [ctx.chatId,Object.keys(SUPPLY_CHAIN_RECIPES)],
+  )).rows;
+  const producers=(await ctx.pool.query<any>(
+    "SELECT profession_code,COUNT(*)::int count FROM game_world_professions WHERE group_id=$1 AND profession_code IN ('farmer','miner','lumberjack','blacksmith','trader') GROUP BY profession_code",
+    [ctx.chatId],
+  )).rows;
+  const businesses=Number((await ctx.pool.query<any>(
+    "SELECT COUNT(*)::int count FROM game_world_businesses WHERE group_id=$1 AND status='open'",
+    [ctx.chatId],
+  )).rows[0]?.count??0);
+  const producerMap:Record<string,number>={};
+  for(const row of producers)producerMap[String(row.profession_code)]=Number(row.count)||0;
+  const professionNames:Record<string,string>={farmer:"کشاورز",miner:"معدنچی",lumberjack:"چوب‌بُر",blacksmith:"آهنگر",trader:"تاجر"};
+
+  const lines=[
+    "◈ زنجیره تولید و مصرف",
+    "",
+    SEP,
+    "",
+    "★ - جریان اصلی کالا",
+    "⛂ - منبع → تولیدکننده → انبار → تاجر → فروشگاه → مصرف‌کننده",
+    "⛂ - قیمت و موجودی هر حلقه از وضعیت واقعی بازار اثر می‌گیرد.",
+    "",
+    "★ - تولیدکنندگان فعال",
+    ...Object.entries(professionNames).map(([code,name])=>"⛂ - "+name+" : "+fa(producerMap[code]??0)),
+    "⛂ - کسب‌وکارهای باز : "+fa(businesses),
+    "",
+    "★ - مسیر کالاها",
+  ];
+
+  for(const [code,recipe] of Object.entries(SUPPLY_CHAIN_RECIPES)){
+    const row=prices.find((x:any)=>String(x.resource_code)===code);
+    const arrow=String(row?.trend)==="up"?"↑":String(row?.trend)==="down"?"↓":"→";
+    lines.push(
+      "⛂ - "+code,
+      "⛂ - ورودی : "+recipe.inputs,
+      "⛂ - خروجی : "+recipe.output,
+      "⛂ - مصرف‌کننده : "+recipe.consumers,
+      "⛂ - بازار : "+fa(Number(row?.current_price??marketBasePrice(code)))+" سکه "+arrow+" | عرضه "+fa(Number(row?.supply_24h??0))+" | تقاضا "+fa(Number(row?.demand_24h??0)),
+      ""
+    );
+  }
+
+  lines.push(
+    "★ - نمادهای وضعیت",
+    "✓ - فعال / تکمیل",
+    "✗ - ناموجود / خطا",
+    "→ - مسیر یا جریان",
+    "↑ - روند افزایشی",
+    "↓ - روند کاهشی",
+    "× - تعداد یا مقدار",
+    "",
+    SEP
+  );
   return lines.join("\n");
 }
 
@@ -1185,6 +1258,7 @@ export async function handleFrontierExpansionText(ctx:FrontierExpansionContext,t
   if(n==="بانک"||n==="بانک من")return {text:await bankText(ctx),replyMarkup:expansionMenu(ctx.userId)};
   if(n==="اقتصاد من"||n==="دفتر درآمد"||n==="درآمد من"||n==="گردش مالی")return {text:await economyText(ctx),replyMarkup:expansionMenu(ctx.userId)};
   if(n==="اقتصاد مرزی"||n==="قیمت‌های مرزی"||n==="قیمت پویا"||n==="عرضه و تقاضا")return {text:await dynamicMarketOverview(ctx),replyMarkup:expansionMenu(ctx.userId)};
+  if(n==="زنجیره تولید و مصرف"||n==="زنجیره اقتصاد"||n==="جریان کالا"||n==="تولید و مصرف")return {text:await supplyChainText(ctx),replyMarkup:expansionMenu(ctx.userId)};
   if(n==="کار امروز"||n==="کار")return await doWork(ctx);
   if(n==="کار ویژه"||n==="خدمات بانوی مرز"||n==="کار تخصصی")return {text:await careerText(ctx),replyMarkup:{inline_keyboard:[[ {text:"‹ اجرای کار ویژه",callback_data:"world:expand:career:"+ctx.userId} ],[ {text:"‹ بازگشت",callback_data:"world:home:"+ctx.userId} ]]}};
   if(n==="دوخت لباس")return await doCareerAction(ctx,"craft");
@@ -1223,6 +1297,7 @@ export async function handleFrontierExpansionCallback(ctx:FrontierExpansionConte
   }
   if(sub==="economy")return menuResult(await economyText(ctx),ctx.userId);
   if(sub==="dynamics")return menuResult(await dynamicMarketOverview(ctx),ctx.userId);
+  if(sub==="supply")return menuResult(await supplyChainText(ctx),ctx.userId);
   if(sub==="property"){
     if(parts[3]==="home")return await upgradeHome(ctx);
     if(parts[3]==="land")return await upgradeLand(ctx);
