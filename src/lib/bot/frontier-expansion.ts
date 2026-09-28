@@ -112,6 +112,12 @@ export async function ensureFrontierExpansionSchema(pool:Pool){
       await pool.query("CREATE TABLE IF NOT EXISTS game_world_npc_trades(id BIGSERIAL PRIMARY KEY,group_id BIGINT NOT NULL,npc_id BIGINT NOT NULL REFERENCES game_world_npcs(id) ON DELETE CASCADE,seller_user_id BIGINT NOT NULL,resource_code TEXT NOT NULL,quantity INT NOT NULL CHECK(quantity>0),unit_price BIGINT NOT NULL CHECK(unit_price>0),total_amount BIGINT NOT NULL CHECK(total_amount>0),created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
       await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_npc_trades_user ON game_world_npc_trades(group_id,seller_user_id,created_at DESC)");
       await pool.query("CREATE TABLE IF NOT EXISTS game_world_npc_help(group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,npc_id BIGINT NOT NULL REFERENCES game_world_npcs(id) ON DELETE CASCADE,bonus_percent INT NOT NULL DEFAULT 15 CHECK(bonus_percent BETWEEN 1 AND 50),xp_bonus INT NOT NULL DEFAULT 5 CHECK(xp_bonus>=0),expires_at TIMESTAMPTZ NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),PRIMARY KEY(group_id,user_id))");
+      await pool.query("CREATE TABLE IF NOT EXISTS game_world_career_story_state(group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,profession_code TEXT NOT NULL,chapter INT NOT NULL DEFAULT 1 CHECK(chapter>=1),episode INT NOT NULL DEFAULT 0 CHECK(episode>=0),stage TEXT NOT NULL DEFAULT 'beginning',reputation INT NOT NULL DEFAULT 0 CHECK(reputation BETWEEN -100 AND 100),specialization TEXT,decisions JSONB NOT NULL DEFAULT '{}'::jsonb,known_npcs JSONB NOT NULL DEFAULT '[]'::jsonb,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),PRIMARY KEY(group_id,user_id))");
+      await pool.query("CREATE TABLE IF NOT EXISTS game_world_career_story_history(id BIGSERIAL PRIMARY KEY,group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,profession_code TEXT NOT NULL,chapter INT NOT NULL,episode INT NOT NULL,title TEXT NOT NULL,narrative TEXT NOT NULL,choice TEXT,outcome TEXT,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+      await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_career_story_history_user ON game_world_career_story_history(group_id,user_id,created_at DESC)");
+      await pool.query("CREATE TABLE IF NOT EXISTS game_world_npc_market_offers(id BIGSERIAL PRIMARY KEY,group_id BIGINT NOT NULL,npc_id BIGINT NOT NULL REFERENCES game_world_npcs(id) ON DELETE CASCADE,resource_code TEXT NOT NULL,amount INT NOT NULL CHECK(amount>0),unit_price BIGINT NOT NULL CHECK(unit_price>0),status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','sold','expired')),created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),expires_at TIMESTAMPTZ NOT NULL DEFAULT(NOW()+INTERVAL '30 minutes'))");
+      await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_npc_market_offers_active ON game_world_npc_market_offers(group_id,resource_code,status,expires_at)");
+
       await pool.query("ALTER TABLE game_world_professions ADD COLUMN IF NOT EXISTS career_actions INT NOT NULL DEFAULT 0 CHECK(career_actions>=0)");
       await pool.query("ALTER TABLE game_world_professions ADD COLUMN IF NOT EXISTS career_value BIGINT NOT NULL DEFAULT 0 CHECK(career_value>=0)");
       await pool.query("ALTER TABLE game_world_professions ADD COLUMN IF NOT EXISTS career_last_action_at TIMESTAMPTZ");
@@ -286,7 +292,7 @@ export async function recalculateDynamicMarketPrice(pool:Pool,groupId:number,res
   const code=String(resourceCode);
   const current=await ensureDynamicMarketPrice(pool,groupId,code);
   const supply=Number((await pool.query<any>(
-    "SELECT COALESCE(SUM(amount),0) supply FROM game_world_market_listings WHERE group_id=$1 AND resource_code=$2 AND status='active' AND expires_at>NOW()",
+    "SELECT COALESCE((SELECT SUM(amount) FROM game_world_market_listings WHERE group_id=$1 AND resource_code=$2 AND status='active' AND expires_at>NOW()),0)+COALESCE((SELECT SUM(amount) FROM game_world_npc_market_offers WHERE group_id=$1 AND resource_code=$2 AND status='active' AND expires_at>NOW()),0) supply FROM game_world_market_prices WHERE group_id=$1 AND resource_code=$2",
     [groupId,code],
   )).rows[0]?.supply??0);
 
@@ -640,6 +646,7 @@ async function ensurePlayerGoods(ctx:FrontierExpansionContext,resourceCode:strin
 
 async function npcCenterText(ctx:FrontierExpansionContext){
   const npcs=await ensureNPCs(ctx);
+  await produceNPCMarket(ctx);
   const goods=(await ctx.pool.query<any>(
     "SELECT resource_code,quantity FROM game_world_player_goods WHERE group_id=$1 AND user_id=$2 AND quantity>0 ORDER BY resource_code",
     [ctx.chatId,ctx.userId],
@@ -661,6 +668,10 @@ async function npcCenterText(ctx:FrontierExpansionContext){
     "",
     "★ - NPCهای فعال",
     ...npcs.map((n:any)=>"⛂ - "+n.name+" · "+n.role+" · سطح "+fa(+n.level)),
+    "",
+    "★ - تولید NPC و بازار",
+    ...((await ctx.pool.query<any>("SELECT o.resource_code,o.amount,o.unit_price,n.name FROM game_world_npc_market_offers o JOIN game_world_npcs n ON n.id=o.npc_id WHERE o.group_id=$1 AND o.status='active' AND o.expires_at>NOW() ORDER BY o.created_at DESC LIMIT 12",[ctx.chatId])).rows.map((o:any)=>"⛂ - "+o.name+" · "+o.resource_code+" ×"+fa(+o.amount)+" · "+money(+o.unit_price))),
+    "⛂ - NPCهای حرفه‌ای هر چند دقیقه تولید می‌کنند و محصولشان را به بازار عرضه می‌کنند.",
     "",
     "★ - کالاهای تولیدشده توسط تو",
     ...(goods.length?goods.map((g:any)=>"⛂ - "+g.resource_code+" ×"+fa(+g.quantity)):["⛂ - هنوز کالایی برای فروش به NPC نداری."]),
@@ -974,12 +985,97 @@ async function buyTool(ctx:FrontierExpansionContext,code:string){
   return {text:"✓ "+t.name+" به انبارت اضافه شد.",replyMarkup:back(ctx.userId)};
 }
 
+
+const CAREER_STORY:Record<string,{name:string;chapterTitles:string[];beats:string[];places:string[]}> = {
+  farmer:{name:"کشاورز",chapterTitles:["زمین بی‌نام","فصل نخست","نام روی محصول"],beats:["باران دیر رسیده و زمین تشنه است.","یک خریدار ناشناس محصولت را بیشتر از قیمت بازار می‌خواهد.","بذر کمیاب از جاده جنوبی رسیده و انتخابش مسیر مزرعه را عوض می‌کند.","محصولت به یک سفارش شهری وصل شده و حالا کیفیت مهم‌تر از مقدار است."],places:["مزرعه","جوی آب","بازار غله"]},
+  miner:{name:"معدنچی",chapterTitles:["دهانه تاریک","رگه پنهان","عمق هفتم"],beats:["صدای ضربه‌ای از دیواره‌ای می‌آید که روی نقشه ثبت نشده.","کارگری قدیمی نشانی یک رگه فراموش‌شده را به تو می‌دهد.","سنگی با درخشش غیرعادی پیدا می‌کنی؛ فروش یا تحقیق؟","ریزش کوچکی مسیر برگشت را می‌بندد و باید راه تازه‌ای پیدا کنی."],places:["معدن","تونل شرقی","عمق هفتم"]},
+  lumberjack:{name:"چوب‌بُر",chapterTitles:["جنگل مه‌آلود","درخت علامت‌گذاری‌شده","راه چوب"],beats:["در جنگل درختی را می‌بینی که علامت مالکیت قدیمی دارد.","یک نجار برای الوار خاص سفارش فوری داده است.","رد چرخ‌های ناشناس از میان درختان می‌گذرد.","اگر مسیر حمل را عوض کنی، زمان و هزینه تغییر می‌کند."],places:["جنگل شمالی","کلبه نگهبان","راه الوار"]},
+  hunter:{name:"شکارچی",chapterTitles:["رد اول","رد خون","شکار بزرگ"],beats:["رد تازه‌ای روی گل پیدا می‌کنی که به شکار معمولی شبیه نیست.","هوا ناگهان عوض می‌شود و رد حیوان محو می‌شود.","یک شکارچی دیگر همان رد را دنبال می‌کند و رقابت شکل می‌گیرد.","طعمه نایاب می‌تواند نامت را در بازار بالا ببرد."],places:["دره غربی","جنگل","مرز صخره‌ای"]},
+  blacksmith:{name:"آهنگر",chapterTitles:["جرقه نخست","سفارش ویژه","نام روی آهن"],beats:["سفارش یک کشاورز ساده، اولین آزمون کیفیت تو می‌شود.","فلز کمیابی وارد کارگاه می‌شود و فرصت ساخت یک قطعه خاص را می‌دهد.","یک اسب‌دار برای قطعه‌ای فوری سراغت می‌آید.","انتخاب بین سفارش سریع و کار نفیس، اعتبار آینده‌ات را می‌سازد."],places:["کارگاه","اصطبل","بازار آهن"]},
+  trader:{name:"تاجر",chapterTitles:["اولین معامله","جاده سود","بازار دوردست"],beats:["کالایی ارزان پیدا می‌کنی که در بازار بعدی مشتری دارد.","مسیر کوتاه‌تر امن نیست و مسیر امن‌تر سود را کم می‌کند.","یک NPC پیشنهاد شراکت موقت می‌دهد.","قیمت بازار تغییر کرده و باید بین نگهداری و فروش تصمیم بگیری."],places:["بازار","جاده مرزی","بازار جنوبی"]},
+  rancher:{name:"دامدار",chapterTitles:["گله نخست","زمستان دام","خون و نژاد"],beats:["یکی از دام‌ها رفتار متفاوتی نشان می‌دهد.","خریدار محلی برای دام سالم قیمت بالاتری پیشنهاد می‌کند.","یک بیماری کوچک، مدیریت گله را مهم‌تر از فروش می‌کند.","نژاد بهتر می‌تواند آینده دامداری را تغییر دهد."],places:["مرتع","اصطبل","بازار دام"]},
+  courier:{name:"پیک مرزی",chapterTitles:["محموله اول","جاده ممنوع","مسیر شخصی"],beats:["محموله‌ای کوچک اما حساس به تو سپرده می‌شود.","یکی از مسیرها به دلیل حادثه بسته است.","مشتری جدید زمان تحویل سخت‌تری تعیین می‌کند.","اگر مسیر خودت را بسازی، سرعت و اعتبارت همزمان رشد می‌کنند."],places:["دفتر پیک","جاده غربی","دروازه شهر"]},
+  seamstress:{name:"خیاط و دوزنده",chapterTitles:["اولین دوخت","سفارش ناشناس","امضای پارچه"],beats:["مشتری اول طرحی ساده اما دقیق می‌خواهد.","پارچه‌ای متفاوت برای سفارشی محرمانه به دستت می‌رسد.","یک مشتری قدیمی کیفیت کارت را به دیگری معرفی می‌کند.","انتخاب طرح خاص می‌تواند امضای حرفه‌ای تو شود."],places:["کارگاه دوخت","بازار پارچه","خانه مشتری"]},
+  healer:{name:"درمانگر مرزی",chapterTitles:["اولین بیمار","تب مرزی","نامی که ماند"],beats:["بیماری ناشناس به درمانگاه می‌رسد.","داروی لازم کمیاب شده و باید منبع تازه پیدا کنی.","یک NPC برای کمک به بیمار به تو اعتماد می‌کند.","انتخاب درمان سریع یا دقیق، اعتبارت را شکل می‌دهد."],places:["درمانگاه","بازار دارو","روستای مرزی"]},
+  innkeeper:{name:"مهمانخانه‌دار",chapterTitles:["اولین مهمان","شب بارانی","اتاق شماره هفت"],beats:["مهمانی دیرهنگام با داستانی غیرعادی وارد می‌شود.","باران مسافران بیشتری به مهمانخانه می‌کشاند.","یک مسافر اتاقی را برای چند روز رزرو می‌کند.","رفتار با مهمانان، شهرت مهمانخانه را می‌سازد."],places:["مهمانخانه","آشپزخانه","اتاق هفت"]},
+  frontier_journalist:{name:"روزنامه‌نگار مرزی",chapterTitles:["خبر اول","شایعه یا حقیقت","صفحه نخست"],beats:["یک خبر کوچک توجهت را به پرونده‌ای بزرگ‌تر جلب می‌کند.","دو NPC روایت متفاوتی از یک اتفاق می‌دهند.","مدرکی پیدا می‌کنی که باید صحتش را بررسی کنی.","تصمیم برای انتشار یا تحقیق بیشتر، مسیر روزنامه‌نگاری‌ات را تغییر می‌دهد."],places:["دفتر روزنامه","میدان شهر","بایگانی"]},
+  schoolteacher:{name:"معلم مدرسه مرزی",chapterTitles:["کلاس نخست","شاگرد تازه","نام مدرسه"],beats:["شاگردی با استعداد متفاوت وارد کلاس می‌شود.","یکی از دانش‌آموزان به کمک بیشتری نیاز دارد.","یک خانواده برای آموزش فرزندشان به تو اعتماد می‌کند.","انتخاب روش آموزش روی اعتبار مدرسه اثر می‌گذارد."],places:["مدرسه","کلاس","خانه خانواده"]},
+  saloon_keeper:{name:"صاحب سالون",chapterTitles:["شب نخست","مشتری قدیمی","نام سالون"],beats:["اولین شب، مشتری‌ای را می‌بینی که همه او را می‌شناسند.","یک سفارش بزرگ سود بیشتری دارد اما ریسک هم دارد.","مشتری قدیمی پیشنهاد همکاری می‌دهد.","تصمیم درباره فضای سالون، مشتریان آینده را شکل می‌دهد."] ,places:["سالون","انبار","میدان شهر"]}
+};
+
+function careerStoryDef(code:string){
+  return CAREER_STORY[code] ?? {name:PROFESSIONS[code]?.name??code,chapterTitles:["شروع راه"],beats:["یک اتفاق تازه در مسیر حرفه‌ای تو شکل می‌گیرد.","یک مشتری یا NPC مسیر کار امروز را تغییر می‌دهد.","یک فرصت غیرمنتظره در برابر تو قرار می‌گیرد.","انتخاب امروز روی ادامه مسیر اثر می‌گذارد."],places:["مرز","بازار","جاده"]};
+}
+
+async function ensureCareerStory(ctx:FrontierExpansionContext,code:string){
+  await ctx.pool.query("INSERT INTO game_world_career_story_state(group_id,user_id,profession_code) VALUES($1,$2,$3) ON CONFLICT(group_id,user_id) DO UPDATE SET profession_code=EXCLUDED.profession_code,updated_at=NOW()",[ctx.chatId,ctx.userId,code]);
+  return (await ctx.pool.query<any>("SELECT * FROM game_world_career_story_state WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId])).rows[0];
+}
+
+function storyChoiceText(choice:number,code:string){
+  const options=[
+    ["دنبال کردن سرنخ","کنجکاوی و اعتبار +۲"],
+    ["کمک به NPC","رابطه و اعتبار +۳"],
+    ["انتخاب سود سریع","درآمد و ریسک +۱"],
+  ];
+  return options[Math.max(0,Math.min(2,choice))];
+}
+
+async function advanceCareerStory(ctx:FrontierExpansionContext,choice:number=0){
+  const p=(await ctx.pool.query<any>("SELECT profession_code,level FROM game_world_professions WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId])).rows[0];
+  if(!p)return {text:"✗ ابتدا یک حرفه انتخاب کن.",replyMarkup:back(ctx.userId)};
+  const state=await ensureCareerStory(ctx,String(p.profession_code));
+  const def=careerStoryDef(String(p.profession_code));
+  const nextEpisode=Number(state.episode||0)+1;
+  const chapter=Math.floor((nextEpisode-1)/4)+1;
+  const beat=def.beats[(nextEpisode-1)%def.beats.length];
+  const place=def.places[(nextEpisode-1)%def.places.length];
+  const title=def.chapterTitles[(chapter-1)%def.chapterTitles.length]||"ادامه مسیر";
+  const choiceInfo=storyChoiceText(choice,String(p.profession_code));
+  const repGain=choice===1?3:choice===0?2:1;
+  const narrative="قسمت "+nextEpisode+" · "+beat+"\n\nمحل رویداد : "+place+"\n\nتصمیم تو : "+choiceInfo[0]+"\nپیامد فعلی : "+choiceInfo[1];
+  await ctx.pool.query("UPDATE game_world_career_story_state SET chapter=$3,episode=$4,stage=$5,reputation=GREATEST(-100,LEAST(100,reputation+$6)),decisions=jsonb_set(decisions,ARRAY['episode_'||$4::text],to_jsonb($7::text),true),updated_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,chapter,nextEpisode,place,repGain,choiceInfo[0]]);
+  await ctx.pool.query("INSERT INTO game_world_career_story_history(group_id,user_id,profession_code,chapter,episode,title,narrative,choice,outcome) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",[ctx.chatId,ctx.userId,String(p.profession_code),chapter,nextEpisode,title,narrative,choiceInfo[0],choiceInfo[1]]);
+  return {text:["◈ داستان حرفه‌ای · قسمت "+fa(nextEpisode),"",SEP,"","★ - فصل "+fa(chapter)+" · "+title,"⛂ - "+narrative,"","★ - ادامه مسیر","⛂ - این همان خط داستانی توست؛ هر نوبت قسمت تازه‌ای از آن ساخته می‌شود.","⛂ - انتخاب‌ها در سابقه تو ذخیره می‌شوند و روی اعتبار مسیر اثر می‌گذارند.","",SEP].join("\n"),replyMarkup:{inline_keyboard:[
+    [{text:"‹ ادامه · سرنخ",callback_data:"world:expand:storychoice:0:"+ctx.userId},{text:"‹ ادامه · کمک",callback_data:"world:expand:storychoice:1:"+ctx.userId}],
+    [{text:"‹ ادامه · سود",callback_data:"world:expand:storychoice:2:"+ctx.userId}],
+    [{text:"‹ بازگشت به حرفه",callback_data:"world:expand:profession:"+ctx.userId}]
+  ]}};
+}
+
+async function careerStoryText(ctx:FrontierExpansionContext){
+  const p=(await ctx.pool.query<any>("SELECT * FROM game_world_professions WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId])).rows[0];
+  if(!p)return {text:"✗ ابتدا حرفه را انتخاب کن.",replyMarkup:back(ctx.userId)};
+  const s=await ensureCareerStory(ctx,String(p.profession_code)); const d=careerStoryDef(String(p.profession_code));
+  const last=(await ctx.pool.query<any>("SELECT * FROM game_world_career_story_history WHERE group_id=$1 AND user_id=$2 ORDER BY created_at DESC LIMIT 3",[ctx.chatId,ctx.userId])).rows;
+  return {text:["◈ خط داستانی حرفه‌ای","","★ - مسیر","⛂ - حرفه : "+d.name,"⛂ - فصل : "+fa(+s.chapter),"⛂ - قسمت : "+fa(+s.episode),"⛂ - مرحله : "+String(s.stage),"⛂ - اعتبار داستان : "+fa(+s.reputation),"","★ - آخرین قسمت‌ها",...(last.length?last.map((x:any)=>"⛂ - قسمت "+fa(+x.episode)+" · "+x.title):["⛂ - داستان هنوز شروع نشده؛ اولین نوبت کاری آغازش می‌کند."]),"",SEP].join("\n"),replyMarkup:{inline_keyboard:[
+    [{text:"‹ ادامه خط داستانی",callback_data:"world:expand:storycontinue:"+ctx.userId}],
+    [{text:"‹ بازگشت به کار و حرفه",callback_data:"world:expand:profession:"+ctx.userId}]
+  ]}};
+}
+
+async function produceNPCMarket(ctx:FrontierExpansionContext){
+  const npcs=await ensureNPCs(ctx);
+  for(const n of npcs){
+    const code=String(n.profession_code||"");
+    const output=PROFESSION_OUTPUTS[code];
+    if(!output)continue;
+    const last=n.last_action_at?new Date(n.last_action_at).getTime():0;
+    if(Date.now()-last<60000)continue;
+    const price=Math.max(1,await marketReferencePrice(ctx.pool,ctx.chatId,output));
+    await ctx.pool.query("INSERT INTO game_world_npc_market_offers(group_id,npc_id,resource_code,amount,unit_price) VALUES($1,$2,$3,1,$4)",[ctx.chatId,n.id,output,price]);
+    await ctx.pool.query("UPDATE game_world_npcs SET last_action_at=NOW() WHERE id=$1",[n.id]);
+  }
+  await ctx.pool.query("UPDATE game_world_npc_market_offers SET status='expired' WHERE group_id=$1 AND status='active' AND expires_at<=NOW()",[ctx.chatId]);
+}
+
 async function chooseProfession(ctx:FrontierExpansionContext,code:string){
   const p=PROFESSIONS[code]; if(!p)return {text:"✗ این حرفه در دفتر مرز ثبت نشده است.",replyMarkup:back(ctx.userId)};
   const a=await account(ctx);
   if(p.womenOnly && !isWoman(a))return {text:"⛂ - این مسیر شغلی در دفتر بانوان مرز ثبت شده است؛ حرفه‌های عمومی برای همه باز هستند.",replyMarkup:back(ctx.userId)};
   await ctx.pool.query("INSERT INTO game_world_professions(group_id,user_id,profession_code) VALUES($1,$2,$3) ON CONFLICT(group_id,user_id) DO UPDATE SET profession_code=EXCLUDED.profession_code,updated_at=NOW()",[ctx.chatId,ctx.userId,code]);
   await ensureCareerStats(ctx,code);
+  await ensureCareerStory(ctx,code);
   await ctx.pool.query("UPDATE game_world_accounts SET job_code=$3,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,p.name]);
   return {text:["✓ حرفه ثبت شد.","","⛂ - حرفه : "+p.name,"⛂ - درآمد پایه هر نوبت : "+money(p.pay),"⛂ - تجربه : +"+fa(p.xp),"⛂ - زمان انتظار : "+fa(p.cooldown)+" ثانیه","",isWoman(a)?"« حالا یک مهارت داری که می‌تواند نامت را در این مرز بالا ببرد.»":"« حالا یک مهارت داری که می‌تواند برایت نان بیاورد.»"].join("\n"),replyMarkup:back(ctx.userId)};
 }
@@ -1174,6 +1270,7 @@ async function doWork(ctx:FrontierExpansionContext){
     const output=PROFESSION_OUTPUTS[String(p.profession_code)];
     if(output) await client.query("INSERT INTO game_world_player_goods(group_id,user_id,resource_code,quantity) VALUES($1,$2,$3,1) ON CONFLICT(group_id,user_id,resource_code) DO UPDATE SET quantity=game_world_player_goods.quantity+1,updated_at=NOW()",[ctx.chatId,ctx.userId,output]);
     if(help) await client.query("DELETE FROM game_world_npc_help WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId]);
+    await client.query("INSERT INTO game_world_career_story_state(group_id,user_id,profession_code) VALUES($1,$2,$3) ON CONFLICT(group_id,user_id) DO UPDATE SET profession_code=EXCLUDED.profession_code,updated_at=NOW()",[ctx.chatId,ctx.userId,String(p.profession_code)]);
     await client.query("UPDATE game_world_player_missions SET progress=LEAST(target,progress+1),updated_at=NOW() WHERE group_id=$1 AND user_id=$2 AND code='work_3' AND claim_key=$3",[ctx.chatId,ctx.userId,new Date().toISOString().slice(0,10)]);
     await client.query("COMMIT");
   }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e;}finally{client.release();}
@@ -1194,6 +1291,7 @@ async function doWork(ctx:FrontierExpansionContext){
     "⛂ - نوبت بعدی پس از "+fa(cooldown)+" ثانیه فعال می‌شود.",
     "","« یک نوبت کاری تمام شد؛ مزدش همان لحظه تسویه و در تاریخچه ثبت شد.»","",SEP
   ].join("\n"),replyMarkup:{inline_keyboard:[
+    [{text:"‹ ادامه خط داستانی",callback_data:"world:expand:storycontinue:"+ctx.userId}],
     [{text:"‹ تاریخچه نوبت‌ها",callback_data:"world:expand:workhistory:"+ctx.userId}],
     [{text:"‹ بازگشت به کار و حرفه",callback_data:"world:expand:profession:"+ctx.userId}]
   ]}};
@@ -1543,6 +1641,7 @@ export async function handleFrontierExpansionText(ctx:FrontierExpansionContext,t
   if(n==="راهنمای اقتصاد"||n==="راهنمای اقتصاد و نمادها"||n==="راهنمای سرزمین پرشین")return {text:worldGuideText(),replyMarkup:expansionMenu(ctx.userId)};
   if(n==="کار و حرفه"||n==="حرفه"||n==="حرفه من"||n==="مشاغل"||n==="فهرست حرفه‌ها")return await handleFrontierExpansionCallback(ctx,["world","expand","profession",String(ctx.userId)]);
   if(n==="کار امروز"||n==="کار"||n==="نوبت کاری"||n==="شروع نوبت کاری")return await doWork(ctx);
+  if(n==="خط داستانی"||n==="داستان حرفه‌ای"||n==="داستان کار"||n==="داستان من")return await careerStoryText(ctx);
   if(n==="تاریخچه نوبت‌ها"||n==="سوابق کاری"||n==="تاریخچه کار")return {text:await workHistoryText(ctx),replyMarkup:back(ctx.userId)};
   if(n==="کار ویژه"||n==="خدمات بانوی مرز"||n==="کار تخصصی")return {text:await careerText(ctx),replyMarkup:{inline_keyboard:[[ {text:"‹ اجرای کار ویژه",callback_data:"world:expand:career:"+ctx.userId} ],[ {text:"‹ بازگشت",callback_data:"world:home:"+ctx.userId} ]]}};
   if(n==="دوخت لباس")return await doCareerAction(ctx,"craft");
@@ -1703,6 +1802,9 @@ export async function handleFrontierExpansionCallback(ctx:FrontierExpansionConte
       [{text:"‹ بازگشت",callback_data:"world:expand:profession:"+ctx.userId}]
     ]}};
   }
+  if(sub==="storycontinue")return await advanceCareerStory(ctx,0);
+  if(sub==="storychoice")return await advanceCareerStory(ctx,Number(parts[3]??0));
+  if(sub==="story")return await careerStoryText(ctx);
   if(sub==="workhistory")return menuResult(await workHistoryText(ctx),ctx.userId);
   if(sub==="work")return await doWork(ctx);
   if(sub==="livestock"){
