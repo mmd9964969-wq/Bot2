@@ -630,7 +630,7 @@ async function marketText(pool: Pool, ctx: WorldContext, mode: "local"|"mine"|"h
   return lines.join("\n");
 }
 
-function cityOverviewKeyboard(userId:number,cities:Array<{settlement_id:number;name:string}>) {
+function cityOverviewKeyboard(userId:number,cities:Array<{settlement_id:number;name:string}>,canPromote:boolean) {
   const s=String(userId);
   const rows:Array<Array<{text:string;callback_data:string}>>=[];
   for(const city of cities){
@@ -638,6 +638,7 @@ function cityOverviewKeyboard(userId:number,cities:Array<{settlement_id:number;n
   }
   rows.push([{text:"‹ اخبار محلی",callback_data:"world:news:local:"+s},{text:"‹ اخبار جهانی",callback_data:"world:news:global:"+s}]);
   rows.push([{text:"‹ بازار روستا",callback_data:"world:market:local:"+s}]);
+  if(canPromote) rows.push([{text:"‹ ثبت این روستا به‌عنوان شهر",callback_data:"world:promotecity:"+s}]);
   rows.push([{text:"‹ بازگشت به جهان",callback_data:"world:home:"+s}]);
   return {inline_keyboard:rows};
 }
@@ -1429,7 +1430,11 @@ export async function handleWorldText(ctx: WorldContext, text: string): Promise<
     };
   }
 
-  await ensureSettlement(ctx.pool, ctx.chatId, ctx.chatTitle);
+  const settlement=await ensureSettlement(ctx.pool, ctx.chatId, ctx.chatTitle);
+  await ctx.pool.query(
+    "UPDATE game_world_settlements SET population_count=(SELECT COUNT(*) FROM game_world_accounts WHERE group_id=$1 AND status='active'),updated_at=NOW() WHERE group_id=$1",
+    [ctx.chatId],
+  );
   const account = await getAccount(ctx.pool, ctx.chatId, ctx.userId);
   if (!account) {
     return {
@@ -1644,6 +1649,22 @@ export async function handleWorldCallback(ctx: WorldContext, data: string): Prom
     return {text:detail+"\n\n★ - بخش : "+labels[action],replyMarkup:cityDetailKeyboard(ctx.userId,settlementId)};
   }
 
+  if (action === "promotecity") {
+    if(!["owner","admin"].includes(String(ctx.userRank))){
+      return {text:"« ثبت شهر دست هر کسی نیست. مدیر یا مالک باید این کار را انجام دهد.»",replyMarkup:backKeyboard(ctx.userId)};
+    }
+    const settlement=await ensureSettlement(ctx.pool,ctx.chatId,ctx.chatTitle);
+    await ctx.pool.query(
+      "UPDATE game_world_settlements SET settlement_kind='city',is_public=TRUE,market_active=TRUE,bank_active=TRUE,saloon_active=TRUE,train_station_active=TRUE,mine_active=TRUE,jobs_active=TRUE,population_count=GREATEST(population_count,1),updated_at=NOW() WHERE settlement_id=$1",
+      [settlement.settlement_id],
+    );
+    await ctx.pool.query(
+      "INSERT INTO game_world_news(scope,group_id,title,body,severity) VALUES('local',$1,$2,$3,'event')",
+      [ctx.chatId,"ثبت شهر جدید",String(settlement.name)+" اکنون یک شهر همگانی است."],
+    );
+    return {text:["◈ "+String(settlement.name),"",WORLD_SEPARATOR,"","★ - این قلمرو به‌عنوان شهر همگانی ثبت شد.","⛂ - بازار : فعال","⛂ - بانک : فعال","⛂ - سالون : فعال","⛂ - ایستگاه قطار : فعال","⛂ - معدن : فعال","⛂ - مشاغل شهری : فعال","","« از امروز اینجا فقط یک آبادی نیست.»","",WORLD_SEPARATOR].join("\n"),replyMarkup:backKeyboard(ctx.userId)};
+  }
+
   if (action === "travel") {
     const result=await startTravel(ctx.pool,ctx,Number(parts[2]));
     return {text:result.text,replyMarkup:backKeyboard(ctx.userId)};
@@ -1701,7 +1722,7 @@ export async function handleWorldCallback(ctx: WorldContext, data: string): Prom
       )).rows;
       return {
         text:textValue,
-        replyMarkup:cityOverviewKeyboard(ctx.userId,cities),
+        replyMarkup:cityOverviewKeyboard(ctx.userId,cities,["owner","admin"].includes(String(ctx.userRank))),
       };
     }
 
