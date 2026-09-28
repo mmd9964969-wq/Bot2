@@ -475,7 +475,7 @@ function mainKeyboard(userId: number) {
   const s = String(userId);
   return {
     inline_keyboard: [
-      [{ text: "‹ راهنما", callback_data: "world:category:guide:" + s }],
+      [{ text: "‹ راهنما", callback_data: "world:section:help:" + s }],
       [
         { text: "‹ دفتر مرز", callback_data: "world:expand:center:" + s },
         { text: "‹ پروفایل", callback_data: "world:section:profile:" + s },
