@@ -1,4 +1,5 @@
-import type { Pool } from "pg";\nimport { handleFrontierExpansionText, handleFrontierExpansionCallback, ensureFrontierExpansionSchema } from "./frontier-expansion.ts";
+import type { Pool } from "pg";
+import { handleFrontierExpansionText, handleFrontierExpansionCallback, ensureFrontierExpansionSchema } from "./frontier-expansion.ts";
 
 export type WorldUser = {
   id: number;
