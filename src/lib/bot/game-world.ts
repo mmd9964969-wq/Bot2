@@ -476,9 +476,11 @@ function mainKeyboard(userId: number) {
   return {
     inline_keyboard: [
       [
+        { text: "‹ دفتر مرز", callback_data: "world:expand:center:" + s },
         { text: "‹ پروفایل", callback_data: "world:section:profile:" + s },
-        { text: "‹ زندگی شخصی", callback_data: "world:section:life:" + s },
       ],
+      [
+        { text: "‹ زندگی شخصی", callback_data: "world:section:life:" + s },
       [
         { text: "‹ شهر و سفر", callback_data: "world:section:city:" + s },
         { text: "‹ کار و حرفه", callback_data: "world:section:job:" + s },
@@ -514,9 +516,6 @@ function mainKeyboard(userId: number) {
       [
         { text: "‹ راهنما", callback_data: "world:section:help:" + s },
         { text: "‹ تنظیمات", callback_data: "world:section:settings:" + s },
-      ],
-      [
-        { text: "‹ دفتر مرز", callback_data: "world:expand:center:" + s },
       ],
     ],
   };
