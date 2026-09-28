@@ -536,99 +536,11 @@ function marketKeyboard(userId: number) {
   };
 }
 
-async function ensureNewsSeed(pool: Pool, groupId: number, settlementName: string) {
-  const local=await pool.query<any>(
-    "SELECT news_id FROM game_world_news WHERE scope='local' AND group_id=$1 LIMIT 1",
-    [groupId],
-  );
-  if(!local.rows.length){
-    await pool.query(
-      "INSERT INTO game_world_news(scope,group_id,title,body,severity) VALUES('local',$1,$2,$3,'info')",
-      [groupId,"خبر تازه "+settlementName,"روستا آرام است؛ اما مرز برای مدت زیادی آرام نمی‌ماند."],
-    );
-  }
-  const global=await pool.query<any>(
-    "SELECT news_id FROM game_world_news WHERE scope='global' LIMIT 1",
-  );
-  if(!global.rows.length){
-    await pool.query(
-      "INSERT INTO game_world_news(scope,title,body,severity) VALUES('global',$1,$2,'notice')",
-      ["خبر مرز","مسیرهای تجاری دوباره فعال شده‌اند و بازارهای مرزی کم‌کم واکنش نشان می‌دهند."],
-    );
-  }
-}
+async 
 
-async function newsText(pool: Pool, ctx: WorldContext, scope: "local"|"global") {
-  const settlement=await ensureSettlement(pool,ctx.chatId,ctx.chatTitle);
-  await ensureNewsSeed(pool,ctx.chatId,String(settlement.name));
-  const rows=scope==="local"
-    ? (await pool.query<any>(
-        "SELECT * FROM game_world_news WHERE scope='local' AND group_id=$1 AND (expires_at IS NULL OR expires_at>NOW()) ORDER BY created_at DESC LIMIT 12",
-        [ctx.chatId],
-      )).rows
-    : (await pool.query<any>(
-        "SELECT * FROM game_world_news WHERE scope='global' AND (expires_at IS NULL OR expires_at>NOW()) ORDER BY created_at DESC LIMIT 12",
-      )).rows;
-  const lines=[
-    "◈ "+(scope==="local"?"اخبار محلی":"اخبار جهان"),
-    "",
-    WORLD_SEPARATOR,
-    "",
-  ];
-  if(!rows.length) lines.push("⛂ - فعلاً خبری ثبت نشده است.");
-  for(const row of rows){
-    lines.push("★ - "+String(row.title));
-    lines.push("⛂ - "+String(row.body));
-    lines.push("");
-  }
-  lines.push(westernLine("news"),"",WORLD_SEPARATOR);
-  return lines.join("\n");
-}
+async 
 
-async function marketText(pool: Pool, ctx: WorldContext, mode: "local"|"mine"|"help") {
-  if(mode==="help"){
-    return [
-      "◈ راهنمای بازار",
-      "",
-      WORLD_SEPARATOR,
-      "",
-      "★ - ثبت فروش",
-      "فرمت : فروش <نام کالا> <تعداد> <قیمت واحد>",
-      "نمونه : فروش چوب جنگلی 10 8",
-      "",
-      "★ - خرید",
-      "فرمت : خرید <شناسه آگهی> <تعداد>",
-      "",
-      "قیمت را خودت تعیین می‌کنی و معامله در همین روستا ثبت می‌شود.",
-      "",
-      westernLine("market"),
-      "",
-      WORLD_SEPARATOR,
-    ].join("\n");
-  }
-
-  const where=mode==="mine"
-    ? "group_id=$1 AND seller_user_id=$2"
-    : "group_id=$1 AND status='active' AND expires_at>NOW() AND amount>0";
-  const params=mode==="mine"?[ctx.chatId,ctx.userId]:[ctx.chatId];
-  const rows=(await pool.query<any>(
-    "SELECT * FROM game_world_market_listings WHERE "+where+" ORDER BY created_at DESC LIMIT 20",
-    params,
-  )).rows;
-  const lines=["◈ "+(mode==="mine"?"فروش‌های من":"بازار روستا"),"",WORLD_SEPARATOR,""];
-  if(!rows.length) lines.push("⛂ - فعلاً آگهی فعالی وجود ندارد.");
-  for(const row of rows){
-    const resource=resourceByCode(String(row.resource_code));
-    lines.push("★ - آگهی #"+fa(Number(row.listing_id)));
-    lines.push("⛂ - کالا : "+(resource?.name??String(row.resource_code)));
-    lines.push("⛂ - مقدار : "+fa(Number(row.amount)));
-    lines.push("⛂ - قیمت هر واحد : "+fa(Number(row.unit_price))+" سکه");
-    lines.push("⛂ - فروشنده : "+fa(Number(row.seller_user_id)));
-    lines.push("");
-  }
-  lines.push(westernLine("market"),"",WORLD_SEPARATOR);
-  return lines.join("\n");
-}
+async 
 
 function cityOverviewKeyboard(userId:number,cities:Array<{settlement_id:number;name:string}>,canPromote:boolean) {
   const s=String(userId);
@@ -667,22 +579,9 @@ async function ensureNewsSeed(pool:Pool,groupId:number,settlementName:string) {
   }
 }
 
-function newsKeyboard(userId:number) {
-  const s=String(userId);
-  return {inline_keyboard:[
-    [{text:"‹ اخبار محلی",callback_data:"world:news:local:"+s},{text:"‹ اخبار جهانی",callback_data:"world:news:global:"+s}],
-    [{text:"‹ بازگشت به جهان",callback_data:"world:home:"+s}]
-  ]};
-}
 
-function marketKeyboard(userId:number) {
-  const s=String(userId);
-  return {inline_keyboard:[
-    [{text:"‹ بازار روستا",callback_data:"world:market:local:"+s},{text:"‹ فروش‌های من",callback_data:"world:market:mine:"+s}],
-    [{text:"‹ راهنمای فروش",callback_data:"world:market:help:"+s}],
-    [{text:"‹ بازگشت به جهان",callback_data:"world:home:"+s}]
-  ]};
-}
+
+
 
 function normalizeResourceInput(value:string) {
   const n=norm(value);
