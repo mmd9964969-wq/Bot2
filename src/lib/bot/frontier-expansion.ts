@@ -76,6 +76,18 @@ export async function ensureFrontierExpansionSchema(pool:Pool){
       await pool.query("CREATE TABLE IF NOT EXISTS game_world_band_members(band_id BIGINT NOT NULL REFERENCES game_world_bands(id) ON DELETE CASCADE,user_id BIGINT NOT NULL,role TEXT NOT NULL DEFAULT 'member',joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),PRIMARY KEY(band_id,user_id))");
       await pool.query("CREATE TABLE IF NOT EXISTS game_world_contracts(id BIGSERIAL PRIMARY KEY,group_id BIGINT NOT NULL,creator_id BIGINT NOT NULL,title TEXT NOT NULL,details TEXT NOT NULL,reward BIGINT NOT NULL DEFAULT 0 CHECK(reward>=0),status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','claimed','completed','cancelled')),claimed_by BIGINT,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),expires_at TIMESTAMPTZ NOT NULL DEFAULT(NOW()+INTERVAL '3 days'))");
       await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_contracts_group_status ON game_world_contracts(group_id,status,created_at DESC)");
+      await pool.query("ALTER TABLE game_world_accounts ADD COLUMN IF NOT EXISTS health INT NOT NULL DEFAULT 100 CHECK(health BETWEEN 0 AND 100)");
+      await pool.query("ALTER TABLE game_world_accounts ADD COLUMN IF NOT EXISTS hunger INT NOT NULL DEFAULT 100 CHECK(hunger BETWEEN 0 AND 100)");
+      await pool.query("ALTER TABLE game_world_accounts ADD COLUMN IF NOT EXISTS energy INT NOT NULL DEFAULT 100 CHECK(energy BETWEEN 0 AND 100)");
+      await pool.query("ALTER TABLE game_world_accounts ADD COLUMN IF NOT EXISTS location_settlement_id BIGINT");
+      await pool.query("ALTER TABLE game_world_accounts ADD COLUMN IF NOT EXISTS jailed_until TIMESTAMPTZ");
+      await pool.query("CREATE TABLE IF NOT EXISTS game_world_livestock(group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,animal_code TEXT NOT NULL,count INT NOT NULL DEFAULT 0 CHECK(count>=0),health INT NOT NULL DEFAULT 100 CHECK(health BETWEEN 0 AND 100),feed INT NOT NULL DEFAULT 100 CHECK(feed BETWEEN 0 AND 100),last_collected_at TIMESTAMPTZ,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),PRIMARY KEY(group_id,user_id,animal_code))");
+      await pool.query("CREATE TABLE IF NOT EXISTS game_world_businesses(id BIGSERIAL PRIMARY KEY,group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,business_code TEXT NOT NULL,business_name TEXT NOT NULL,level INT NOT NULL DEFAULT 1 CHECK(level>=1),cashbox BIGINT NOT NULL DEFAULT 0 CHECK(cashbox>=0),last_income_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed')),created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),UNIQUE(group_id,user_id,business_code))");
+      await pool.query("CREATE TABLE IF NOT EXISTS game_world_transport(group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,transport_code TEXT NOT NULL,level INT NOT NULL DEFAULT 1 CHECK(level>=1),condition INT NOT NULL DEFAULT 100 CHECK(condition BETWEEN 0 AND 100),fuel INT NOT NULL DEFAULT 100 CHECK(fuel BETWEEN 0 AND 100),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),PRIMARY KEY(group_id,user_id,transport_code))");
+      await pool.query("CREATE TABLE IF NOT EXISTS game_world_relationships(group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,target_user_id BIGINT NOT NULL,relation TEXT NOT NULL DEFAULT 'شناسا',value INT NOT NULL DEFAULT 0 CHECK(value BETWEEN -100 AND 100),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),PRIMARY KEY(group_id,user_id,target_user_id))");
+      await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_businesses_user ON game_world_businesses(group_id,user_id,status,updated_at DESC)");
+      await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_livestock_user ON game_world_livestock(group_id,user_id,animal_code)");
+      await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_transport_user ON game_world_transport(group_id,user_id,transport_code)");
     })().catch(err=>{schemaReady=null;throw err;});
   }
   return schemaReady;
@@ -88,11 +100,13 @@ function back(userId:number){
 function expansionMenu(userId:number){
   const s=String(userId);
   return {inline_keyboard:[
-    [{text:"‹ بانک و پول",callback_data:"world:expand:bank:"+s},{text:"‹ زمین و خانه",callback_data:"world:expand:property:"+s}],
-    [{text:"‹ مزرعه و اسب",callback_data:"world:expand:farm:"+s},{text:"‹ انبار و ابزار",callback_data:"world:expand:tools:"+s}],
-    [{text:"‹ کار و مهارت",callback_data:"world:expand:profession:"+s},{text:"‹ قانون و شهرت",callback_data:"world:expand:law:"+s}],
-    [{text:"‹ مأموریت‌ها",callback_data:"world:expand:missions:"+s},{text:"‹ نقشه مرز",callback_data:"world:expand:map:"+s}],
-    [{text:"‹ باند و قرارداد",callback_data:"world:expand:band:"+s},{text:"‹ رویدادهای جهان",callback_data:"world:expand:events:"+s}],
+    [{text:"‹ بانک و اقتصاد",callback_data:"world:expand:bank:"+s},{text:"‹ ملک و زمین",callback_data:"world:expand:property:"+s}],
+    [{text:"‹ مزرعه و دامداری",callback_data:"world:expand:farm:"+s},{text:"‹ اسب و حمل‌ونقل",callback_data:"world:expand:transport:"+s}],
+    [{text:"‹ انبار و ابزار",callback_data:"world:expand:tools:"+s},{text:"‹ حرفه و مهارت",callback_data:"world:expand:profession:"+s}],
+    [{text:"‹ کسب‌وکار",callback_data:"world:expand:business:"+s},{text:"‹ قانون و شهرت",callback_data:"world:expand:law:"+s}],
+    [{text:"‹ مأموریت و قرارداد",callback_data:"world:expand:missions:"+s},{text:"‹ باند و روابط",callback_data:"world:expand:band:"+s}],
+    [{text:"‹ نقشه و سفر",callback_data:"world:expand:map:"+s},{text:"‹ رویدادهای زنده",callback_data:"world:expand:events:"+s}],
+    [{text:"‹ روزنامه مرزی",callback_data:"world:expand:newspaper:"+s},{text:"‹ وضعیت زندگی",callback_data:"world:expand:life:"+s}],
     [{text:"‹ بازگشت به جهان",callback_data:"world:home:"+s}],
   ]};
 }
@@ -395,13 +409,176 @@ async function createContract(ctx:FrontierExpansionContext,title:string,reward:n
   return {text:"✓ قرارداد ثبت شد و "+money(reward)+" از موجودی تو تا پایان قرارداد کنار گذاشته شد.",replyMarkup:back(ctx.userId)};
 }
 
+const LIVESTOCK:Record<string,{name:string;cost:number;collect:number}> = {
+  cow:{name:"گاو",cost:500,collect:80},
+  sheep:{name:"گوسفند",cost:350,collect:60},
+  chicken:{name:"مرغ",cost:120,collect:30},
+};
+
+const BUSINESSES:Record<string,{name:string;cost:number;income:number;cooldown:number}> = {
+  general_store:{name:"فروشگاه عمومی",cost:1200,income:180,cooldown:30},
+  blacksmith:{name:"آهنگری",cost:1800,income:260,cooldown:40},
+  saloon:{name:"سالون",cost:2400,income:340,cooldown:50},
+  stable_shop:{name:"فروشگاه اصطبل",cost:2000,income:300,cooldown:45},
+};
+
+const TRANSPORTS:Record<string,{name:string;cost:number;condition:number;fuel:number}> = {
+  wagon:{name:"واگن مرزی",cost:900,condition:100,fuel:100},
+  stagecoach:{name:"کالسکه مسافری",cost:1800,condition:100,fuel:100},
+};
+
+async function lifeStatusText(ctx:FrontierExpansionContext){
+  const a=await account(ctx); if(!a)return "✗ هنوز نامت در دفتر مرز ثبت نشده است.";
+  const loc=(await ctx.pool.query<any>("SELECT name FROM game_world_settlements WHERE settlement_id=$1",[a.location_settlement_id])).rows[0];
+  return [
+    "◈ وضعیت زندگی",
+    "",
+    SEP,
+    "",
+    "★ - "+nameOf(ctx),
+    "⛂ - سلامت : "+fa(+a.health)+"%",
+    "⛂ - گرسنگی : "+fa(+a.hunger)+"%",
+    "⛂ - انرژی : "+fa(+a.energy)+"%",
+    "⛂ - موقعیت : "+(loc?.name??"روستای خودمان"),
+    "⛂ - وضعیت زندان : "+(a.jailed_until&&new Date(a.jailed_until).getTime()>Date.now()?"بازداشت‌شده":"آزاد"),
+    "",
+    "« مرد مرزی اگر خودش را جمع نکند، مرز او را جمع می‌کند.»",
+    "",
+    SEP
+  ].join("\n");
+}
+
+async function livestockText(ctx:FrontierExpansionContext){
+  const rows=(await ctx.pool.query<any>("SELECT * FROM game_world_livestock WHERE group_id=$1 AND user_id=$2 AND count>0 ORDER BY animal_code",[ctx.chatId,ctx.userId])).rows;
+  const lines=["◈ دامداری","",SEP,"","★ - دام‌های شخصی"];
+  if(!rows.length)lines.push("⛂ - هنوز حیوانی نخریده‌ای.");
+  for(const r of rows){
+    const d=LIVESTOCK[String(r.animal_code)];
+    lines.push("⛂ - "+(d?.name??String(r.animal_code))+" · تعداد "+fa(+r.count)+" · سلامت "+fa(+r.health)+"% · خوراک "+fa(+r.feed)+"%");
+  }
+  lines.push("","★ - خرید دام","⛂ - گاو · "+money(500),"⛂ - گوسفند · "+money(350),"⛂ - مرغ · "+money(120),"","هر نوبت جمع‌آوری، درآمد و تجربه دامداری ثبت می‌کند.","",SEP);
+  return lines.join("\n");
+}
+
+async function buyLivestock(ctx:FrontierExpansionContext,code:string){
+  const d=LIVESTOCK[code], a=await account(ctx);
+  if(!d||!a)return {text:"✗ این دام در دفتر مرز ثبت نشده است.",replyMarkup:back(ctx.userId)};
+  if(+a.coins<d.cost)return {text:"✗ برای خرید "+d.name+" "+money(d.cost)+" لازم داری.",replyMarkup:back(ctx.userId)};
+  await ctx.pool.query("UPDATE game_world_accounts SET coins=coins-$3,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,d.cost]);
+  await ctx.pool.query("INSERT INTO game_world_livestock(group_id,user_id,animal_code,count,health,feed) VALUES($1,$2,$3,1,100,100) ON CONFLICT(group_id,user_id,animal_code) DO UPDATE SET count=game_world_livestock.count+1,health=100,feed=100,updated_at=NOW()",[ctx.chatId,ctx.userId,code]);
+  return {text:["✓ دام خریداری شد.","","⛂ - دام : "+d.name,"⛂ - هزینه : "+money(d.cost),"⛂ - سلامت اولیه : 100%","⛂ - خوراک : 100%","","« حیوان اگر خرج داشته باشد، باز هم می‌تواند برایت پول بسازد.»"].join("\n"),replyMarkup:back(ctx.userId)};
+}
+
+async function collectLivestock(ctx:FrontierExpansionContext,code:string){
+  const d=LIVESTOCK[code];
+  const row=(await ctx.pool.query<any>("SELECT * FROM game_world_livestock WHERE group_id=$1 AND user_id=$2 AND animal_code=$3",[ctx.chatId,ctx.userId,code])).rows[0];
+  if(!d||!row||+row.count<=0)return {text:"✗ از این دام نداری.",replyMarkup:back(ctx.userId)};
+  const last=row.last_collected_at?new Date(row.last_collected_at).getTime():0;
+  const remain=Math.max(0,Math.ceil((last+20_000-Date.now())/1000));
+  if(remain>0)return {text:"⛂ - جمع‌آوری بعدی تا "+fa(remain)+" ثانیه دیگر.",replyMarkup:back(ctx.userId)};
+  const amount=d.collect*+row.count;
+  await ctx.pool.query("UPDATE game_world_livestock SET last_collected_at=NOW(),feed=GREATEST(0,feed-10),updated_at=NOW() WHERE group_id=$1 AND user_id=$2 AND animal_code=$3",[ctx.chatId,ctx.userId,code]);
+  await ctx.pool.query("UPDATE game_world_accounts SET coins=coins+$3,xp=xp+$4,energy=GREATEST(0,energy-3),last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,amount,Math.max(5,Math.floor(amount/2))]);
+  return {text:["✓ تولید دام جمع‌آوری شد.","","⛂ - دام : "+d.name,"⛂ - درآمد : +"+money(amount),"⛂ - تجربه : +"+fa(Math.max(5,Math.floor(amount/2))),"⛂ - مصرف خوراک : 10%","","« طویله‌ای که به حال خودش رها شود، سودش را هم از دست می‌دهد.»"].join("\n"),replyMarkup:back(ctx.userId)};
+}
+
+async function transportText(ctx:FrontierExpansionContext){
+  const rows=(await ctx.pool.query<any>("SELECT * FROM game_world_transport WHERE group_id=$1 AND user_id=$2 ORDER BY transport_code",[ctx.chatId,ctx.userId])).rows;
+  const a=await assets(ctx);
+  const lines=["◈ اسب و حمل‌ونقل","",SEP,"","★ - وسیله‌های در اختیار"];
+  if(a.horse_name)lines.push("⛂ - اسب : "+a.horse_name+" · سرعت "+fa(+a.horse_speed)+" · استقامت "+fa(+a.horse_stamina)+" · سلامت "+fa(+a.horse_health)+"%");
+  else lines.push("⛂ - اسب : هنوز نداری");
+  if(!rows.length)lines.push("⛂ - وسیله باربری : نداری");
+  for(const r of rows){
+    const t=TRANSPORTS[String(r.transport_code)];
+    lines.push("⛂ - "+(t?.name??r.transport_code)+" · سطح "+fa(+r.level)+" · وضعیت "+fa(+r.condition)+"% · سوخت "+fa(+r.fuel)+"%");
+  }
+  lines.push("","★ - خرید","⛂ - واگن مرزی · "+money(900),"⛂ - کالسکه مسافری · "+money(1800),"","« جاده با پا طی می‌شود؛ پول جدی با وسیله طی می‌شود.»","",SEP);
+  return lines.join("\n");
+}
+
+async function buyTransport(ctx:FrontierExpansionContext,code:string){
+  const t=TRANSPORTS[code], a=await account(ctx);
+  if(!t||!a)return {text:"✗ وسیله پیدا نشد.",replyMarkup:back(ctx.userId)};
+  if(+a.coins<t.cost)return {text:"✗ برای این وسیله "+money(t.cost)+" لازم داری.",replyMarkup:back(ctx.userId)};
+  await ctx.pool.query("UPDATE game_world_accounts SET coins=coins-$3 WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,t.cost]);
+  await ctx.pool.query("INSERT INTO game_world_transport(group_id,user_id,transport_code,level,condition,fuel) VALUES($1,$2,$3,1,$4,$5) ON CONFLICT(group_id,user_id,transport_code) DO UPDATE SET level=game_world_transport.level+1,condition=100,fuel=100,updated_at=NOW()",[ctx.chatId,ctx.userId,code,t.condition,t.fuel]);
+  return {text:"✓ "+t.name+" به دارایی‌هایت اضافه شد؛ جاده حالا انتخاب‌های بیشتری دارد.",replyMarkup:back(ctx.userId)};
+}
+
+async function businessText(ctx:FrontierExpansionContext){
+  const rows=(await ctx.pool.query<any>("SELECT * FROM game_world_businesses WHERE group_id=$1 AND user_id=$2 ORDER BY id",[ctx.chatId,ctx.userId])).rows;
+  const lines=["◈ کسب‌وکار","",SEP,"","★ - کسب‌وکارهای تو"];
+  if(!rows.length)lines.push("⛂ - هنوز صاحب مغازه یا کارگاه نیستی.");
+  for(const r of rows){
+    const b=BUSINESSES[String(r.business_code)];
+    const last=new Date(r.last_income_at).getTime();
+    const cycles=Math.floor(Math.max(0,Date.now()-last)/1000/(b?.cooldown??60));
+    const available=cycles*(b?.income??0)*+r.level;
+    lines.push("⛂ - "+(b?.name??String(r.business_name))+" · سطح "+fa(+r.level)+" · صندوق "+money(+r.cashbox)+" · درآمد آماده "+money(available));
+  }
+  lines.push("","★ - کسب‌وکارهای قابل خرید");
+  for(const b of Object.values(BUSINESSES))lines.push("⛂ - "+b.name+" · "+money(b.cost));
+  lines.push("","« مغازه‌ای که صاحبش دخل روزانه را نداند، خیلی زود حسابدار پیدا می‌کند.»","",SEP);
+  return lines.join("\n");
+}
+
+async function buyBusiness(ctx:FrontierExpansionContext,code:string){
+  const b=BUSINESSES[code], a=await account(ctx);
+  if(!b||!a)return {text:"✗ این کسب‌وکار ثبت نشده است.",replyMarkup:back(ctx.userId)};
+  const exists=(await ctx.pool.query("SELECT 1 FROM game_world_businesses WHERE group_id=$1 AND user_id=$2 AND business_code=$3",[ctx.chatId,ctx.userId,code])).rowCount;
+  if(exists)return {text:"⛂ - این کسب‌وکار را همین حالا داری.",replyMarkup:back(ctx.userId)};
+  if(+a.coins<b.cost)return {text:"✗ سرمایه کافی نیست؛ "+b.name+" "+money(b.cost)+" خرج دارد.",replyMarkup:back(ctx.userId)};
+  await ctx.pool.query("UPDATE game_world_accounts SET coins=coins-$3 WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,b.cost]);
+  await ctx.pool.query("INSERT INTO game_world_businesses(group_id,user_id,business_code,business_name) VALUES($1,$2,$3,$4)",[ctx.chatId,ctx.userId,code,b.name]);
+  return {text:["✓ کسب‌وکار ثبت شد.","","⛂ - نام : "+b.name,"⛂ - سرمایه آغازین : "+money(b.cost),"⛂ - درآمد پایه : "+money(b.income)+" در هر چرخه","","« حالا دیگر فقط برای خودت کار نمی‌کنی؛ دخل مغازه هم هر روز حسابش را پس می‌دهد.»"].join("\n"),replyMarkup:back(ctx.userId)};
+}
+
+async function collectBusiness(ctx:FrontierExpansionContext,code:string){
+  const b=BUSINESSES[code];
+  const row=(await ctx.pool.query<any>("SELECT * FROM game_world_businesses WHERE group_id=$1 AND user_id=$2 AND business_code=$3",[ctx.chatId,ctx.userId,code])).rows[0];
+  if(!b||!row)return {text:"✗ این کسب‌وکار را نداری.",replyMarkup:back(ctx.userId)};
+  const last=new Date(row.last_income_at).getTime();
+  const cycles=Math.floor(Math.max(0,Date.now()-last)/1000/(b.cooldown));
+  if(cycles<1)return {text:"⛂ - دخل "+b.name+" هنوز پر نشده است.",replyMarkup:back(ctx.userId)};
+  const amount=cycles*b.income*+row.level;
+  await ctx.pool.query("UPDATE game_world_businesses SET cashbox=cashbox+$3,last_income_at=NOW(),updated_at=NOW() WHERE id=$1 AND group_id=$2",[row.id,ctx.chatId,amount]);
+  return {text:["✓ دخل مغازه جمع شد.","","⛂ - کسب‌وکار : "+b.name,"⛂ - چرخه‌های آماده : "+fa(cycles),"⛂ - مبلغ ثبت‌شده در صندوق : +"+money(amount),"","« پولی که داخل صندوق بماند، هنوز پول تو نیست؛ صندوق را باز کن.»"].join("\n"),replyMarkup:{inline_keyboard:[
+    [{text:"‹ برداشت صندوق",callback_data:"world:expand:business:withdraw:"+code+":"+ctx.userId}],
+    [{text:"‹ بازگشت",callback_data:"world:expand:business:"+ctx.userId}]
+  ]}};
+}
+
+async function withdrawBusiness(ctx:FrontierExpansionContext,code:string){
+  const row=(await ctx.pool.query<any>("SELECT * FROM game_world_businesses WHERE group_id=$1 AND user_id=$2 AND business_code=$3",[ctx.chatId,ctx.userId,code])).rows[0];
+  if(!row)return {text:"✗ کسب‌وکار پیدا نشد.",replyMarkup:back(ctx.userId)};
+  const amount=+row.cashbox;
+  if(amount<=0)return {text:"⛂ - صندوق خالی است.",replyMarkup:back(ctx.userId)};
+  await ctx.pool.query("UPDATE game_world_businesses SET cashbox=0,updated_at=NOW() WHERE id=$1",[row.id]);
+  await ctx.pool.query("UPDATE game_world_accounts SET coins=coins+$3,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,amount]);
+  return {text:"✓ "+money(amount)+" از صندوق "+row.business_name+" به موجودی نقدت منتقل شد.",replyMarkup:back(ctx.userId)};
+}
+
+async function newspaperText(ctx:FrontierExpansionContext){
+  const local=(await ctx.pool.query<any>("SELECT title,body FROM game_world_news WHERE scope='local' AND group_id=$1 ORDER BY created_at DESC LIMIT 3",[ctx.chatId])).rows;
+  const global=(await ctx.pool.query<any>("SELECT title,body FROM game_world_news WHERE scope='global' ORDER BY created_at DESC LIMIT 3")).rows;
+  const events=(await ctx.pool.query<any>("SELECT title,body FROM game_world_events WHERE (scope='local' AND group_id=$1) OR scope='global' ORDER BY created_at DESC LIMIT 4",[ctx.chatId])).rows;
+  const lines=["◈ THE FRONTIER NEWS","",SEP,"","★ - اخبار محلی",...local.map((r:any)=>"⛂ - "+r.title+" — "+r.body),"","★ - اخبار جهان",...global.map((r:any)=>"⛂ - "+r.title+" — "+r.body),"","★ - آخرین رویدادها",...events.map((r:any)=>"⛂ - "+r.title+" — "+r.body),"","« خبر خوب دیر می‌رسد؛ خبر بد معمولاً راه کوتاه‌تری پیدا می‌کند.»","",SEP];
+  return lines.join("\n");
+}
+
 export function frontierExpansionMenuText(){
-  return ["◈ توسعه مرز","",SEP,"","★ - بانک و اقتصاد","★ - خانه، زمین و انبار","★ - مزرعه و اسب","★ - ابزار و مهارت","★ - حرفه و درآمد","★ - قانون و پرونده","★ - مأموریت و قرارداد","★ - نقشه و رویدادهای زنده","★ - باندهای مرزی","", "« این بخش‌ها فقط متن نیستند؛ هر کدام روی موجودی، زمان یا دارایی اکانتت اثر می‌گذارند.»","",SEP].join("\n");
+  return ["◈ دفتر مرز","",SEP,"","★ - بانک و اقتصاد","★ - خانه و زمین","★ - مزرعه و دامداری","★ - اسب و حمل‌ونقل","★ - انبار و ابزار","★ - حرفه و مهارت","★ - کسب‌وکار و مغازه","★ - قانون و شهرت","★ - مأموریت و قرارداد","★ - باند و روابط","★ - نقشه و سفر","★ - رویداد و روزنامه","★ - وضعیت زندگی","", "« اینجا دفتر کاغذی نیست؛ هر تصمیم روی پول، زمان، دارایی یا جایگاهت در مرز اثر می‌گذارد.»","",SEP].join("\n");
 }
 
 export async function handleFrontierExpansionText(ctx:FrontierExpansionContext,text:string):Promise<FrontierExpansionResult|null>{
   const n=String(text??"").trim().replace(/^[\\/!.]+/,"").replace(/\s+/g," ").toLowerCase();
-  if(["توسعه مرز","مرکز توسعه","frontier expansion","frontier"].includes(n))return menuResult(frontierExpansionMenuText(),ctx.userId);
+  if(["توسعه مرز","مرکز توسعه","دفتر مرز","frontier expansion","frontier"].includes(n))return menuResult(frontierExpansionMenuText(),ctx.userId);
+  if(n==="وضعیت زندگی"||n==="زندگی من")return {text:await lifeStatusText(ctx),replyMarkup:expansionMenu(ctx.userId)};
+  if(n==="دامداری"||n==="دام من")return {text:await livestockText(ctx),replyMarkup:expansionMenu(ctx.userId)};
+  if(n==="حمل و نقل"||n==="حمل‌ونقل")return {text:await transportText(ctx),replyMarkup:expansionMenu(ctx.userId)};
+  if(n==="کسب و کار"||n==="کسب‌وکار"||n==="مغازه من")return {text:await businessText(ctx),replyMarkup:expansionMenu(ctx.userId)};
+  if(n==="روزنامه"||n==="روزنامه مرزی")return {text:await newspaperText(ctx),replyMarkup:expansionMenu(ctx.userId)};
   if(n==="بانک"||n==="بانک من")return {text:await bankText(ctx),replyMarkup:expansionMenu(ctx.userId)};
   if(n==="کار امروز"||n==="کار")return await doWork(ctx);
   if(n.startsWith("واریز بانک "))return await bankMovement(ctx,"deposit",Number(n.slice("واریز بانک ".length)));
@@ -445,6 +622,7 @@ export async function handleFrontierExpansionCallback(ctx:FrontierExpansionConte
     );
     if(a.horse_name)rows.push([{text:"‹ اصطبل و اسب",callback_data:"world:expand:horse:"+ctx.userId}]);
     else rows.push([{text:"‹ خرید اسب · 700",callback_data:"world:expand:horsebuy:"+ctx.userId}]);
+    rows.push([{text:"‹ دامداری",callback_data:"world:expand:livestock:"+ctx.userId}]);
     rows.push([{text:"‹ بازگشت",callback_data:"world:home:"+ctx.userId}]);
     return {text,replyMarkup:{inline_keyboard:rows}};
   }
@@ -470,7 +648,40 @@ export async function handleFrontierExpansionCallback(ctx:FrontierExpansionConte
   }
   if(sub==="profpick")return await chooseProfession(ctx,String(parts[3]??""));
   if(sub==="work")return await doWork(ctx);
-  if(sub==="law"){
+  if(sub==="livestock"){
+    if(parts[3]==="buy")return await buyLivestock(ctx,String(parts[4]??""));
+    if(parts[3]==="collect")return await collectLivestock(ctx,String(parts[4]??""));
+    const rows:any[]=[
+      [{text:"‹ خرید گاو · 500",callback_data:"world:expand:livestock:buy:cow:"+ctx.userId},{text:"‹ جمع‌آوری گاو",callback_data:"world:expand:livestock:collect:cow:"+ctx.userId}],
+      [{text:"‹ خرید گوسفند · 350",callback_data:"world:expand:livestock:buy:sheep:"+ctx.userId},{text:"‹ جمع‌آوری گوسفند",callback_data:"world:expand:livestock:collect:sheep:"+ctx.userId}],
+      [{text:"‹ خرید مرغ · 120",callback_data:"world:expand:livestock:buy:chicken:"+ctx.userId},{text:"‹ جمع‌آوری مرغ",callback_data:"world:expand:livestock:collect:chicken:"+ctx.userId}],
+      [{text:"‹ بازگشت",callback_data:"world:expand:farm:"+ctx.userId}]
+    ];
+    return {text:await livestockText(ctx),replyMarkup:{inline_keyboard:rows}};
+  }
+  if(sub==="transport"){
+    if(parts[3]==="buy")return await buyTransport(ctx,String(parts[4]??""));
+    return {text:await transportText(ctx),replyMarkup:{inline_keyboard:[
+      [{text:"‹ خرید واگن · 900",callback_data:"world:expand:transport:buy:wagon:"+ctx.userId}],
+      [{text:"‹ خرید کالسکه · 1800",callback_data:"world:expand:transport:buy:stagecoach:"+ctx.userId}],
+      [{text:"‹ بازگشت",callback_data:"world:home:"+ctx.userId}]
+    ]}};
+  }
+  if(sub==="business"){
+    if(parts[3]==="buy")return await buyBusiness(ctx,String(parts[4]??""));
+    if(parts[3]==="collect")return await collectBusiness(ctx,String(parts[4]??""));
+    if(parts[3]==="withdraw")return await withdrawBusiness(ctx,String(parts[4]??""));
+    const rows:any[]=[];
+    for(const [code,b] of Object.entries(BUSINESSES)){
+      rows.push([{text:"‹ خرید "+b.name+" · "+b.cost,callback_data:"world:expand:business:buy:"+code+":"+ctx.userId}]);
+      rows.push([{text:"‹ جمع دخل "+b.name,callback_data:"world:expand:business:collect:"+code+":"+ctx.userId}]);
+    }
+    rows.push([{text:"‹ بازگشت",callback_data:"world:home:"+ctx.userId}]);
+    return {text:await businessText(ctx),replyMarkup:{inline_keyboard:rows}};
+  }
+  if(sub==="newspaper")return {text:await newspaperText(ctx),replyMarkup:expansionMenu(ctx.userId)};
+  if(sub==="life")return {text:await lifeStatusText(ctx),replyMarkup:expansionMenu(ctx.userId)};
+    if(sub==="law"){
     return {text:await lawText(ctx),replyMarkup:{inline_keyboard:[
       [{text:"‹ تسویه پرونده",callback_data:"world:expand:fine:"+ctx.userId}],
       [{text:"‹ بازگشت",callback_data:"world:home:"+ctx.userId}]
