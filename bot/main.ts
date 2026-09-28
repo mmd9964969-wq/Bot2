@@ -20,6 +20,7 @@ import { ensureInviteLinkSchema, handleInviteLinkCallback, handleInviteLinkJoinR
 import { handleGameText, handleGameCallback, gameCenterKeyboard, isGameCenterCommand } from "../src/lib/bot/game-core.ts";
 import { ensureEngineSchema, getEngineGame } from "../src/lib/bot/game-engine.ts";
 import { handleWorldCallback, handleWorldText } from "../src/lib/bot/game-world.ts";
+import { handleFrontierExpansionCallback } from "../src/lib/bot/frontier-expansion.ts";
 
 const TOKEN = process.env.BOT_TOKEN ?? "";
 if (!TOKEN) { console.error("BOT_TOKEN is missing"); process.exit(1); }
@@ -1027,7 +1028,24 @@ async function poll() {
                 callback_query_id:callback.id,
               });
 
-              const worldResult=await handleWorldCallback({
+              const isCareerStoryCallback=/^world:expand:(story|storycontinue|storychoice):/.test(data);
+              const worldResult=isCareerStoryCallback
+                ? await handleFrontierExpansionCallback({
+                    pool:studioPool!,
+                    chatId:chat.id,
+                    userId:callback.from.id,
+                    user:{
+                      id:callback.from.id,
+                      username:callback.from.username,
+                      first_name:callback.from.first_name,
+                    },
+                    chatTitle: chat.title,
+                    userRank: rankOf(
+                      callback.from.id,
+                      chat.type==="private" ? new Set<number>() : await chatAdmins(chat.id),
+                    ),
+                  },data.split(":"))
+                : await handleWorldCallback({
                 pool:studioPool!,
                 chatId:chat.id,
                 userId:callback.from.id,
