@@ -630,6 +630,184 @@ async function marketText(pool: Pool, ctx: WorldContext, mode: "local"|"mine"|"h
   return lines.join("\n");
 }
 
+function cityOverviewKeyboard(userId:number,cities:Array<{settlement_id:number;name:string}>) {
+  const s=String(userId);
+  const rows:Array<Array<{text:string;callback_data:string}>>=[];
+  for(const city of cities){
+    rows.push([{text:"‹ "+String(city.name),callback_data:"world:city:"+String(city.settlement_id)+":"+s}]);
+  }
+  rows.push([{text:"‹ اخبار محلی",callback_data:"world:news:local:"+s},{text:"‹ اخبار جهانی",callback_data:"world:news:global:"+s}]);
+  rows.push([{text:"‹ بازار روستا",callback_data:"world:market:local:"+s}]);
+  rows.push([{text:"‹ بازگشت به جهان",callback_data:"world:home:"+s}]);
+  return {inline_keyboard:rows};
+}
+
+function cityDetailKeyboard(userId:number,settlementId:number) {
+  const s=String(userId);
+  return {inline_keyboard:[
+    [{text:"‹ بازار",callback_data:"world:citymarket:"+settlementId+":"+s},{text:"‹ بانک",callback_data:"world:citybank:"+settlementId+":"+s}],
+    [{text:"‹ سالون",callback_data:"world:citysaloon:"+settlementId+":"+s},{text:"‹ معدن",callback_data:"world:citymine:"+settlementId+":"+s}],
+    [{text:"‹ مشاغل شهر",callback_data:"world:cityjobs:"+settlementId+":"+s},{text:"‹ قوانین",callback_data:"world:citylaws:"+settlementId+":"+s}],
+    [{text:"‹ شروع سفر",callback_data:"world:travel:"+settlementId+":"+s}],
+    [{text:"‹ بازگشت",callback_data:"world:section:city:"+s}]
+  ]};
+}
+
+async function ensureNewsSeed(pool:Pool,groupId:number,settlementName:string) {
+  const local=await pool.query<any>("SELECT news_id FROM game_world_news WHERE scope='local' AND group_id=$1 LIMIT 1",[groupId]);
+  if(!local.rows.length){
+    await pool.query("INSERT INTO game_world_news(scope,group_id,title,body,severity) VALUES('local',$1,$2,$3,'info')",
+      [groupId,"خبر تازه "+settlementName,"روستا آرام است؛ اما مرز برای مدت زیادی آرام نمی‌ماند."]);
+  }
+  const global=await pool.query<any>("SELECT news_id FROM game_world_news WHERE scope='global' LIMIT 1");
+  if(!global.rows.length){
+    await pool.query("INSERT INTO game_world_news(scope,title,body,severity) VALUES('global',$1,$2,'notice')",
+      ["خبر مرز","مسیرهای تجاری دوباره فعال شده‌اند و بازارهای مرزی کم‌کم واکنش نشان می‌دهند."]);
+  }
+}
+
+function newsKeyboard(userId:number) {
+  const s=String(userId);
+  return {inline_keyboard:[
+    [{text:"‹ اخبار محلی",callback_data:"world:news:local:"+s},{text:"‹ اخبار جهانی",callback_data:"world:news:global:"+s}],
+    [{text:"‹ بازگشت به جهان",callback_data:"world:home:"+s}]
+  ]};
+}
+
+function marketKeyboard(userId:number) {
+  const s=String(userId);
+  return {inline_keyboard:[
+    [{text:"‹ بازار روستا",callback_data:"world:market:local:"+s},{text:"‹ فروش‌های من",callback_data:"world:market:mine:"+s}],
+    [{text:"‹ راهنمای فروش",callback_data:"world:market:help:"+s}],
+    [{text:"‹ بازگشت به جهان",callback_data:"world:home:"+s}]
+  ]};
+}
+
+function normalizeResourceInput(value:string) {
+  const n=norm(value);
+  return RESOURCE_CATALOG.find(x=>norm(x.code)===n||norm(x.name)===n)??null;
+}
+
+async function newsText(pool:Pool,ctx:WorldContext,scope:"local"|"global") {
+  const settlement=await ensureSettlement(pool,ctx.chatId,ctx.chatTitle);
+  await ensureNewsSeed(pool,ctx.chatId,String(settlement.name));
+  const rows=scope==="local"
+    ? (await pool.query<any>("SELECT * FROM game_world_news WHERE scope='local' AND group_id=$1 AND (expires_at IS NULL OR expires_at>NOW()) ORDER BY created_at DESC LIMIT 12",[ctx.chatId])).rows
+    : (await pool.query<any>("SELECT * FROM game_world_news WHERE scope='global' AND (expires_at IS NULL OR expires_at>NOW()) ORDER BY created_at DESC LIMIT 12")).rows;
+  const lines=["◈ "+(scope==="local"?"اخبار محلی":"اخبار جهان"),"",WORLD_SEPARATOR,""];
+  if(!rows.length) lines.push("⛂ - فعلاً خبری ثبت نشده است.");
+  for(const row of rows){
+    lines.push("★ - "+String(row.title));
+    lines.push("⛂ - "+String(row.body));
+    lines.push("");
+  }
+  lines.push(westernLine("news"),"",WORLD_SEPARATOR);
+  return lines.join("\n");
+}
+
+async function marketText(pool:Pool,ctx:WorldContext,mode:"local"|"mine"|"help") {
+  if(mode==="help"){
+    return [
+      "◈ راهنمای بازار",
+      "",
+      WORLD_SEPARATOR,
+      "",
+      "★ - فروش کالا",
+      "فرمت : فروش <نام کالا> <تعداد> <قیمت واحد>",
+      "نمونه : فروش چوب جنگلی 10 8",
+      "",
+      "★ - خرید کالا",
+      "فرمت : خرید <شناسه آگهی> <تعداد>",
+      "",
+      "قیمت را خودت تعیین می‌کنی. پس از ثبت فروش، کالا از انبارت خارج می‌شود.",
+      "",
+      westernLine("market"),
+      "",
+      WORLD_SEPARATOR
+    ].join("\n");
+  }
+
+  const where=mode==="mine"
+    ? "group_id=$1 AND seller_user_id=$2"
+    : "group_id=$1 AND status='active' AND expires_at>NOW() AND amount>0";
+  const params=mode==="mine"?[ctx.chatId,ctx.userId]:[ctx.chatId];
+  const rows=(await pool.query<any>(
+    "SELECT * FROM game_world_market_listings WHERE "+where+" ORDER BY created_at DESC LIMIT 20",
+    params,
+  )).rows;
+  const lines=["◈ "+(mode==="mine"?"فروش‌های من":"بازار روستا"),"",WORLD_SEPARATOR,""];
+  if(!rows.length)lines.push("⛂ - فعلاً آگهی فعالی وجود ندارد.");
+  for(const row of rows){
+    const resource=resourceByCode(String(row.resource_code));
+    lines.push("★ - آگهی #"+fa(Number(row.listing_id)));
+    lines.push("⛂ - کالا : "+(resource?.name??String(row.resource_code)));
+    lines.push("⛂ - مقدار : "+fa(Number(row.amount)));
+    lines.push("⛂ - قیمت هر واحد : "+fa(Number(row.unit_price))+" سکه");
+    lines.push("⛂ - فروشنده : "+fa(Number(row.seller_user_id)));
+    lines.push("");
+  }
+  lines.push(westernLine("market"),"",WORLD_SEPARATOR);
+  return lines.join("\n");
+}
+
+async function createMarketListingFromText(pool:Pool,ctx:WorldContext,rawText:string) {
+  const parts=rawText.trim().replace(/^[\\/!.]+/,"").split(/\s+/);
+  if(parts.length<4||!["فروش","sell"].includes(norm(parts[0])))return null;
+  const amount=Number(parts[parts.length-2]);
+  const unitPrice=Number(parts[parts.length-1]);
+  const itemName=parts.slice(1,-2).join(" ").trim();
+  if(!itemName||!Number.isSafeInteger(amount)||amount<=0||!Number.isSafeInteger(unitPrice)||unitPrice<0){
+    return {text:["◈ بازار","",WORLD_SEPARATOR,"","⛂ - فرمت درست : فروش <نام کالا> <تعداد> <قیمت واحد>","⛂ - نمونه : فروش چوب جنگلی 10 8"].join("\n"),replyMarkup:marketKeyboard(ctx.userId)};
+  }
+  const resource=normalizeResourceInput(itemName);
+  if(!resource)return {text:"« این کالا در فهرست منابع شناخته‌شده نیست.»",replyMarkup:marketKeyboard(ctx.userId)};
+
+  const client=await pool.connect();
+  try{
+    await client.query("BEGIN");
+    const inv=(await client.query<any>("SELECT amount FROM game_world_resource_inventory WHERE group_id=$1 AND user_id=$2 AND resource_code=$3 FOR UPDATE",[ctx.chatId,ctx.userId,resource.code])).rows[0];
+    const owned=Math.floor(Number(inv?.amount??0));
+    if(owned<amount){
+      await client.query("ROLLBACK");
+      return {text:"« موجودی کافی نیست. ابتدا سهم تولید را برداشت کن.»",replyMarkup:marketKeyboard(ctx.userId)};
+    }
+    await client.query("UPDATE game_world_resource_inventory SET amount=amount-$4,updated_at=NOW() WHERE group_id=$1 AND user_id=$2 AND resource_code=$3",[ctx.chatId,ctx.userId,resource.code,amount]);
+    const listing=(await client.query<any>("INSERT INTO game_world_market_listings(group_id,seller_user_id,resource_code,amount,min_purchase,unit_price) VALUES($1,$2,$3,$4,1,$5) RETURNING listing_id",[ctx.chatId,ctx.userId,resource.code,amount,unitPrice])).rows[0];
+    await client.query("INSERT INTO game_world_news(scope,group_id,title,body,severity) VALUES('local',$1,$2,$3,'notice')",[ctx.chatId,"کالای تازه در بازار","آگهی #"+Number(listing.listing_id)+" برای "+resource.name+" ثبت شد."]);
+    await client.query("COMMIT");
+    return {text:["◈ آگهی ثبت شد","",WORLD_SEPARATOR,"","★ - "+mentionHtml(ctx.user),"⛂ - شناسه آگهی : #"+fa(Number(listing.listing_id)),"⛂ - کالا : "+resource.name,"⛂ - مقدار : "+fa(amount),"⛂ - قیمت واحد : "+fa(unitPrice)+" سکه","","« کالا در بازار قرار گرفت؛ قیمت را خودت تعیین کردی.»","",WORLD_SEPARATOR].join("\n"),replyMarkup:marketKeyboard(ctx.userId),parseMode:"HTML" as const};
+  }catch(error){await client.query("ROLLBACK").catch(()=>{});throw error;}
+  finally{client.release();}
+}
+
+async function buyMarketListingFromText(pool:Pool,ctx:WorldContext,rawText:string) {
+  const parts=rawText.trim().replace(/^[\\/!.]+/,"").split(/\s+/);
+  if(parts.length<3||!["خرید","buy"].includes(norm(parts[0])))return null;
+  const listingId=Number(parts[1]),qty=Number(parts[2]);
+  if(!Number.isSafeInteger(listingId)||!Number.isSafeInteger(qty)||qty<=0)return {text:"« فرمت درست : خرید <شناسه آگهی> <تعداد> »",replyMarkup:marketKeyboard(ctx.userId)};
+  const client=await pool.connect();
+  try{
+    await client.query("BEGIN");
+    const listing=(await client.query<any>("SELECT * FROM game_world_market_listings WHERE listing_id=$1 AND group_id=$2 AND status='active' AND expires_at>NOW() FOR UPDATE",[listingId,ctx.chatId])).rows[0];
+    if(!listing){await client.query("ROLLBACK");return {text:"« این آگهی دیگر فعال نیست.»",replyMarkup:marketKeyboard(ctx.userId)};}
+    if(Number(listing.seller_user_id)===ctx.userId){await client.query("ROLLBACK");return {text:"« خرید از خودت معامله نیست.»",replyMarkup:marketKeyboard(ctx.userId)};}
+    if(qty<Number(listing.min_purchase)||qty>Math.floor(Number(listing.amount))){await client.query("ROLLBACK");return {text:"« مقدار خرید با این آگهی سازگار نیست.»",replyMarkup:marketKeyboard(ctx.userId)};}
+    const total=qty*Number(listing.unit_price);
+    const buyer=(await client.query<any>("SELECT * FROM game_world_accounts WHERE group_id=$1 AND user_id=$2 FOR UPDATE",[ctx.chatId,ctx.userId])).rows[0];
+    const seller=(await client.query<any>("SELECT * FROM game_world_accounts WHERE group_id=$1 AND user_id=$2 FOR UPDATE",[ctx.chatId,Number(listing.seller_user_id)])).rows[0];
+    if(!buyer||!seller||Number(buyer.coins)<total){await client.query("ROLLBACK");return {text:"« موجودی سکه برای این معامله کافی نیست.»",replyMarkup:marketKeyboard(ctx.userId)};}
+    await client.query("UPDATE game_world_accounts SET coins=coins-$3 WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,total]);
+    await client.query("UPDATE game_world_accounts SET coins=coins+$3 WHERE group_id=$1 AND user_id=$2",[ctx.chatId,Number(listing.seller_user_id),total]);
+    await client.query("INSERT INTO game_world_resource_inventory(group_id,user_id,resource_code,amount) VALUES($1,$2,$3,$4) ON CONFLICT(group_id,user_id,resource_code) DO UPDATE SET amount=game_world_resource_inventory.amount+EXCLUDED.amount,updated_at=NOW()",[ctx.chatId,ctx.userId,String(listing.resource_code),qty]);
+    const remaining=Math.floor(Number(listing.amount)-qty);
+    await client.query("UPDATE game_world_market_listings SET amount=$2,status=$3 WHERE listing_id=$1",[listingId,remaining,remaining<=0?"sold":"active"]);
+    await client.query("INSERT INTO game_world_news(scope,group_id,title,body,severity) VALUES('local',$1,$2,$3,'notice')",[ctx.chatId,"معامله جدید در بازار","آگهی #"+listingId+" با مبلغ "+total+" سکه معامله شد."]);
+    await client.query("COMMIT");
+    return {text:["◈ معامله انجام شد","",WORLD_SEPARATOR,"","★ - خریدار : "+mentionHtml(ctx.user),"⛂ - کالا : "+(resourceByCode(String(listing.resource_code))?.name??String(listing.resource_code)),"⛂ - مقدار : "+fa(qty),"⛂ - مبلغ : "+fa(total)+" سکه","","« معامله ثبت شد و کالا به انبارت اضافه شد.»","",WORLD_SEPARATOR].join("\n"),replyMarkup:marketKeyboard(ctx.userId),parseMode:"HTML" as const};
+  }catch(error){await client.query("ROLLBACK").catch(()=>{});throw error;}
+  finally{client.release();}
+}
+
 function registrationText(user: WorldUser) {
   return [
     "◈ Pᴇʀsɪᴀɴ Wᴏʀʟᴅ · Fʀᴏɴᴛɪᴇʀ",
