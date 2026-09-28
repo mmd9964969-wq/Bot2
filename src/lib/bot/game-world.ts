@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import { handleFrontierExpansionText, handleFrontierExpansionCallback, ensureFrontierExpansionSchema } from "./frontier-expansion.ts";
+import { handleFrontierExpansionText, handleFrontierExpansionCallback, ensureFrontierExpansionSchema, recordEconomy } from "./frontier-expansion.ts";
 
 export type WorldUser = {
   id: number;
@@ -816,6 +816,8 @@ async function buyMarketListingFromText(pool:Pool,ctx:WorldContext,rawText:strin
     await client.query("UPDATE game_world_market_listings SET amount=$2,status=$3 WHERE listing_id=$1",[listingId,remaining,remaining<=0?"sold":"active"]);
     await client.query("INSERT INTO game_world_news(scope,group_id,title,body,severity) VALUES('local',$1,$2,$3,'notice')",[ctx.chatId,"معامله جدید در بازار","آگهی #"+listingId+" با مبلغ "+total+" سکه معامله شد."]);
     await client.query("COMMIT");
+    await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"expense",total,"خرید از بازار","#"+listingId);
+    await recordEconomy(ctx.pool,ctx.chatId,Number(listing.seller_user_id),"income",total,"فروش در بازار","#"+listingId);
     return {text:["◈ معامله انجام شد","",WORLD_SEPARATOR,"","★ - خریدار : "+mentionHtml(ctx.user),"⛂ - کالا : "+(resourceByCode(String(listing.resource_code))?.name??String(listing.resource_code)),"⛂ - مقدار : "+fa(qty),"⛂ - مبلغ : "+fa(total)+" سکه","","« معامله ثبت شد و کالا به انبارت اضافه شد.»","",WORLD_SEPARATOR].join("\n"),replyMarkup:marketKeyboard(ctx.userId),parseMode:"HTML" as const};
   }catch(error){await client.query("ROLLBACK").catch(()=>{});throw error;}
   finally{client.release();}
