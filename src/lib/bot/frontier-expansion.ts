@@ -79,6 +79,10 @@ export async function ensureFrontierExpansionSchema(pool:Pool){
       await pool.query("CREATE TABLE IF NOT EXISTS game_world_economy_ledger(id BIGSERIAL PRIMARY KEY,group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,kind TEXT NOT NULL CHECK(kind IN ('income','expense','transfer')),amount BIGINT NOT NULL CHECK(amount>0),balance_after BIGINT NOT NULL CHECK(balance_after>=0),source TEXT NOT NULL,reference TEXT,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
       await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_economy_user_time ON game_world_economy_ledger(group_id,user_id,created_at DESC)");
       await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_economy_source ON game_world_economy_ledger(group_id,source,created_at DESC)");
+      await pool.query("CREATE TABLE IF NOT EXISTS game_world_market_prices(group_id BIGINT NOT NULL,resource_code TEXT NOT NULL,base_price BIGINT NOT NULL CHECK(base_price>0),current_price BIGINT NOT NULL CHECK(current_price>0),supply_24h NUMERIC(20,6) NOT NULL DEFAULT 0 CHECK(supply_24h>=0),demand_24h NUMERIC(20,6) NOT NULL DEFAULT 0 CHECK(demand_24h>=0),trend TEXT NOT NULL DEFAULT 'stable' CHECK(trend IN ('down','stable','up')),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),PRIMARY KEY(group_id,resource_code))");
+      await pool.query("CREATE TABLE IF NOT EXISTS game_world_market_trades(trade_id BIGSERIAL PRIMARY KEY,group_id BIGINT NOT NULL,listing_id BIGINT NOT NULL,buyer_user_id BIGINT NOT NULL,seller_user_id BIGINT NOT NULL,resource_code TEXT NOT NULL,quantity NUMERIC(20,6) NOT NULL CHECK(quantity>0),gross_amount BIGINT NOT NULL CHECK(gross_amount>0),market_fee BIGINT NOT NULL DEFAULT 0 CHECK(market_fee>=0),market_tax BIGINT NOT NULL DEFAULT 0 CHECK(market_tax>=0),created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+      await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_market_trades_demand ON game_world_market_trades(group_id,resource_code,created_at DESC)");
+      await pool.query("CREATE TABLE IF NOT EXISTS game_world_market_treasury(group_id BIGINT PRIMARY KEY,balance BIGINT NOT NULL DEFAULT 0 CHECK(balance>=0),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
       await pool.query("CREATE TABLE IF NOT EXISTS game_world_tools(group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,tool_code TEXT NOT NULL,level INT NOT NULL DEFAULT 1 CHECK(level>=1),durability INT NOT NULL DEFAULT 100 CHECK(durability>=0),quantity INT NOT NULL DEFAULT 1 CHECK(quantity>=0),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),PRIMARY KEY(group_id,user_id,tool_code))");
       await pool.query("CREATE TABLE IF NOT EXISTS game_world_professions(group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,profession_code TEXT NOT NULL,level INT NOT NULL DEFAULT 1 CHECK(level>=1),xp BIGINT NOT NULL DEFAULT 0 CHECK(xp>=0),last_work_at TIMESTAMPTZ,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),PRIMARY KEY(group_id,user_id))");
       await pool.query("CREATE TABLE IF NOT EXISTS game_world_player_missions(group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,code TEXT NOT NULL,title TEXT NOT NULL,target INT NOT NULL CHECK(target>0),progress INT NOT NULL DEFAULT 0 CHECK(progress>=0),reward_coins BIGINT NOT NULL DEFAULT 0 CHECK(reward_coins>=0),reward_xp BIGINT NOT NULL DEFAULT 0 CHECK(reward_xp>=0),claim_key TEXT NOT NULL,claimed BOOLEAN NOT NULL DEFAULT FALSE,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),PRIMARY KEY(group_id,user_id,code))");
@@ -135,6 +139,7 @@ async function expansionCategoryMenu(ctx:FrontierExpansionContext,category:strin
     items:[
       ["‹ بانک و اقتصاد","world:expand:bank:"+s],
       ["‹ دفتر درآمد","world:expand:economy:"+s],
+      ["‹ اقتصاد مرزی · قیمت و بازار","world:expand:dynamics:"+s],
       ["‹ کسب‌وکار و مغازه","world:expand:business:"+s],
     ]},
     life:{
@@ -221,6 +226,100 @@ async function recordEconomy(pool:Pool,groupId:number,userId:number,kind:"income
     "INSERT INTO game_world_economy_ledger(group_id,user_id,kind,amount,balance_after,source,reference) VALUES($1,$2,$3,$4,$5,$6,$7)",
     [groupId,userId,kind,value,Math.max(0,Math.floor(Number(row.coins)||0)),source,reference??null],
   );
+}
+
+const MARKET_BASE_PRICES:Record<string,number> = {
+  wood:8,stone:10,water:5,sand:6,clay:9,limestone:12,granite:18,quartz:24,salt:14,sulfur:20,
+  coal:26,oil:45,natural_gas:52,iron_ore:32,copper_ore:38,aluminum_ore:44,lead_ore:30,zinc_ore:34,
+  nickel_ore:48,titanium_ore:65,gold_ore:180,silver_ore:95,diamond_ore:480,emerald_ore:360,
+  wheat:18,corn:22,cotton:26,sugar_cane:20,herbs:40,rubber:28,wool:35,leather:42,fish:24
+};
+const MARKET_TRACKED_RESOURCES=Object.keys(MARKET_BASE_PRICES);
+
+function marketBasePrice(resourceCode:string){
+  return Math.max(1,Math.floor(Number(MARKET_BASE_PRICES[resourceCode]??10)));
+}
+
+export async function ensureDynamicMarketPrice(pool:Pool,groupId:number,resourceCode:string){
+  const code=String(resourceCode);
+  const base=marketBasePrice(code);
+  await pool.query(
+    "INSERT INTO game_world_market_prices(group_id,resource_code,base_price,current_price) VALUES($1,$2,$3,$3) ON CONFLICT(group_id,resource_code) DO NOTHING",
+    [groupId,code,base],
+  );
+  return (await pool.query<any>(
+    "SELECT * FROM game_world_market_prices WHERE group_id=$1 AND resource_code=$2",
+    [groupId,code],
+  )).rows[0];
+}
+
+export async function recalculateDynamicMarketPrice(pool:Pool,groupId:number,resourceCode:string){
+  const code=String(resourceCode);
+  const current=await ensureDynamicMarketPrice(pool,groupId,code);
+  const supply=Number((await pool.query<any>(
+    "SELECT COALESCE(SUM(amount),0) supply FROM game_world_market_listings WHERE group_id=$1 AND resource_code=$2 AND status='active' AND expires_at>NOW()",
+    [groupId,code],
+  )).rows[0]?.supply??0);
+  const demand=Number((await pool.query<any>(
+    "SELECT COALESCE(SUM(quantity),0) demand FROM game_world_market_trades WHERE group_id=$1 AND resource_code=$2 AND created_at>=NOW()-INTERVAL '24 hours'",
+    [groupId,code],
+  )).rows[0]?.demand??0);
+  const ratio=Math.max(0.5,Math.min(2.5,(demand+5)/(supply+5)));
+  const raw=marketBasePrice(code)*ratio;
+  const previous=Math.max(1,Number(current.current_price)||marketBasePrice(code));
+  const next=Math.max(1,Math.round(previous*0.7+raw*0.3));
+  const trend=next>previous?"up":next<previous?"down":"stable";
+  await pool.query(
+    "UPDATE game_world_market_prices SET current_price=$3,supply_24h=$4,demand_24h=$5,trend=$6,updated_at=NOW() WHERE group_id=$1 AND resource_code=$2",
+    [groupId,code,next,supply,demand,trend],
+  );
+  return (await pool.query<any>(
+    "SELECT * FROM game_world_market_prices WHERE group_id=$1 AND resource_code=$2",
+    [groupId,code],
+  )).rows[0];
+}
+
+export async function marketReferencePrice(pool:Pool,groupId:number,resourceCode:string){
+  return Number((await recalculateDynamicMarketPrice(pool,groupId,resourceCode)).current_price)||marketBasePrice(resourceCode);
+}
+
+async function marketTreasury(pool:Pool,groupId:number){
+  await pool.query("INSERT INTO game_world_market_treasury(group_id) VALUES($1) ON CONFLICT(group_id) DO NOTHING",[groupId]);
+  return (await pool.query<any>("SELECT * FROM game_world_market_treasury WHERE group_id=$1",[groupId])).rows[0];
+}
+
+async function dynamicMarketOverview(ctx:FrontierExpansionContext){
+  await Promise.all(MARKET_TRACKED_RESOURCES.map(code=>recalculateDynamicMarketPrice(ctx.pool,ctx.chatId,code)));
+  const rows=(await ctx.pool.query<any>(
+    "SELECT * FROM game_world_market_prices WHERE group_id=$1 ORDER BY updated_at DESC LIMIT 12",
+    [ctx.chatId],
+  )).rows;
+  const treasury=await marketTreasury(ctx.pool,ctx.chatId);
+  const lines=[
+    "◈ اقتصاد مرزی · قیمت‌گذاری پویا",
+    "",
+    SEP,
+    "",
+    "★ - موتور قیمت",
+    "⛂ - قیمت پایه با عرضه و تقاضای واقعی تعدیل می‌شود.",
+    "⛂ - عرضه بیشتر → فشار کاهشی روی قیمت.",
+    "⛂ - تقاضای بیشتر یا کمبود عرضه → فشار افزایشی.",
+    "⛂ - بازه کنترل‌شده است تا بازار از تعادل خارج نشود.",
+    "",
+    "★ - زنجیره پول و کالا",
+    "⛂ - تولیدکننده → تاجر → فروشگاه → مصرف‌کننده",
+    "⛂ - کارمزد بازار : ۳٪ از خرید",
+    "⛂ - مالیات معامله : ۲٪ از فروش",
+    "⛂ - کارمزد و مالیات → خزانه بازار همان روستا",
+    "",
+    "★ - قیمت‌های مرزی",
+  ];
+  for(const row of rows){
+    const arrow=String(row.trend)==="up"?"↑":String(row.trend)==="down"?"↓":"→";
+    lines.push("⛂ - "+String(row.resource_code)+" : "+fa(+row.current_price)+" سکه "+arrow+" | عرضه "+fa(+row.supply_24h)+" | تقاضا "+fa(+row.demand_24h));
+  }
+  lines.push("","⛂ - خزانه بازار : "+money(+treasury.balance),"","« بازار وقتی زنده است که جنس حرکت کند و قیمت هم از حرکت جا نماند.»","",SEP);
+  return lines.join("\n");
 }
 
 async function economyText(ctx:FrontierExpansionContext){
@@ -1056,6 +1155,7 @@ export async function handleFrontierExpansionText(ctx:FrontierExpansionContext,t
   if(n==="روزنامه"||n==="روزنامه مرزی")return {text:await newspaperText(ctx),replyMarkup:expansionMenu(ctx.userId)};
   if(n==="بانک"||n==="بانک من")return {text:await bankText(ctx),replyMarkup:expansionMenu(ctx.userId)};
   if(n==="اقتصاد من"||n==="دفتر درآمد"||n==="درآمد من"||n==="گردش مالی")return {text:await economyText(ctx),replyMarkup:expansionMenu(ctx.userId)};
+  if(n==="اقتصاد مرزی"||n==="قیمت‌های مرزی"||n==="قیمت پویا"||n==="عرضه و تقاضا")return {text:await dynamicMarketOverview(ctx),replyMarkup:expansionMenu(ctx.userId)};
   if(n==="کار امروز"||n==="کار")return await doWork(ctx);
   if(n==="کار ویژه"||n==="خدمات بانوی مرز"||n==="کار تخصصی")return {text:await careerText(ctx),replyMarkup:{inline_keyboard:[[ {text:"‹ اجرای کار ویژه",callback_data:"world:expand:career:"+ctx.userId} ],[ {text:"‹ بازگشت",callback_data:"world:home:"+ctx.userId} ]]}};
   if(n==="دوخت لباس")return await doCareerAction(ctx,"craft");
@@ -1093,6 +1193,7 @@ export async function handleFrontierExpansionCallback(ctx:FrontierExpansionConte
     return menuResult(await bankText(ctx),ctx.userId);
   }
   if(sub==="economy")return menuResult(await economyText(ctx),ctx.userId);
+  if(sub==="dynamics")return menuResult(await dynamicMarketOverview(ctx),ctx.userId);
   if(sub==="property"){
     if(parts[3]==="home")return await upgradeHome(ctx);
     if(parts[3]==="land")return await upgradeLand(ctx);
