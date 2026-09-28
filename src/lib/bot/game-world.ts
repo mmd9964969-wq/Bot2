@@ -481,6 +481,7 @@ function mainKeyboard(userId: number) {
       ],
       [
         { text: "‹ زندگی شخصی", callback_data: "world:section:life:" + s },
+      ],
       [
         { text: "‹ شهر و سفر", callback_data: "world:section:city:" + s },
         { text: "‹ کار و حرفه", callback_data: "world:section:job:" + s },
