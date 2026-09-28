@@ -118,16 +118,83 @@ function back(userId:number){
 function expansionMenu(userId:number){
   const s=String(userId);
   return {inline_keyboard:[
-    [{text:"‹ بانک و اقتصاد",callback_data:"world:expand:bank:"+s},{text:"‹ دفتر درآمد",callback_data:"world:expand:economy:"+s}],
-    [{text:"‹ ملک و زمین",callback_data:"world:expand:property:"+s},{text:"‹ مزرعه و دامداری",callback_data:"world:expand:farm:"+s}],
-    [{text:"‹ اسب و حمل‌ونقل",callback_data:"world:expand:transport:"+s},{text:"‹ انبار و ابزار",callback_data:"world:expand:tools:"+s}],
-    [{text:"‹ حرفه و مهارت",callback_data:"world:expand:profession:"+s},{text:"‹ کسب‌وکار و مغازه",callback_data:"world:expand:business:"+s}],
-    [{text:"‹ قانون و شهرت",callback_data:"world:expand:law:"+s},{text:"‹ مأموریت و قرارداد",callback_data:"world:expand:missions:"+s}],
-    [{text:"‹ باند و روابط",callback_data:"world:expand:band:"+s},{text:"‹ نقشه و سفر",callback_data:"world:expand:map:"+s}],
-    [{text:"‹ رویدادهای زنده",callback_data:"world:expand:events:"+s},{text:"‹ روزنامه مرزی",callback_data:"world:expand:newspaper:"+s}],
-    [{text:"‹ وضعیت زندگی",callback_data:"world:expand:life:"+s},{text:"‹ دفتر بانوان مرز",callback_data:"world:expand:ladies:"+s}],
+    [{text:"‹ پول و اقتصاد",callback_data:"world:expand:cat:finance:"+s},{text:"‹ دارایی و زندگی",callback_data:"world:expand:cat:life:"+s}],
+    [{text:"‹ کار و کسب‌وکار",callback_data:"world:expand:cat:work:"+s},{text:"‹ قانون و روابط",callback_data:"world:expand:cat:law:"+s}],
+    [{text:"‹ نقشه و رویدادها",callback_data:"world:expand:cat:world:"+s},{text:"‹ خبر و وضعیت",callback_data:"world:expand:cat:status:"+s}],
     [{text:"‹ بازگشت به جهان",callback_data:"world:home:"+s}],
   ]};
+}
+
+function expansionCategoryMenu(ctx:FrontierExpansionContext,category:string){
+  const s=String(ctx.userId);
+  const a:any={finance:{
+    title:"◈ دفتر مرز · پول و اقتصاد",
+    subtitle:"مدیریت پول، درآمد، سرمایه و کسب‌وکار",
+    items:[
+      ["‹ بانک و اقتصاد","world:expand:bank:"+s],
+      ["‹ دفتر درآمد","world:expand:economy:"+s],
+      ["‹ کسب‌وکار و مغازه","world:expand:business:"+s],
+    ]},
+    life:{
+      title:"◈ دفتر مرز · دارایی و زندگی",
+      subtitle:"خانه، زمین، مزرعه، اسب، ابزار و وضعیت روزمره",
+      items:[
+        ["‹ ملک و زمین","world:expand:property:"+s],
+        ["‹ مزرعه و دامداری","world:expand:farm:"+s],
+        ["‹ اسب و حمل‌ونقل","world:expand:transport:"+s],
+        ["‹ انبار و ابزار","world:expand:tools:"+s],
+        ["‹ وضعیت زندگی","world:expand:life:"+s],
+      ]},
+    work:{
+      title:"◈ دفتر مرز · کار و کسب‌وکار",
+      subtitle:"حرفه، مهارت، کار تخصصی و مسیر درآمدی",
+      items:[
+        ["‹ حرفه و مهارت","world:expand:profession:"+s],
+        ...(isWoman(ctx.user)?[["‹ دفتر بانوان مرز","world:expand:ladies:"+s]]:[]),
+      ]},
+    law:{
+      title:"◈ دفتر مرز · قانون و روابط",
+      subtitle:"قانون، شهرت، مأموریت، قرارداد و گروه‌های مرزی",
+      items:[
+        ["‹ قانون و شهرت","world:expand:law:"+s],
+        ["‹ مأموریت و قرارداد","world:expand:missions:"+s],
+        ["‹ باند و روابط","world:expand:band:"+s],
+      ]},
+    world:{
+      title:"◈ دفتر مرز · نقشه و رویدادها",
+      subtitle:"جابه‌جایی، مسیرها و اتفاقات زنده مرز",
+      items:[
+        ["‹ نقشه و سفر","world:expand:map:"+s],
+        ["‹ رویدادهای زنده","world:expand:events:"+s],
+      ]},
+    status:{
+      title:"◈ دفتر مرز · خبر و وضعیت",
+      subtitle:"اخبار، شایعات و وضعیت فعلی کاراکتر",
+      items:[
+        ["‹ روزنامه مرزی","world:expand:newspaper:"+s],
+        ["‹ وضعیت زندگی","world:expand:life:"+s],
+      ]},
+  }[category];
+  if(!a)return null;
+  return {
+    text:[
+      a.title,
+      "",
+      SEP,
+      "",
+      "★ - "+a.subtitle,
+      "",
+      ...a.items.map((x:string[])=>"⛂ - "+x[0].replace(/^‹ /,"")),
+      "",
+      SEP,
+      "",
+      frontierVoice(isWoman(ctx.user)),
+    ].join("\n"),
+    replyMarkup:{inline_keyboard:[
+      ...a.items.map((x:string[])=>[{text:x[0],callback_data:x[1]}]),
+      [{text:"‹ بازگشت به دفتر مرز",callback_data:"world:expand:center:"+s}],
+    ]}
+  };
 }
 async function account(ctx:FrontierExpansionContext){
   return (await ctx.pool.query<any>("SELECT * FROM game_world_accounts WHERE group_id=$1 AND user_id=$2 LIMIT 1",[ctx.chatId,ctx.userId])).rows[0]??null;
@@ -909,97 +976,67 @@ async function newspaperText(ctx:FrontierExpansionContext){
   return lines.join("\n");
 }
 
-export async function themedFrontierExpansionMenuText(ctx:FrontierExpansionContext){
+export async async function themedFrontierExpansionMenuText(ctx:FrontierExpansionContext){
   const a=await account(ctx);
   const woman=isWoman(a);
-  const title=woman?"◈ دفتر مرز · بانوی مرز":"◈ دفتر مرز";
-  const lines=[
-    title,
+  return [
+    woman?"◈ دفتر مرز · بانوی مرز":"◈ دفتر مرز",
     "",
-    "مرکز مدیریت بخش‌های اصلی زندگی و پیشرفتت در مرز.",
+    "مرکز مدیریت بخش‌های تخصصی زندگی و پیشرفتت در مرز.",
     "",
     SEP,
     "",
-    "★ - امور مالی و حسابداری",
-    "⛂ - بانک و اقتصاد | پول، سپرده و اعتبار",
-    "⛂ - دفتر درآمد | درآمد، هزینه و گردش مالی",
+    "★ - پول و اقتصاد",
+    "⛂ - بانک، درآمد و کسب‌وکار",
     "",
-    "★ - خانه و دارایی",
-    "⛂ - ملک و زمین | خانه، زمین و انبار",
-    "⛂ - مزرعه و دامداری | کشت، برداشت و دام",
-    "⛂ - اسب و حمل‌ونقل | اسب و وسایل جابه‌جایی",
-    "⛂ - انبار و ابزار | ابزار، تجهیزات و نگهداری",
+    "★ - دارایی و زندگی",
+    "⛂ - خانه، زمین، مزرعه، اسب و ابزار",
     "",
-    "★ - کار و تجارت",
-    "⛂ - حرفه و مهارت | انتخاب شغل و پیشرفت حرفه‌ای",
-    "⛂ - کسب‌وکار و مغازه | خرید و مدیریت کسب‌وکار",
+    "★ - کار و کسب‌وکار",
+    "⛂ - حرفه، مهارت و مسیرهای شغلی",
+    woman?"⛂ - مسیرهای تخصصی بانوی مرز":"",
     "",
     "★ - قانون و روابط",
-    "⛂ - قانون و شهرت | جرم، جریمه و وضعیت تحت تعقیب",
-    "⛂ - مأموریت و قرارداد | کارهای رسمی و قراردادها",
-    "⛂ - باند و روابط | گروه، اعضا و ارتباطات",
+    "⛂ - قانون، مأموریت، قرارداد و باند",
     "",
-    "★ - جهان و جابه‌جایی",
-    "⛂ - نقشه و سفر | مسیرها، شهرها و رفت‌وآمد",
-    "⛂ - رویدادهای زنده | اتفاقات فعال و حوادث مرزی",
+    "★ - نقشه و رویدادها",
+    "⛂ - سفر، مسیرها و اتفاقات زنده",
     "",
     "★ - خبر و وضعیت",
-    "⛂ - روزنامه مرزی | اخبار، شایعات و رویدادهای مهم",
-    "⛂ - وضعیت زندگی | سلامت، گرسنگی، انرژی و شرایط فعلی",
-  ];
-  if(woman){
-    lines.push(
-      "",
-      "★ - مسیر ویژه بانوی مرز",
-      "⛂ - دفتر بانوان مرز | حرفه‌ها و خدمات تخصصی بانوان",
-    );
-  }
-  lines.push(
+    "⛂ - روزنامه مرزی و وضعیت زندگی",
     "",
     SEP,
     "",
     "« اینجا دفتر کاغذی نیست؛ هر تصمیم روی پول، زمان، دارایی یا جایگاهت در مرز اثر می‌گذارد.»",
     "",
-    SEP,
-  );
-  return lines.join("\n");
+    "از دکمه‌ها، حوزه‌ای را که می‌خواهی مدیریت کنی انتخاب کن."
+  ].filter(Boolean).join("\n");
 }
 export function frontierExpansionMenuText(){
   return [
     "◈ دفتر مرز",
     "",
-    "مرکز مدیریت بخش‌های اصلی زندگی و پیشرفتت در مرز.",
+    "مرکز مدیریت بخش‌های تخصصی زندگی و پیشرفتت در مرز.",
     "",
     SEP,
     "",
-    "★ - امور مالی و حسابداری",
-    "⛂ - بانک و اقتصاد | پول، سپرده و اعتبار",
-    "⛂ - دفتر درآمد | درآمد، هزینه و گردش مالی",
+    "★ - پول و اقتصاد",
+    "⛂ - بانک، درآمد و کسب‌وکار",
     "",
-    "★ - خانه و دارایی",
-    "⛂ - ملک و زمین | خانه، زمین و انبار",
-    "⛂ - مزرعه و دامداری | کشت، برداشت و دام",
-    "⛂ - اسب و حمل‌ونقل | اسب و وسایل جابه‌جایی",
-    "⛂ - انبار و ابزار | ابزار، تجهیزات و نگهداری",
+    "★ - دارایی و زندگی",
+    "⛂ - خانه، زمین، مزرعه، اسب و ابزار",
     "",
-    "★ - کار و تجارت",
-    "⛂ - حرفه و مهارت | انتخاب شغل و پیشرفت حرفه‌ای",
-    "⛂ - کسب‌وکار و مغازه | خرید و مدیریت کسب‌وکار",
+    "★ - کار و کسب‌وکار",
+    "⛂ - حرفه، مهارت و مسیرهای شغلی",
     "",
     "★ - قانون و روابط",
-    "⛂ - قانون و شهرت | جرم، جریمه و وضعیت تحت تعقیب",
-    "⛂ - مأموریت و قرارداد | کارهای رسمی و قراردادها",
-    "⛂ - باند و روابط | گروه، اعضا و ارتباطات",
+    "⛂ - قانون، مأموریت، قرارداد و باند",
     "",
-    "★ - جهان و جابه‌جایی",
-    "⛂ - نقشه و سفر | مسیرها، شهرها و رفت‌وآمد",
-    "⛂ - رویدادهای زنده | اتفاقات فعال و حوادث مرزی",
+    "★ - نقشه و رویدادها",
+    "⛂ - سفر، مسیرها و اتفاقات زنده",
     "",
     "★ - خبر و وضعیت",
-    "⛂ - روزنامه مرزی | اخبار، شایعات و رویدادهای مهم",
-    "⛂ - وضعیت زندگی | سلامت، گرسنگی، انرژی و شرایط فعلی",
-    "",
-    "« اینجا دفتر کاغذی نیست؛ هر تصمیم روی پول، زمان، دارایی یا جایگاهت در مرز اثر می‌گذارد.»",
+    "⛂ - روزنامه مرزی و وضعیت زندگی",
     "",
     SEP,
   ].join("\n");
@@ -1045,6 +1082,10 @@ export async function handleFrontierExpansionCallback(ctx:FrontierExpansionConte
   await ensureFrontierExpansionSchema(ctx.pool);
 
   if(sub==="center")return menuResult(await themedFrontierExpansionMenuText(ctx),ctx.userId);
+  if(sub==="cat"){
+    const result=expansionCategoryMenu(ctx,String(parts[3]??""));
+    if(result)return result;
+  }
   if(sub==="bank"){
     if(parts[3]==="deposit"||parts[3]==="withdraw")return await bankMovement(ctx,parts[3],Number(parts[4]));
     return menuResult(await bankText(ctx),ctx.userId);
