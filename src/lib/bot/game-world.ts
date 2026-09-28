@@ -671,6 +671,8 @@ async function profileText(pool: Pool, ctx: WorldContext) {
   const a = await getAccount(pool, ctx.chatId, ctx.userId);
   if (!a) return null;
   const p = progressBar(Number(a.xp), Number(a.level));
+  const assets = await ensurePersonalAssets(pool, ctx.chatId, ctx.userId);
+  const settlement = await ensureSettlement(pool, ctx.chatId, ctx.chatTitle);
   const gender =
     a.gender === "male" ? "مرد" :
     a.gender === "female" ? "زن" :
@@ -684,6 +686,7 @@ async function profileText(pool: Pool, ctx: WorldContext) {
     "⛂ - شناسه : " + fa(Number(a.user_id)),
     "⛂ - اکانت : #" + fa(Number(a.account_id)),
     "⛂ - جنسیت : " + gender,
+    "⛂ - قلمرو : " + (settlement?.name ?? "Frontier"),
     "",
     WORLD_SEPARATOR,
     "",
@@ -697,8 +700,10 @@ async function profileText(pool: Pool, ctx: WorldContext) {
     "",
     WORLD_SEPARATOR,
     "",
-    "⛂ - خانه : " + (a.home_code === "starter_home" ? "خانه آغازین" : a.home_code),
-    "⛂ - شغل : " + (a.job_code ? a.job_code : "انتخاب نشده"),
+    "⛂ - خانه : " + (assets?.home_code === "frontier_cabin" ? "کلبه مرزی" : String(assets?.home_code ?? "کلبه مرزی")),
+    "⛂ - مزرعه : " + (assets && Number(assets.farm_level) > 0 ? "فعال" : "ندارد"),
+    "⛂ - اسب : " + (assets?.horse_name ? String(assets.horse_name) : "هنوز نداری"),
+    "⛂ - حرفه : " + (a.job_code ? a.job_code : "انتخاب نشده"),
   ].join("\n");
 }
 
