@@ -13,6 +13,11 @@ export type WorldContext = {
   user: WorldUser;
 };
 
+export type WorldResult = {
+  text: string;
+  replyMarkup?: Record<string, unknown>;
+};
+
 export const WORLD_SEPARATOR = "                     ─────━━───── ◈ ─────━━─────";
 
 const WORLD_COMMANDS = [
@@ -45,8 +50,8 @@ function norm(value: string) {
   return String(value ?? "")
     .trim()
     .replace(/^[\\/!.]+/, "")
-    .replace(/[\\u200c\\u200d]/g, " ")
-    .replace(/\\s+/g, " ")
+    .replace(/[\u200c\u200d]/g, " ")
+    .replace(/\s+/g, " ")
     .toLowerCase();
 }
 
@@ -118,6 +123,14 @@ function genderKeyboard(userId: number) {
   };
 }
 
+function backKeyboard(userId: number) {
+  return {
+    inline_keyboard: [
+      [{ text: "‹ بازگشت به جهان", callback_data: "world:home:" + String(userId) }],
+    ],
+  };
+}
+
 function mainKeyboard(userId: number) {
   const s = String(userId);
   return {
@@ -171,7 +184,105 @@ function registrationText(user: WorldUser) {
     "",
     WORLD_SEPARATOR,
     "",
-  ].join("\\n");
+  ].join("\n");
+}
+
+function helpText() {
+  return [
+    "◈ راهنمای دنیای پرشین",
+    "",
+    WORLD_SEPARATOR,
+    "",
+    "برای شروع، اکانتت را بساز.",
+    "بعد از ساخت اکانت، جهان شخصی خودت را همین‌جا مدیریت می‌کنی.",
+    "",
+    "★ - هر بازیکن اکانت مستقل خودش را دارد.",
+    "★ - اکانت به همین گروه و همین بازیکن متصل است.",
+    "★ - خانه، شغل، دارایی، بازار و ماجراجویی کم‌کم به جهان اضافه می‌شوند.",
+    "",
+    "دستور اصلی : جهان",
+    "",
+    WORLD_SEPARATOR,
+    "",
+  ].join("\n");
+}
+
+function registrationGenderText(user: WorldUser) {
+  return [
+    "◈ ساخت اکانت",
+    "",
+    WORLD_SEPARATOR,
+    "",
+    "قبل از ورود، جنسیت کاراکترت را انتخاب کن.",
+    "",
+    "★ - بازیکن : " + displayName(user),
+    "⛂ - شناسه : " + fa(user.id),
+    "",
+    WORLD_SEPARATOR,
+    "",
+    "این انتخاب فعلاً برای ساخت هویت اولیه اکانت استفاده می‌شود.",
+  ].join("\n");
+}
+
+function sectionText(section: string, account: any) {
+  const title = SECTION_NAMES[section] ?? "جهان";
+  const descriptions: Record<string, string> = {
+    city: "اینجا شهر زندگی می‌کنی؛ محله‌ها، ساختمان‌ها و اتفاقات شهری بعداً از همین بخش شکل می‌گیرند.",
+    job: "اینجا مسیر کار و حرفه‌ات ساخته می‌شود؛ هر بازیکن در ادامه حرفه خودش را انتخاب می‌کند.",
+    market: "اینجا بازار جهان شکل می‌گیرد؛ خرید، فروش و معامله بین بازیکنان و NPCها.",
+    assets: "اینجا همه دارایی‌ها، منابع، ابزارها و چیزهایی که به دست می‌آوری نگهداری می‌شوند.",
+    adventure: "اینجا مسیر رول‌پلی و داستان‌های جهان را دنبال می‌کنی.",
+    games: "اینجا سرگرمی‌ها و بازی‌های داخل جهان قرار می‌گیرند.",
+    missions: "اینجا مأموریت‌ها، هدف‌ها و پاداش‌هایی که برایت تعریف می‌شوند قرار می‌گیرند.",
+    collection: "اینجا مجموعه چیزهایی را که در طول بازی جمع می‌کنی می‌بینی.",
+    events: "اینجا رویدادهای محدود، اتفاقات ویژه و فصل‌های جهان قرار می‌گیرند.",
+    ranking: "اینجا رتبه‌بندی بازیکنان همین گروه را می‌بینی.",
+    help: "راهنمای جهان و روش استفاده از بخش‌ها از اینجا در دسترس است.",
+    settings: "تنظیمات اکانت و انتخاب‌های شخصی جهان از اینجا مدیریت می‌شود.",
+  };
+  return [
+    "◈ " + title,
+    "",
+    WORLD_SEPARATOR,
+    "",
+    "★ - " + account.display_name,
+    "⛂ - سطح : " + fa(Number(account.level)),
+    "⛂ - سکه : " + fa(Number(account.coins)),
+    "",
+    descriptions[section] ?? "این بخش برای توسعه مرحله‌ای جهان آماده شده و قابلیت‌هایش به مرور فعال می‌شوند.",
+    "",
+    WORLD_SEPARATOR,
+    "",
+    "این بخش هنوز در حال توسعه است؛ اما اکانتت و اطلاعات اصلی‌ات همین حالا ذخیره می‌شوند.",
+  ].join("\n");
+}
+
+function unauthorizedText() {
+  return [
+    "◈ دنیای پرشین",
+    "",
+    WORLD_SEPARATOR,
+    "",
+    "این دکمه برای بازیکنی که آن را ساخته شده.",
+    "برای ورود به جهان خودت، دستور جهان را بنویس.",
+    "",
+    WORLD_SEPARATOR,
+    "",
+  ].join("\n");
+}
+
+function inactiveText() {
+  return [
+    "◈ دنیای پرشین",
+    "",
+    WORLD_SEPARATOR,
+    "",
+    "اکانت بازی تو در حال حاضر فعال نیست.",
+    "برای ادامه، وضعیت اکانت باید فعال باشد.",
+    "",
+    WORLD_SEPARATOR,
+    "",
+  ].join("\n");
 }
 
 async function levelRequired(level: number) {
@@ -184,7 +295,11 @@ function progressBar(xp: number, level: number) {
   const span = Math.max(1, next - previous);
   const percent = Math.max(0, Math.min(100, Math.floor(((xp - previous) / span) * 100)));
   const filled = Math.floor(percent / 10);
-  return { percent, bar: "▰".repeat(filled) + "▱".repeat(10 - filled), remaining: Math.max(0, next - xp) };
+  return {
+    percent,
+    bar: "▰".repeat(filled) + "▱".repeat(10 - filled),
+    remaining: Math.max(0, next - xp),
+  };
 }
 
 async function centerText(pool: Pool, ctx: WorldContext, account?: any) {
@@ -279,4 +394,171 @@ async function lifeText(pool: Pool, ctx: WorldContext) {
   ].join("\n");
 }
 
+export async function handleWorldText(ctx: WorldContext, text: string): Promise<WorldResult | null> {
+  if (!isWorldCommand(text)) return null;
 
+  try {
+    await ensureWorldSchema(ctx.pool);
+  } catch (error) {
+    console.error("[world] schema error:", error);
+    return {
+      text: "✗ فعلاً ورود به دنیای پرشین ممکن نشد. دوباره کمی بعد تلاش کن.",
+    };
+  }
+
+  const account = await getAccount(ctx.pool, ctx.chatId, ctx.userId);
+  if (!account) {
+    return {
+      text: registrationText(ctx.user),
+      replyMarkup: registrationKeyboard(ctx.userId),
+    };
+  }
+
+  if (account.status !== "active") {
+    return {
+      text: inactiveText(),
+      replyMarkup: backKeyboard(ctx.userId),
+    };
+  }
+
+  await ctx.pool.query(
+    "UPDATE game_world_accounts SET username=$3,first_name=$4,display_name=$5,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",
+    [ctx.chatId, ctx.userId, ctx.user.username ?? null, ctx.user.first_name ?? null, displayName(ctx.user)],
+  );
+
+  return {
+    text: (await centerText(ctx.pool, ctx, account)) ?? registrationText(ctx.user),
+    replyMarkup: mainKeyboard(ctx.userId),
+  };
+}
+
+export async function handleWorldCallback(ctx: WorldContext, data: string): Promise<WorldResult | null> {
+  const parts = String(data ?? "").split(":");
+  if (parts[0] !== "world") return null;
+
+  try {
+    await ensureWorldSchema(ctx.pool);
+  } catch (error) {
+    console.error("[world] callback schema error:", error);
+    return { text: "✗ فعلاً اجرای این بخش ممکن نشد. دوباره تلاش کن." };
+  }
+
+  const ownerId = Number(parts[parts.length - 1]);
+  if (!Number.isSafeInteger(ownerId) || ownerId !== ctx.userId) {
+    return { text: unauthorizedText(), replyMarkup: backKeyboard(ctx.userId) };
+  }
+
+  const action = parts[1];
+
+  if (action === "register") {
+    const account = await getAccount(ctx.pool, ctx.chatId, ctx.userId);
+    if (account) {
+      return {
+        text: (await centerText(ctx.pool, ctx, account)) ?? registrationText(ctx.user),
+        replyMarkup: mainKeyboard(ctx.userId),
+      };
+    }
+    return {
+      text: registrationGenderText(ctx.user),
+      replyMarkup: genderKeyboard(ctx.userId),
+    };
+  }
+
+  if (action === "gender") {
+    const gender = String(parts[3] ?? "");
+    if (!["male", "female", "unspecified"].includes(gender)) {
+      return { text: "✗ انتخاب جنسیت معتبر نیست.", replyMarkup: genderKeyboard(ctx.userId) };
+    }
+
+    const existing = await getAccount(ctx.pool, ctx.chatId, ctx.userId);
+    if (!existing) {
+      const inserted = await ctx.pool.query<any>(
+        "INSERT INTO game_world_accounts(group_id,user_id,username,first_name,display_name,gender) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(group_id,user_id) DO NOTHING RETURNING *",
+        [
+          ctx.chatId,
+          ctx.userId,
+          ctx.user.username ?? null,
+          ctx.user.first_name ?? null,
+          displayName(ctx.user),
+          gender,
+        ],
+      );
+      const account = inserted.rows[0] ?? await getAccount(ctx.pool, ctx.chatId, ctx.userId);
+      return {
+        text: (await centerText(ctx.pool, ctx, account)) ?? registrationText(ctx.user),
+        replyMarkup: mainKeyboard(ctx.userId),
+      };
+    }
+
+    return {
+      text: (await centerText(ctx.pool, ctx, existing)) ?? registrationText(ctx.user),
+      replyMarkup: mainKeyboard(ctx.userId),
+    };
+  }
+
+  if (action === "cancel") {
+    return {
+      text: registrationText(ctx.user),
+      replyMarkup: registrationKeyboard(ctx.userId),
+    };
+  }
+
+  if (action === "help") {
+    return {
+      text: helpText(),
+      replyMarkup: backKeyboard(ctx.userId),
+    };
+  }
+
+  if (action === "home") {
+    const account = await getAccount(ctx.pool, ctx.chatId, ctx.userId);
+    if (!account) {
+      return {
+        text: registrationText(ctx.user),
+        replyMarkup: registrationKeyboard(ctx.userId),
+      };
+    }
+    if (account.status !== "active") {
+      return { text: inactiveText(), replyMarkup: backKeyboard(ctx.userId) };
+    }
+    return {
+      text: (await centerText(ctx.pool, ctx, account)) ?? registrationText(ctx.user),
+      replyMarkup: mainKeyboard(ctx.userId),
+    };
+  }
+
+  if (action === "section") {
+    const section = String(parts[2] ?? "");
+    const account = await getAccount(ctx.pool, ctx.chatId, ctx.userId);
+    if (!account) {
+      return {
+        text: registrationText(ctx.user),
+        replyMarkup: registrationKeyboard(ctx.userId),
+      };
+    }
+    if (account.status !== "active") {
+      return { text: inactiveText(), replyMarkup: backKeyboard(ctx.userId) };
+    }
+
+    if (section === "profile") {
+      return {
+        text: (await profileText(ctx.pool, ctx)) ?? registrationText(ctx.user),
+        replyMarkup: backKeyboard(ctx.userId),
+      };
+    }
+
+    if (section === "life") {
+      return {
+        text: (await lifeText(ctx.pool, ctx)) ?? registrationText(ctx.user),
+        replyMarkup: backKeyboard(ctx.userId),
+      };
+    }
+
+    return {
+      text: sectionText(section, account),
+      replyMarkup: backKeyboard(ctx.userId),
+    };
+  }
+
+  return null;
+}
