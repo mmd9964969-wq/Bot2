@@ -2058,6 +2058,15 @@ export async function handleWorldCallback(ctx: WorldContext, data: string): Prom
       };
     }
 
+    if (section === "job") {
+      const jobResult = await handleFrontierExpansionCallback(ctx, ["world","expand","profession",String(ctx.userId)]);
+      if (jobResult) return jobResult;
+      return {
+        text: sectionText(section, account),
+        replyMarkup: backKeyboard(ctx.userId),
+      };
+    }
+
     if (section === "life") {
       return {
         text: (await lifeText(ctx.pool, ctx)) ?? registrationText(ctx.user),
