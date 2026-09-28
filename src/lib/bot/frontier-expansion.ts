@@ -95,6 +95,11 @@ export async function ensureFrontierExpansionSchema(pool:Pool){
       await pool.query("CREATE TABLE IF NOT EXISTS game_world_businesses(id BIGSERIAL PRIMARY KEY,group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,business_code TEXT NOT NULL,business_name TEXT NOT NULL,level INT NOT NULL DEFAULT 1 CHECK(level>=1),cashbox BIGINT NOT NULL DEFAULT 0 CHECK(cashbox>=0),last_income_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed')),created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),UNIQUE(group_id,user_id,business_code))");
       await pool.query("CREATE TABLE IF NOT EXISTS game_world_transport(group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,transport_code TEXT NOT NULL,level INT NOT NULL DEFAULT 1 CHECK(level>=1),condition INT NOT NULL DEFAULT 100 CHECK(condition BETWEEN 0 AND 100),fuel INT NOT NULL DEFAULT 100 CHECK(fuel BETWEEN 0 AND 100),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),PRIMARY KEY(group_id,user_id,transport_code))");
       await pool.query("CREATE TABLE IF NOT EXISTS game_world_relationships(group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,target_user_id BIGINT NOT NULL,relation TEXT NOT NULL DEFAULT 'شناسا',value INT NOT NULL DEFAULT 0 CHECK(value BETWEEN -100 AND 100),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),PRIMARY KEY(group_id,user_id,target_user_id))");
+      await pool.query("CREATE TABLE IF NOT EXISTS game_world_career_stats(group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,profession_code TEXT NOT NULL,action_count INT NOT NULL DEFAULT 0 CHECK(action_count>=0),service_count INT NOT NULL DEFAULT 0 CHECK(service_count>=0),career_revenue BIGINT NOT NULL DEFAULT 0 CHECK(career_revenue>=0),goods_stock INT NOT NULL DEFAULT 0 CHECK(goods_stock>=0),reputation_earned INT NOT NULL DEFAULT 0 CHECK(reputation_earned>=0),last_action_at TIMESTAMPTZ,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),PRIMARY KEY(group_id,user_id,profession_code))");
+      await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_career_stats_user ON game_world_career_stats(group_id,user_id,profession_code)");
+      await pool.query("ALTER TABLE game_world_professions ADD COLUMN IF NOT EXISTS career_actions INT NOT NULL DEFAULT 0 CHECK(career_actions>=0)");
+      await pool.query("ALTER TABLE game_world_professions ADD COLUMN IF NOT EXISTS career_value BIGINT NOT NULL DEFAULT 0 CHECK(career_value>=0)");
+      await pool.query("ALTER TABLE game_world_professions ADD COLUMN IF NOT EXISTS career_last_action_at TIMESTAMPTZ");
       await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_businesses_user ON game_world_businesses(group_id,user_id,status,updated_at DESC)");
       await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_livestock_user ON game_world_livestock(group_id,user_id,animal_code)");
       await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_transport_user ON game_world_transport(group_id,user_id,transport_code)");
@@ -172,6 +177,77 @@ async function toolsText(ctx:FrontierExpansionContext){
     lines.push("⛂ - "+(t?.name??String(r.tool_code))+" · سطح "+fa(+r.level)+" · دوام "+fa(+r.durability)+"% · تعداد "+fa(+r.quantity));
   }
   lines.push("","★ - خرید ابزار","⛂ - تبر · 180 سکه","⛂ - کلنگ · 220 سکه","⛂ - بیل · 140 سکه","⛂ - داس · 120 سکه","⛂ - چکش · 200 سکه","⛂ - طناب · 90 سکه","",SEP);
+  return lines.join("\n");
+}
+
+async function ensureCareerStats(ctx:FrontierExpansionContext,professionCode:string){
+  await ctx.pool.query("INSERT INTO game_world_career_stats(group_id,user_id,profession_code) VALUES($1,$2,$3) ON CONFLICT(group_id,user_id,profession_code) DO NOTHING",[ctx.chatId,ctx.userId,professionCode]);
+  return (await ctx.pool.query<any>("SELECT * FROM game_world_career_stats WHERE group_id=$1 AND user_id=$2 AND profession_code=$3",[ctx.chatId,ctx.userId,professionCode])).rows[0];
+}
+
+function careerInstruction(professionCode:string){
+  const lines:Record<string,string[]> = {
+    seamstress:[
+      "★ - کار ویژه : کارگاه خیاطی",
+      "⛂ - دوخت لباس · 25 سکه هزینه مواد",
+      "⛂ - هر دوخت یک کالای پوشیدنی به انبار حرفه‌ای اضافه می‌کند.",
+      "⛂ - فروش لباس · هر قطعه 95 سکه",
+      "⛂ - سفارش مستقیم دیگر بازیکنان در ادامه قابل ثبت است.",
+    ],
+    healer:[
+      "★ - کار ویژه : درمان مرزی",
+      "⛂ - «درمان» برای خودت سلامت را بازیابی می‌کند.",
+      "⛂ - «درمان <شناسه کاربر>» یک بازیکن همان شهر را درمان می‌کند.",
+      "⛂ - درمان دیگران هزینه دارد؛ مبلغ بین بیمار و درمانگر جابه‌جا می‌شود.",
+    ],
+    innkeeper:[
+      "★ - کار ویژه : مهمانخانه",
+      "⛂ - «اقامت» برای خودت یک نوبت استراحت ثبت می‌کند.",
+      "⛂ - «اقامت <شناسه کاربر>» برای یک بازیکن دیگر اقامت ثبت می‌کند.",
+      "⛂ - اقامت انرژی و گرسنگی را بهبود می‌دهد و برای مهمانخانه درآمد می‌سازد.",
+    ],
+    frontier_journalist:[
+      "★ - کار ویژه : گزارش مرزی",
+      "⛂ - هر گزارش یک خبر محلی واقعی در پرونده همان شهر ثبت می‌کند.",
+      "⛂ - گزارش موفق Reputation و تجربه حرفه‌ای می‌دهد.",
+      "⛂ - خبرهای تو مستقیماً در THE FRONTIER NEWS دیده می‌شوند.",
+    ],
+    schoolteacher:[
+      "★ - کار ویژه : کلاس مرزی",
+      "⛂ - «آموزش» برای خودت تجربه آموزشی ثبت می‌کند.",
+      "⛂ - «آموزش <شناسه کاربر>» به یک بازیکن همان شهر تجربه می‌دهد.",
+      "⛂ - آموزش دیگران هزینه دارد و سهمی برای معلم ثبت می‌کند.",
+    ],
+    saloon_keeper:[
+      "★ - کار ویژه : شب سالون",
+      "⛂ - هر نوبت یک رویداد اجتماعی محلی ثبت می‌کند.",
+      "⛂ - اگر سالون شخصی داشته باشی، درآمد و Reputation بیشتری می‌گیری.",
+      "⛂ - رویداد در روزنامه و پرونده رویدادهای شهر ثبت می‌شود.",
+    ],
+  };
+  return (lines[professionCode]??["★ - کار ویژه : این حرفه هنوز دفتر اختصاصی ندارد."]).join("\n");
+}
+
+async function careerText(ctx:FrontierExpansionContext){
+  const a=await account(ctx);
+  if(!a)return "✗ اکانت بازی پیدا نشد.";
+  const p=(await ctx.pool.query<any>("SELECT * FROM game_world_professions WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId])).rows[0];
+  if(!p)return ["◈ کار ویژه","",SEP,"","⛂ - ابتدا یک حرفه انتخاب کن.","",SEP].join("\n");
+  const prof=PROFESSIONS[String(p.profession_code)];
+  const s=await ensureCareerStats(ctx,String(p.profession_code));
+  const lines=[
+    isWoman(a)?"◈ مسیر حرفه‌ای · بانوی مرز":"◈ کار ویژه · مسیر حرفه‌ای",
+    "",
+    SEP,
+    "",
+    "★ - حرفه : "+prof.name+" · سطح "+fa(+p.level),
+    "⛂ - نوبت‌های ویژه انجام‌شده : "+fa(+s.action_count),
+    "⛂ - خدمات به دیگران : "+fa(+s.service_count),
+    "⛂ - درآمد ثبت‌شده از مسیر ویژه : "+money(+s.career_revenue),
+    "⛂ - Reputation به‌دست‌آمده : "+fa(+s.reputation_earned),
+  ];
+  if(p.profession_code==="seamstress")lines.push("⛂ - لباس‌های آماده : "+fa(+s.goods_stock));
+  lines.push("",careerInstruction(String(p.profession_code)),"","« این شغل برای اسمش حقوق نمی‌گیرد؛ برای کاری که در مرز انجام می‌دهد پول می‌گیرد.»","",SEP);
   return lines.join("\n");
 }
 
@@ -348,8 +424,154 @@ async function chooseProfession(ctx:FrontierExpansionContext,code:string){
   const a=await account(ctx);
   if(p.womenOnly && !isWoman(a))return {text:"⛂ - این مسیر شغلی در دفتر بانوان مرز ثبت شده است؛ حرفه‌های عمومی برای همه باز هستند.",replyMarkup:back(ctx.userId)};
   await ctx.pool.query("INSERT INTO game_world_professions(group_id,user_id,profession_code) VALUES($1,$2,$3) ON CONFLICT(group_id,user_id) DO UPDATE SET profession_code=EXCLUDED.profession_code,updated_at=NOW()",[ctx.chatId,ctx.userId,code]);
+  await ensureCareerStats(ctx,code);
   await ctx.pool.query("UPDATE game_world_accounts SET job_code=$3,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,p.name]);
   return {text:["✓ حرفه ثبت شد.","","⛂ - حرفه : "+p.name,"⛂ - درآمد پایه هر نوبت : "+money(p.pay),"⛂ - تجربه : +"+fa(p.xp),"⛂ - زمان انتظار : "+fa(p.cooldown)+" ثانیه","",isWoman(a)?"« حالا یک مهارت داری که می‌تواند نامت را در این مرز بالا ببرد.»":"« حالا یک مهارت داری که می‌تواند برایت نان بیاورد.»"].join("\n"),replyMarkup:back(ctx.userId)};
+}
+
+async function careerCooldown(ctx:FrontierExpansionContext,p:any){
+  const last=p.career_last_action_at?new Date(p.career_last_action_at).getTime():0;
+  const remain=Math.max(0,Math.ceil((last+45_000-Date.now())/1000));
+  if(remain>0)return "⛂ - کار ویژه بعدی تا "+fa(remain)+" ثانیه دیگر آماده می‌شود.";
+  return null;
+}
+
+async function touchCareer(ctx:FrontierExpansionContext,code:string,revenue:number=0,service=false,repGain=0,goodsDelta=0){
+  await ctx.pool.query("INSERT INTO game_world_career_stats(group_id,user_id,profession_code) VALUES($1,$2,$3) ON CONFLICT(group_id,user_id,profession_code) DO NOTHING",[ctx.chatId,ctx.userId,code]);
+  await ctx.pool.query(
+    "UPDATE game_world_career_stats SET action_count=action_count+1,service_count=service_count+$4,career_revenue=career_revenue+$3,reputation_earned=reputation_earned+$5,goods_stock=GREATEST(0,goods_stock+$6),last_action_at=NOW(),updated_at=NOW() WHERE group_id=$1 AND user_id=$2 AND profession_code=$7",
+    [ctx.chatId,ctx.userId,revenue,service?1:0,repGain,goodsDelta,code]
+  );
+  await ctx.pool.query("UPDATE game_world_professions SET career_actions=career_actions+1,career_value=career_value+$3,career_last_action_at=NOW(),updated_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,revenue]);
+}
+
+async function findTarget(ctx:FrontierExpansionContext,raw:string){
+  const id=Number(raw);
+  if(!Number.isInteger(id)||id<=0)return null;
+  return (await ctx.pool.query<any>("SELECT * FROM game_world_accounts WHERE group_id=$1 AND user_id=$2 FOR UPDATE",[ctx.chatId,id])).rows[0]??null;
+}
+
+async function doCareerAction(ctx:FrontierExpansionContext,action:string,targetRaw?:string):Promise<FrontierExpansionResult>{
+  const a=await account(ctx);
+  const p=(await ctx.pool.query<any>("SELECT * FROM game_world_professions WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId])).rows[0];
+  if(!a||!p)return {text:"✗ اول یک حرفه انتخاب کن.",replyMarkup:back(ctx.userId)};
+  const prof=PROFESSIONS[String(p.profession_code)];
+  if(!prof?.womenOnly)return {text:"⛂ - این مسیر حرفه‌ای ویژه، برای مشاغل دفتر بانوان مرز فعال است.",replyMarkup:back(ctx.userId)};
+  const cd=await careerCooldown(ctx,p);
+  if(cd)return {text:cd,replyMarkup:back(ctx.userId)};
+
+  if(p.profession_code==="seamstress"){
+    if(action==="sell"){
+      const s=await ensureCareerStats(ctx,"seamstress");
+      if(+s.goods_stock<=0)return {text:"✗ هنوز لباس آماده فروش نداری.",replyMarkup:back(ctx.userId)};
+      const amount=95;
+      await ctx.pool.query("UPDATE game_world_career_stats SET goods_stock=goods_stock-1,career_revenue=career_revenue+$3,updated_at=NOW() WHERE group_id=$1 AND user_id=$2 AND profession_code='seamstress' AND goods_stock>0",[ctx.chatId,ctx.userId,amount]);
+      await ctx.pool.query("UPDATE game_world_accounts SET coins=coins+$3,xp=xp+18,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,amount]);
+      await ctx.pool.query("UPDATE game_world_professions SET career_actions=career_actions+1,career_value=career_value+$3,career_last_action_at=NOW(),updated_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,amount]);
+      return {text:["✓ لباس فروخته شد.","","⛂ - قیمت فروش : "+money(amount),"⛂ - تجربه : +"+fa(18),"⛂ - موجودی لباس : "+fa(+s.goods_stock-1),"","« دوخت خوب وقتی وارد بازار شود، دیگر فقط نخ و پارچه نیست؛ کالاست.»"].join("\n"),replyMarkup:back(ctx.userId)};
+    }
+    const cost=25;
+    if(+a.coins<cost)return {text:"✗ برای پارچه و مواد اولیه "+money(cost)+" لازم داری.",replyMarkup:back(ctx.userId)};
+    await ctx.pool.query("UPDATE game_world_accounts SET coins=coins-$3,xp=xp+20,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,cost]);
+    await touchCareer(ctx,"seamstress",0,false,2,1);
+    return {text:["✓ یک لباس مرزی دوخته شد.","","⛂ - هزینه مواد : "+money(cost),"⛂ - محصول آماده : +1 لباس","⛂ - Reputation : +2","⛂ - تجربه : +20","",careerInstruction("seamstress")].join("\n"),replyMarkup:{inline_keyboard:[
+      [{text:"‹ فروش یک لباس · 95",callback_data:"world:expand:career:sell:"+ctx.userId}],
+      [{text:"‹ دفتر کار",callback_data:"world:expand:career:"+ctx.userId}]
+    ]}};
+  }
+
+  if(p.profession_code==="healer"){
+    const target=targetRaw?await findTarget(ctx,targetRaw):a;
+    if(!target)return {text:"✗ بازیکن موردنظر در این شهر پیدا نشد.",replyMarkup:back(ctx.userId)};
+    const self=+target.user_id===ctx.userId;
+    const price=self?0:50;
+    if(!self && +target.coins<price)return {text:"✗ این بازیکن برای درمان "+money(price)+" موجودی ندارد.",replyMarkup:back(ctx.userId)};
+    const before=+target.health;
+    const healed=Math.min(100,before+25)-before;
+    if(healed<=0)return {text:"⛂ - سلامت این بازیکن همین حالا کامل است.",replyMarkup:back(ctx.userId)};
+    const client=await ctx.pool.connect();
+    try{
+      await client.query("BEGIN");
+      const patient=(await client.query<any>("SELECT * FROM game_world_accounts WHERE group_id=$1 AND user_id=$2 FOR UPDATE",[ctx.chatId,+target.user_id])).rows[0];
+      if(!patient){await client.query("ROLLBACK");return {text:"✗ بازیکن موردنظر پیدا نشد.",replyMarkup:back(ctx.userId)};}
+      if(!self&&+patient.coins<price){await client.query("ROLLBACK");return {text:"✗ موجودی بیمار برای درمان کافی نیست.",replyMarkup:back(ctx.userId)};}
+      const gain=Math.min(100,+patient.health+25);
+      await client.query("UPDATE game_world_accounts SET health=$3 WHERE group_id=$1 AND user_id=$2",[ctx.chatId,+target.user_id,gain]);
+      if(!self)await client.query("UPDATE game_world_accounts SET coins=coins-$3 WHERE group_id=$1 AND user_id=$2",[ctx.chatId,+target.user_id,price]);
+      await client.query("UPDATE game_world_accounts SET coins=coins+$3,xp=xp+24,reputation=reputation+$4,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,self?2:price,2]);
+      await client.query("COMMIT");
+    }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e;}finally{client.release();}
+    await touchCareer(ctx,"healer",self?2:price,true,3,0);
+    return {text:["✓ درمان مرزی انجام شد.","","⛂ - بیمار : "+(self?"خودت":String(target.first_name??target.username??target.user_id)),"⛂ - سلامت : "+fa(before)+"% → "+fa(before+healed)+"%","⛂ - درآمد درمانگر : +"+money(self?2:price),"⛂ - Reputation : +3","","« درمانگر خوب منتظر نمی‌ماند زخمی عمیق‌تر شود.»"].join("\n"),replyMarkup:back(ctx.userId)};
+  }
+
+  if(p.profession_code==="innkeeper"){
+    const target=targetRaw?await findTarget(ctx,targetRaw):a;
+    if(!target)return {text:"✗ مهمان در این شهر پیدا نشد.",replyMarkup:back(ctx.userId)};
+    const self=+target.user_id===ctx.userId;
+    const price=self?0:60;
+    if(!self&&+target.coins<price)return {text:"✗ مهمان برای اقامت "+money(price)+" موجودی کافی ندارد.",replyMarkup:back(ctx.userId)};
+    const client=await ctx.pool.connect();
+    try{
+      await client.query("BEGIN");
+      const guest=(await client.query<any>("SELECT * FROM game_world_accounts WHERE group_id=$1 AND user_id=$2 FOR UPDATE",[ctx.chatId,+target.user_id])).rows[0];
+      if(!guest){await client.query("ROLLBACK");return {text:"✗ مهمان پیدا نشد.",replyMarkup:back(ctx.userId)};}
+      if(!self&&+guest.coins<price){await client.query("ROLLBACK");return {text:"✗ موجودی مهمان کافی نیست.",replyMarkup:back(ctx.userId)};}
+      if(!self)await client.query("UPDATE game_world_accounts SET coins=coins-$3 WHERE group_id=$1 AND user_id=$2",[ctx.chatId,+target.user_id,price]);
+      await client.query("UPDATE game_world_accounts SET energy=LEAST(100,energy+25),hunger=LEAST(100,hunger+20),last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,+target.user_id]);
+      await client.query("UPDATE game_world_accounts SET coins=coins+$3,xp=xp+22,reputation=reputation+$4,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,self?2:price,2]);
+      await client.query("COMMIT");
+    }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e;}finally{client.release();}
+    await touchCareer(ctx,"innkeeper",self?2:price,true,2,0);
+    return {text:["✓ اقامت ثبت شد.","","⛂ - مهمان : "+(self?"خودت":String(target.first_name??target.username??target.user_id)),"⛂ - انرژی : +25","⛂ - گرسنگی : +20","⛂ - درآمد مهمانخانه : +"+money(self?2:price),"⛂ - Reputation : +2","","« مهمانخانه خوب جایی است که مسافر صبح بتواند راهش را ادامه بدهد.»"].join("\n"),replyMarkup:back(ctx.userId)};
+  }
+
+  if(p.profession_code==="frontier_journalist"){
+    const seq=Date.now().toString(36).slice(-6).toUpperCase();
+    const title="گزارش تازه از مرز #"+seq;
+    const body="روزنامه‌نگار محلی امروز گزارشی از زندگی و رفت‌وآمد این شهر ثبت کرد.";
+    await ctx.pool.query("INSERT INTO game_world_news(scope,group_id,title,body,severity) VALUES('local',$1,$2,$3,'info')",[ctx.chatId,title,body]);
+    await ctx.pool.query("INSERT INTO game_world_events(scope,group_id,title,body,event_key,expires_at) VALUES('local',$1,$2,$3,$4,NOW()+INTERVAL '2 hours') ON CONFLICT DO NOTHING",[ctx.chatId,title,body,"journal-"+seq]);
+    await ctx.pool.query("UPDATE game_world_accounts SET coins=coins+85,xp=xp+38,reputation=reputation+10,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId]);
+    await touchCareer(ctx,"frontier_journalist",85,false,10,0);
+    return {text:["✓ گزارش مرزی منتشر شد.","","⛂ - عنوان : "+title,"⛂ - درآمد : +"+money(85),"⛂ - تجربه : +38","⛂ - Reputation : +10","⛂ - محل انتشار : THE FRONTIER NEWS","","« خبر وقتی ارزش دارد که مردم فردا بتوانند نتیجه‌اش را ببینند.»"].join("\n"),replyMarkup:back(ctx.userId)};
+  }
+
+  if(p.profession_code==="schoolteacher"){
+    const target=targetRaw?await findTarget(ctx,targetRaw):a;
+    if(!target)return {text:"✗ شاگرد موردنظر در این شهر پیدا نشد.",replyMarkup:back(ctx.userId)};
+    const self=+target.user_id===ctx.userId;
+    const price=self?0:40;
+    if(!self&&+target.coins<price)return {text:"✗ شاگرد برای این درس "+money(price)+" موجودی کافی ندارد.",replyMarkup:back(ctx.userId)};
+    const client=await ctx.pool.connect();
+    try{
+      await client.query("BEGIN");
+      const student=(await client.query<any>("SELECT * FROM game_world_accounts WHERE group_id=$1 AND user_id=$2 FOR UPDATE",[ctx.chatId,+target.user_id])).rows[0];
+      if(!student){await client.query("ROLLBACK");return {text:"✗ شاگرد پیدا نشد.",replyMarkup:back(ctx.userId)};}
+      if(!self&&+student.coins<price){await client.query("ROLLBACK");return {text:"✗ موجودی شاگرد کافی نیست.",replyMarkup:back(ctx.userId)};}
+      if(!self)await client.query("UPDATE game_world_accounts SET coins=coins-$3 WHERE group_id=$1 AND user_id=$2",[ctx.chatId,+target.user_id,price]);
+      await client.query("UPDATE game_world_accounts SET xp=xp+35,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,+target.user_id]);
+      await client.query("UPDATE game_world_accounts SET coins=coins+$3,xp=xp+30,reputation=reputation+$4,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,self?2:price,3]);
+      await client.query("COMMIT");
+    }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e;}finally{client.release();}
+    await touchCareer(ctx,"schoolteacher",self?2:price,true,3,0);
+    return {text:["✓ کلاس مرزی برگزار شد.","","⛂ - شاگرد : "+(self?"خودت":String(target.first_name??target.username??target.user_id)),"⛂ - تجربه شاگرد : +35","⛂ - درآمد معلم : +"+money(self?2:price),"⛂ - Reputation : +3","","« کلاس خوب چیزی به آدم می‌دهد که فردا بتواند از آن استفاده کند.»"].join("\n"),replyMarkup:back(ctx.userId)};
+  }
+
+  if(p.profession_code==="saloon_keeper"){
+    const hasSaloon=(await ctx.pool.query<any>("SELECT 1 FROM game_world_businesses WHERE group_id=$1 AND user_id=$2 AND business_code='saloon' AND status='open' LIMIT 1",[ctx.chatId,ctx.userId])).rowCount>0;
+    const base=hasSaloon?180:100;
+    const repGain=hasSaloon?8:4;
+    const title="شب سالون · "+nameOf(ctx);
+    const body="یک شب اجتماعی در سالون برگزار شد و رفت‌وآمد محلی را بیشتر کرد.";
+    await ctx.pool.query("INSERT INTO game_world_events(scope,group_id,title,body,event_key,expires_at) VALUES('local',$1,$2,$3,$4,NOW()+INTERVAL '2 hours') ON CONFLICT DO NOTHING",[ctx.chatId,title,body,"saloon-"+String(ctx.userId)+"-"+Date.now().toString(36)]);
+    await ctx.pool.query("INSERT INTO game_world_news(scope,group_id,title,body,severity) VALUES('local',$1,$2,$3,'info')",[ctx.chatId,title,body]);
+    await ctx.pool.query("UPDATE game_world_accounts SET coins=coins+$3,xp=xp+45,reputation=reputation+$4,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,base,repGain]);
+    await touchCareer(ctx,"saloon_keeper",base,false,repGain,0);
+    return {text:["✓ شب سالون برگزار شد.","","⛂ - درآمد : +"+money(base),"⛂ - تجربه : +45","⛂ - Reputation : +"+fa(repGain),"⛂ - اثر کسب‌وکار : "+(hasSaloon?"سالون شخصی داری؛ پاداش کامل فعال شد.":"بدون سالون شخصی؛ پاداش پایه ثبت شد."),"","« سالون خوب فقط محل نشستن نیست؛ جایی است که خبر و پول هر دو راه می‌افتند.»"].join("\n"),replyMarkup:back(ctx.userId)};
+  }
+
+  return {text:"✗ کار ویژه این حرفه هنوز ثبت نشده است.",replyMarkup:back(ctx.userId)};
 }
 
 async function doWork(ctx:FrontierExpansionContext){
@@ -604,8 +826,14 @@ async function newspaperText(ctx:FrontierExpansionContext){
 
 export async function themedFrontierExpansionMenuText(ctx:FrontierExpansionContext){
   const a=await account(ctx);
-  const title=isWoman(a)?"◈ دفتر مرز · بانوی مرز":"◈ دفتر مرز";
-  return [title,"",SEP,"","★ - بانک و اقتصاد","★ - خانه و زمین","★ - مزرعه و دامداری","★ - اسب و حمل‌ونقل","★ - انبار و ابزار","★ - حرفه و مهارت","★ - کسب‌وکار و مغازه","★ - قانون و شهرت","★ - مأموریت و قرارداد","★ - باند و روابط","★ - نقشه و سفر","★ - رویداد و روزنامه","★ - وضعیت زندگی","", "« اینجا دفتر کاغذی نیست؛ هر تصمیم روی پول، زمان، دارایی یا جایگاهت در مرز اثر می‌گذارد.»","",SEP].join("\n");
+  const woman=isWoman(a);
+  const title=woman?"◈ دفتر مرز · بانوی مرز":"◈ دفتر مرز";
+  const lines=[title,"",SEP,"","★ - بانک و اقتصاد","★ - خانه و زمین","★ - مزرعه و دامداری","★ - اسب و حمل‌ونقل","★ - انبار و ابزار","★ - حرفه و مهارت","★ - کسب‌وکار و مغازه","★ - قانون و شهرت","★ - مأموریت و قرارداد","★ - باند و روابط","★ - نقشه و سفر","★ - رویداد و روزنامه","★ - وضعیت زندگی"];
+  if(woman){
+    lines.push("","★ - مسیرهای ویژه بانوی مرز","⛂ - کارگاه خیاطی و پوشاک","⛂ - درمان و خدمات سلامت","⛂ - مهمانخانه و میزبانی","⛂ - روزنامه و خبر محلی","⛂ - مدرسه و آموزش","⛂ - مدیریت سالون و رویداد");
+  }
+  lines.push("","« اینجا دفتر کاغذی نیست؛ هر تصمیم روی پول، زمان، دارایی یا جایگاهت در مرز اثر می‌گذارد.»","",SEP);
+  return lines.join("\n");
 }
 
 export function frontierExpansionMenuText(){
@@ -614,7 +842,7 @@ export function frontierExpansionMenuText(){
 
 export async function handleFrontierExpansionText(ctx:FrontierExpansionContext,text:string):Promise<FrontierExpansionResult|null>{
   const n=String(text??"").trim().replace(/^[\\/!.]+/,"").replace(/\s+/g," ").toLowerCase();
-  if(["توسعه مرز","مرکز توسعه","دفتر مرز","frontier expansion","frontier"].includes(n))return menuResult(frontierExpansionMenuText(),ctx.userId);
+  if(["توسعه مرز","مرکز توسعه","دفتر مرز","frontier expansion","frontier"].includes(n))return menuResult(await themedFrontierExpansionMenuText(ctx),ctx.userId);
   if(n==="دفتر بانوان مرز"||n==="تم بانوان مرز"||n==="frontier lady")return await handleFrontierExpansionCallback(ctx,["world","expand","ladies",String(ctx.userId)]);
   if(n==="وضعیت زندگی"||n==="زندگی من")return {text:await lifeStatusText(ctx),replyMarkup:expansionMenu(ctx.userId)};
   if(n==="دامداری"||n==="دام من")return {text:await livestockText(ctx),replyMarkup:expansionMenu(ctx.userId)};
@@ -623,6 +851,17 @@ export async function handleFrontierExpansionText(ctx:FrontierExpansionContext,t
   if(n==="روزنامه"||n==="روزنامه مرزی")return {text:await newspaperText(ctx),replyMarkup:expansionMenu(ctx.userId)};
   if(n==="بانک"||n==="بانک من")return {text:await bankText(ctx),replyMarkup:expansionMenu(ctx.userId)};
   if(n==="کار امروز"||n==="کار")return await doWork(ctx);
+  if(n==="کار ویژه"||n==="خدمات بانوی مرز"||n==="کار تخصصی")return {text:await careerText(ctx),replyMarkup:{inline_keyboard:[[ {text:"‹ اجرای کار ویژه",callback_data:"world:expand:career:"+ctx.userId} ],[ {text:"‹ بازگشت",callback_data:"world:home:"+ctx.userId} ]]}};
+  if(n==="دوخت لباس")return await doCareerAction(ctx,"craft");
+  if(n==="فروش لباس")return await doCareerAction(ctx,"sell");
+  if(n==="درمان")return await doCareerAction(ctx,"service",String(ctx.userId));
+  if(n.startsWith("درمان "))return await doCareerAction(ctx,"service",n.slice("درمان ".length));
+  if(n==="اقامت")return await doCareerAction(ctx,"service",String(ctx.userId));
+  if(n.startsWith("اقامت "))return await doCareerAction(ctx,"service",n.slice("اقامت ".length));
+  if(n==="آموزش")return await doCareerAction(ctx,"teach",String(ctx.userId));
+  if(n.startsWith("آموزش "))return await doCareerAction(ctx,"teach",n.slice("آموزش ".length));
+  if(n==="گزارش مرزی")return await doCareerAction(ctx,"report");
+  if(n==="شب سالون")return await doCareerAction(ctx,"saloon");
   if(n.startsWith("واریز بانک "))return await bankMovement(ctx,"deposit",Number(n.slice("واریز بانک ".length)));
   if(n.startsWith("برداشت بانک "))return await bankMovement(ctx,"withdraw",Number(n.slice("برداشت بانک ".length)));
   if(n.startsWith("باند جدید "))return await createBand(ctx,n.slice("باند جدید ".length));
@@ -638,7 +877,7 @@ export async function handleFrontierExpansionCallback(ctx:FrontierExpansionConte
   const sub=String(parts[2]??"");
   await ensureFrontierExpansionSchema(ctx.pool);
 
-  if(sub==="center")return menuResult(frontierExpansionMenuText(),ctx.userId);
+  if(sub==="center")return menuResult(await themedFrontierExpansionMenuText(ctx),ctx.userId);
   if(sub==="bank"){
     if(parts[3]==="deposit"||parts[3]==="withdraw")return await bankMovement(ctx,parts[3],Number(parts[4]));
     return menuResult(await bankText(ctx),ctx.userId);
@@ -691,7 +930,7 @@ export async function handleFrontierExpansionCallback(ctx:FrontierExpansionConte
     }
     return {
       text:[
-        "◈ دفتر بانوان مرز",
+        "◈ دفتر بانوان مرز · مسیرهای حرفه‌ای",
         "",
         SEP,
         "",
@@ -707,12 +946,13 @@ export async function handleFrontierExpansionCallback(ctx:FrontierExpansionConte
         "⛂ - سبک : Frontier Lady · کلاسیک و مستقل",
         "⛂ - شغل‌های عمومی : باز",
         "⛂ - مسیرهای اختصاصی : فعال",
+        "⛂ - کار ویژه هر شغل : فعال",
         "",
         "« این مرز فقط یک طرف جاده ندارد؛ راه خودت را بساز.»",
         "",
         SEP
       ].join("\n"),
-      replyMarkup:{inline_keyboard:[...rows,[{text:"‹ بازگشت",callback_data:"world:expand:profession:"+ctx.userId}]]}
+      replyMarkup:{inline_keyboard:[...rows,[{text:"‹ میز کار حرفه‌ای",callback_data:"world:expand:career:"+ctx.userId}],[{text:"‹ بازگشت",callback_data:"world:expand:profession:"+ctx.userId}]]}
     };
   }
   if(sub==="profession"){
@@ -723,11 +963,21 @@ export async function handleFrontierExpansionCallback(ctx:FrontierExpansionConte
       if(prof.womenOnly && !isWoman(a))continue;
       rows.push([{text:"‹ "+prof.name+" · "+prof.pay+" سکه",callback_data:"world:expand:profpick:"+code+":"+ctx.userId}]);
     }
+    rows.push([{text:"‹ کار ویژه",callback_data:"world:expand:career:"+ctx.userId}]);
     if(isWoman(a))rows.push([{text:"‹ دفتر بانوان مرز",callback_data:"world:expand:ladies:"+ctx.userId}]);
     rows.push([{text:"‹ کار امروز",callback_data:"world:expand:work:"+ctx.userId},{text:"‹ بازگشت",callback_data:"world:home:"+ctx.userId}]);
     return {text:await professionText(ctx)+(p?"\n\n★ - برای رفتن سر کار، «کار امروز» را بزن.":""),replyMarkup:{inline_keyboard:rows}};
   }
   if(sub==="profpick")return await chooseProfession(ctx,String(parts[3]??""));
+  if(sub==="career"){
+    if(parts[3]==="sell"||parts[3]==="craft"||parts[3]==="service"||parts[3]==="teach"||parts[3]==="report"||parts[3]==="saloon"){
+      return await doCareerAction(ctx,parts[3],parts[4]);
+    }
+    return {text:await careerText(ctx),replyMarkup:{inline_keyboard:[
+      [{text:"‹ اجرای کار ویژه",callback_data:"world:expand:career:action:"+ctx.userId}],
+      [{text:"‹ بازگشت",callback_data:"world:expand:profession:"+ctx.userId}]
+    ]}};
+  }
   if(sub==="work")return await doWork(ctx);
   if(sub==="livestock"){
     if(parts[3]==="buy")return await buyLivestock(ctx,String(parts[4]??""));
