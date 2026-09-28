@@ -542,6 +542,7 @@ async function doCareerAction(ctx:FrontierExpansionContext,action:string,targetR
     if(+a.coins<cost)return {text:"✗ برای پارچه و مواد اولیه "+money(cost)+" لازم داری.",replyMarkup:back(ctx.userId)};
     await ctx.pool.query("UPDATE game_world_accounts SET coins=coins-$3,xp=xp+20,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,cost]);
     await touchCareer(ctx,"seamstress",0,false,2,1);
+    await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"income",0,"دوخت لباس","محصول");
     return {text:["✓ یک لباس مرزی دوخته شد.","","⛂ - هزینه مواد : "+money(cost),"⛂ - محصول آماده : +1 لباس","⛂ - Reputation : +2","⛂ - تجربه : +20","",careerInstruction("seamstress")].join("\n"),replyMarkup:{inline_keyboard:[
       [{text:"‹ فروش یک لباس · 95",callback_data:"world:expand:career:sell:"+ctx.userId}],
       [{text:"‹ دفتر کار",callback_data:"world:expand:career:"+ctx.userId}]
@@ -570,6 +571,7 @@ async function doCareerAction(ctx:FrontierExpansionContext,action:string,targetR
       await client.query("COMMIT");
     }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e;}finally{client.release();}
     await touchCareer(ctx,"healer",self?2:price,true,3,0);
+    await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"income",self?2:price,"درمان مرزی","healer");
     return {text:["✓ درمان مرزی انجام شد.","","⛂ - بیمار : "+(self?"خودت":String(target.first_name??target.username??target.user_id)),"⛂ - سلامت : "+fa(before)+"% → "+fa(before+healed)+"%","⛂ - درآمد درمانگر : +"+money(self?2:price),"⛂ - Reputation : +3","","« درمانگر خوب منتظر نمی‌ماند زخمی عمیق‌تر شود.»"].join("\n"),replyMarkup:back(ctx.userId)};
   }
 
@@ -591,6 +593,7 @@ async function doCareerAction(ctx:FrontierExpansionContext,action:string,targetR
       await client.query("COMMIT");
     }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e;}finally{client.release();}
     await touchCareer(ctx,"innkeeper",self?2:price,true,2,0);
+    await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"income",self?2:price,"اقامت مرزی","innkeeper");
     return {text:["✓ اقامت ثبت شد.","","⛂ - مهمان : "+(self?"خودت":String(target.first_name??target.username??target.user_id)),"⛂ - انرژی : +25","⛂ - گرسنگی : +20","⛂ - درآمد مهمانخانه : +"+money(self?2:price),"⛂ - Reputation : +2","","« مهمانخانه خوب جایی است که مسافر صبح بتواند راهش را ادامه بدهد.»"].join("\n"),replyMarkup:back(ctx.userId)};
   }
 
@@ -602,6 +605,7 @@ async function doCareerAction(ctx:FrontierExpansionContext,action:string,targetR
     await ctx.pool.query("INSERT INTO game_world_events(scope,group_id,title,body,event_key,expires_at) VALUES('local',$1,$2,$3,$4,NOW()+INTERVAL '2 hours') ON CONFLICT DO NOTHING",[ctx.chatId,title,body,"journal-"+seq]);
     await ctx.pool.query("UPDATE game_world_accounts SET coins=coins+85,xp=xp+38,reputation=reputation+10,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId]);
     await touchCareer(ctx,"frontier_journalist",85,false,10,0);
+    await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"income",85,"گزارش مرزی","journalist");
     return {text:["✓ گزارش مرزی منتشر شد.","","⛂ - عنوان : "+title,"⛂ - درآمد : +"+money(85),"⛂ - تجربه : +38","⛂ - Reputation : +10","⛂ - محل انتشار : THE FRONTIER NEWS","","« خبر وقتی ارزش دارد که مردم فردا بتوانند نتیجه‌اش را ببینند.»"].join("\n"),replyMarkup:back(ctx.userId)};
   }
 
@@ -623,6 +627,7 @@ async function doCareerAction(ctx:FrontierExpansionContext,action:string,targetR
       await client.query("COMMIT");
     }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e;}finally{client.release();}
     await touchCareer(ctx,"schoolteacher",self?2:price,true,3,0);
+    await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"income",self?2:price,"آموزش مرزی","teacher");
     return {text:["✓ کلاس مرزی برگزار شد.","","⛂ - شاگرد : "+(self?"خودت":String(target.first_name??target.username??target.user_id)),"⛂ - تجربه شاگرد : +35","⛂ - درآمد معلم : +"+money(self?2:price),"⛂ - Reputation : +3","","« کلاس خوب چیزی به آدم می‌دهد که فردا بتواند از آن استفاده کند.»"].join("\n"),replyMarkup:back(ctx.userId)};
   }
 
@@ -636,6 +641,7 @@ async function doCareerAction(ctx:FrontierExpansionContext,action:string,targetR
     await ctx.pool.query("INSERT INTO game_world_news(scope,group_id,title,body,severity) VALUES('local',$1,$2,$3,'info')",[ctx.chatId,title,body]);
     await ctx.pool.query("UPDATE game_world_accounts SET coins=coins+$3,xp=xp+45,reputation=reputation+$4,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,base,repGain]);
     await touchCareer(ctx,"saloon_keeper",base,false,repGain,0);
+    await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"income",base,"شب سالون","saloon");
     return {text:["✓ شب سالون برگزار شد.","","⛂ - درآمد : +"+money(base),"⛂ - تجربه : +45","⛂ - Reputation : +"+fa(repGain),"⛂ - اثر کسب‌وکار : "+(hasSaloon?"سالون شخصی داری؛ پاداش کامل فعال شد.":"بدون سالون شخصی؛ پاداش پایه ثبت شد."),"","« سالون خوب فقط محل نشستن نیست؛ جایی است که خبر و پول هر دو راه می‌افتند.»"].join("\n"),replyMarkup:back(ctx.userId)};
   }
 
