@@ -536,11 +536,8 @@ function marketKeyboard(userId: number) {
   };
 }
 
-async 
 
-async 
 
-async 
 
 function cityOverviewKeyboard(userId:number,cities:Array<{settlement_id:number;name:string}>,canPromote:boolean) {
   const s=String(userId);
