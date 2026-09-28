@@ -514,6 +514,9 @@ function mainKeyboard(userId: number) {
         { text: "‹ راهنما", callback_data: "world:section:help:" + s },
         { text: "‹ تنظیمات", callback_data: "world:section:settings:" + s },
       ],
+      [
+        { text: "‹ دفتر مرز", callback_data: "world:expand:center:" + s },
+      ],
     ],
   };
 }
