@@ -475,119 +475,51 @@ function mainKeyboard(userId: number) {
   const s = String(userId);
   return {
     inline_keyboard: [
-      [{ text: "‹ راهنما", callback_data: "world:category:guide:" + s }],
-      [{ text: "‹ پروفایل و هویت", callback_data: "world:category:character:" + s }],
-      [{ text: "‹ زندگی و دارایی", callback_data: "world:category:life:" + s }],
-      [{ text: "‹ اقتصاد و تجارت", callback_data: "world:category:economy:" + s }],
-      [{ text: "‹ کار و تولید", callback_data: "world:category:work:" + s }],
-      [{ text: "‹ شهر و سفر", callback_data: "world:category:travel:" + s }],
-      [{ text: "‹ ماجرا و قانون", callback_data: "world:category:frontier:" + s }],
-      [{ text: "‹ جامعه و اخبار", callback_data: "world:category:society:" + s }],
+      [
+        { text: "‹ دفتر مرز", callback_data: "world:expand:center:" + s },
+        { text: "‹ پروفایل", callback_data: "world:section:profile:" + s },
+      ],
+      [
+        { text: "‹ زندگی شخصی", callback_data: "world:section:life:" + s },
+      ],
+      [
+        { text: "‹ شهر و سفر", callback_data: "world:section:city:" + s },
+        { text: "‹ کار و حرفه", callback_data: "world:section:job:" + s },
+      ],
+      [
+        { text: "‹ منابع و استخراج", callback_data: "world:section:resources:" + s },
+        { text: "‹ بازار مرزی", callback_data: "world:section:market:" + s },
+      ],
+      [
+        { text: "‹ ملک و دارایی", callback_data: "world:section:assets:" + s },
+        { text: "‹ مزرعه و اسب", callback_data: "world:expand:farm:" + s },
+      ],
+      [
+        { text: "‹ بانک و پول", callback_data: "world:expand:bank:" + s },
+        { text: "‹ انبار و ابزار", callback_data: "world:expand:tools:" + s },
+      ],
+      [
+        { text: "‹ ماجرا", callback_data: "world:section:adventure:" + s },
+        { text: "‹ قانون و شهرت", callback_data: "world:expand:law:" + s },
+      ],
+      [
+        { text: "‹ سالون", callback_data: "world:section:games:" + s },
+        { text: "‹ کار و مأموریت", callback_data: "world:section:missions:" + s },
+      ],
+      [
+        { text: "‹ مجموعه", callback_data: "world:section:collection:" + s },
+        { text: "‹ رویدادهای مرزی", callback_data: "world:section:events:" + s },
+      ],
+      [
+        { text: "‹ رتبه‌بندی", callback_data: "world:section:ranking:" + s },
+        { text: "‹ اخبار", callback_data: "world:section:news:" + s },
+      ],
+      [
+        { text: "‹ راهنما", callback_data: "world:section:help:" + s },
+        { text: "‹ تنظیمات", callback_data: "world:section:settings:" + s },
+      ],
     ],
   };
-}
-
-function categoryText(category:string,account:any){
-  const woman=String(account?.gender??"")==="female";
-  const texts:Record<string,{title:string;body:string}> = {
-    guide:{
-      title:"راهنما · آشنایی با بازی",
-      body:woman
-        ?"این مرز یک دنیای متنی زنده است؛ هویتت را بساز، حرفه‌ات را پیدا کن، درآمد داشته باش و با انتخاب‌های خودت جایگاهت را بساز. هر بخش فقط اندازه‌ای توضیح می‌دهد که بدانی قدم بعدی چیست."
-        :"این مرز یک دنیای متنی زنده است؛ هویتت را بساز، حرفه‌ات را پیدا کن، درآمد داشته باش و با انتخاب‌های خودت جایگاهت را بساز. اینجا بیشتر از حرف، عملت حساب می‌شود."
-    },
-    character:{
-      title:woman?"پروفایل و هویت · بانوی مرز":"پروفایل و هویت",
-      body:woman
-        ?"این بخش شناسنامه کاراکتر توست؛ نام، سطح، اعتبار و پیشرفتت را می‌بینی و وضعیت کلی زندگی‌ات را دنبال می‌کنی."
-        :"اینجا شناسنامه بازیکن است؛ نام، سطح، اعتبار و پیشرفتت را می‌بینی و می‌فهمی تا اینجا چه ساخته‌ای."
-    },
-    life:{
-      title:woman?"زندگی و دارایی · بانوی مرز":"زندگی و دارایی",
-      body:woman
-        ?"خانه، زمین، مزرعه، اصطبل، اسب و وضعیت روزمره‌ات در این بخش مدیریت می‌شود؛ آرام و دقیق، اما با هزینه‌های واقعی مرز."
-        :"خانه و زمین و اسب و ابزار شوخی‌بردار نیستند؛ اینجا دارایی‌هایی را می‌سازی که بعداً برایت کار می‌کنند."
-    },
-    economy:{
-      title:woman?"اقتصاد و تجارت · بانوی مرز":"اقتصاد و تجارت",
-      body:woman
-        ?"اینجا پولت مسیر پیدا می‌کند؛ درآمد، بانک، بازار، خرید و فروش و سرمایه‌گذاری. حساب‌وکتاب درست، پایه استقلال مالی در مرز است."
-        :"اینجا پول باید حرکت کند؛ کار کن، بفروش، معامله کن، بانک بساز و سرمایه‌ات را خرج چیزهایی کن که فردا بیشتر می‌ارزند."
-    },
-    work:{
-      title:woman?"کار و تولید · مسیر بانوی مرز":"کار و تولید",
-      body:woman
-        ?"از حرفه‌های عمومی تا مسیرهای تخصصی بانوان، این بخش محل تولید ارزش است؛ کار، مهارت، منابع، مزرعه و کسب‌وکار به هم وصل‌اند."
-        :"مرز به کسی حقوق می‌دهد که چیزی تولید کند؛ شغل، معدن، مزرعه، ابزار و کسب‌وکار، موتور درآمد تو هستند."
-    },
-    travel:{
-      title:"شهر و سفر",
-      body:woman
-        ?"شهرهای همگانی، مسیرهای سفر و وسیله‌های حمل‌ونقل اینجاست؛ برای هر سفر باید زمان، هزینه و مقصد را حساب کنی."
-        :"جاده برای عجله‌کردن ساخته نشده؛ شهرها، مسیرها و وسیله‌ها اینجا مدیریت می‌شوند و هر سفر بهای خودش را دارد."
-    },
-    frontier:{
-      title:woman?"ماجرا و قانون · بانوی مرز":"ماجرا و قانون",
-      body:woman
-        ?"ماموریت، رویداد، قانون، شهرت و ماجراهای مرز در این بخش جمع شده‌اند؛ انتخاب‌های تو می‌توانند روی جایگاهت اثر بگذارند."
-        :"اینجا جایی است که مرز آرام نمی‌ماند؛ مأموریت، قانون، تعقیب، باند و اتفاقات مسیر می‌توانند بازی را عوض کنند."
-    },
-    society:{
-      title:woman?"جامعه و اخبار · بانوی مرز":"جامعه و اخبار",
-      body:woman
-        ?"خبرهای محلی، رویدادها، رتبه‌بندی و ارتباط با دیگر بازیکنان را از اینجا دنبال می‌کنی؛ نامت کم‌کم در شهر شناخته می‌شود."
-        :"خبر در مرز زود می‌پیچد؛ رتبه‌بندی، اخبار، رویدادها، سالون و روابط اجتماعی اینجا کنار هم جمع می‌شوند."
-    },
-  };
-  const x=texts[category]??texts.guide;
-  return [
-    "◈ "+x.title,
-    "",
-    WORLD_SEPARATOR,
-    "",
-    "★ - "+String(account?.display_name??"بازیکن"),
-    "",
-    x.body,
-    "",
-    WORLD_SEPARATOR,
-    "",
-    woman ? "« اینجا لازم نیست بلند حرف بزنی؛ مهارت خوب خودش جای آدم را باز می‌کند.»" : westernLine(category==="travel"?"city":category==="economy"?"market":category==="work"?"job":category==="life"?"life":category==="society"?"news":"default"),
-  ].join("\n");
-}
-
-function categoryKeyboard(category:string,userId:number,woman:boolean){
-  const s=String(userId);
-  const rows:any[]=[];
-  if(category==="guide"){
-    rows.push([{text:"‹ آشنایی با بازی",callback_data:"world:category:guide:"+s}],
-      [{text:"‹ قوانین و اصطلاحات",callback_data:"world:section:help:"+s}]);
-  }else if(category==="character"){
-    rows.push([{text:"‹ پروفایل",callback_data:"world:section:profile:"+s},{text:"‹ مجموعه",callback_data:"world:section:collection:"+s}],
-      [{text:"‹ وضعیت زندگی",callback_data:"world:expand:life:"+s},{text:"‹ تنظیمات",callback_data:"world:section:settings:"+s}]);
-  }else if(category==="life"){
-    rows.push([{text:"‹ زندگی شخصی",callback_data:"world:section:life:"+s},{text:"‹ ملک و دارایی",callback_data:"world:section:assets:"+s}],
-      [{text:"‹ مزرعه و اسب",callback_data:"world:expand:farm:"+s},{text:"‹ انبار و ابزار",callback_data:"world:expand:tools:"+s}]);
-  }else if(category==="economy"){
-    rows.push([{text:"‹ دفتر درآمد",callback_data:"world:expand:economy:"+s},{text:"‹ بانک و اقتصاد",callback_data:"world:expand:bank:"+s}],
-      [{text:"‹ بازار مرزی",callback_data:"world:section:market:"+s},{text:"‹ کسب‌وکار",callback_data:"world:expand:business:"+s}]);
-  }else if(category==="work"){
-    rows.push([{text:"‹ کار و حرفه",callback_data:"world:expand:profession:"+s},{text:"‹ منابع و استخراج",callback_data:"world:section:resources:"+s}],
-      [{text:"‹ مزرعه و دامداری",callback_data:"world:expand:farm:"+s},{text:"‹ حرفه و مهارت",callback_data:"world:expand:profession:"+s}]);
-    if(woman)rows.push([{text:"‹ دفتر بانوان مرز",callback_data:"world:expand:ladies:"+s}]);
-    rows.push([{text:"‹ انبار و ابزار",callback_data:"world:expand:tools:"+s},{text:"‹ کسب‌وکار",callback_data:"world:expand:business:"+s}]);
-  }else if(category==="travel"){
-    rows.push([{text:"‹ شهر و سفر",callback_data:"world:section:city:"+s},{text:"‹ نقشه و مسیر",callback_data:"world:expand:map:"+s}],
-      [{text:"‹ اسب و حمل‌ونقل",callback_data:"world:expand:transport:"+s}]);
-  }else if(category==="frontier"){
-    rows.push([{text:"‹ ماجرا",callback_data:"world:section:adventure:"+s},{text:"‹ مأموریت",callback_data:"world:section:missions:"+s}],
-      [{text:"‹ قانون و شهرت",callback_data:"world:expand:law:"+s},{text:"‹ باند و روابط",callback_data:"world:expand:band:"+s}],
-      [{text:"‹ رویدادهای مرزی",callback_data:"world:section:events:"+s}]);
-  }else if(category==="society"){
-    rows.push([{text:"‹ اخبار",callback_data:"world:section:news:"+s},{text:"‹ رتبه‌بندی",callback_data:"world:section:ranking:"+s}],
-      [{text:"‹ سالون",callback_data:"world:section:games:"+s},{text:"‹ دفتر مرز",callback_data:"world:expand:center:"+s}]);
-  }
-  rows.push([{text:"‹ بازگشت به جهان",callback_data:"world:home:"+s}]);
-  return {inline_keyboard:rows};
 }
 
 function newsKeyboard(userId: number) {
@@ -966,7 +898,7 @@ function sectionText(section: string, account: any) {
     collection: "چیزهایی که در سفر، شکار، معدن و معامله جمع کرده‌ای.",
     events: "اتفاقات محدود، حوادث شهر و رویدادهایی که می‌توانند مسیر یک شهر را عوض کنند.",
     ranking: "مقایسه وضعیت و پیشرفت بازیکنان همین قلمرو.",
-    help: "قوانین مرز و راه استفاده از بخش‌های مختلف جهان.",
+    help: "این راهنما از شروع بازی تا زندگی در مرز را توضیح می‌دهد: ثبت هویت، خانه و دارایی، کار و تولید، اقتصاد و بازار، شهر و سفر، ماجرا و قانون و بخش‌های اجتماعی. برای شروع، از ورود به جهان و ثبت هویت شروع کن؛ بعد هر بخش را مرحله‌به‌مرحله باز کن.",
     settings: "تنظیمات اکانت و انتخاب‌های شخصی‌ات در جهان.",
   };
   return [
@@ -1813,19 +1745,6 @@ export async function handleWorldCallback(ctx: WorldContext, data: string): Prom
     return {
       text: (await centerText(ctx.pool, ctx, account)) ?? registrationText(ctx.user),
       replyMarkup: mainKeyboard(ctx.userId),
-    };
-  }
-
-  if (action === "category") {
-    const category = String(parts[2] ?? "guide");
-    const account = await getAccount(ctx.pool, ctx.chatId, ctx.userId);
-    if (!account) return { text: registrationText(ctx.user), replyMarkup: registrationKeyboard(ctx.userId) };
-    if (account.status !== "active") return { text: inactiveText(), replyMarkup: backKeyboard(ctx.userId) };
-    const allowed = ["guide","character","life","economy","work","travel","frontier","society"];
-    if (!allowed.includes(category)) return { text: categoryText("guide", account), replyMarkup: categoryKeyboard("guide",ctx.userId,String(account.gender)==="female") };
-    return {
-      text: categoryText(category,account),
-      replyMarkup: categoryKeyboard(category,ctx.userId,String(account.gender)==="female"),
     };
   }
 
