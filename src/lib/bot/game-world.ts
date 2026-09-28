@@ -539,6 +539,7 @@ function marketKeyboard(userId: number) {
   const s=String(userId);
   return {
     inline_keyboard:[
+      [{ text:"‹ فروش کالا",callback_data:"world:market:sell:"+s }],
       [
         { text:"‹ بازار روستا",callback_data:"world:market:local:"+s },
         { text:"‹ فروش‌های من",callback_data:"world:market:mine:"+s }
@@ -613,6 +614,82 @@ async function newsText(pool:Pool,ctx:WorldContext,scope:"local"|"global") {
   }
   lines.push(westernLine("news"),"",WORLD_SEPARATOR);
   return lines.join("\n");
+}
+
+async function marketSellText(pool:Pool,ctx:WorldContext) {
+  const rows=(await pool.query<any>(
+    "SELECT resource_code, amount FROM game_world_resource_inventory WHERE group_id=$1 AND user_id=$2 AND amount>0 ORDER BY resource_code ASC",
+    [ctx.chatId,ctx.userId],
+  )).rows;
+  const lines=[
+    "◈ فروش کالا",
+    "",
+    WORLD_SEPARATOR,
+    "",
+    "★ - موجودی قابل فروش",
+    "",
+  ];
+  if(!rows.length){
+    lines.push("⛂ - فعلاً کالایی در انبارت برای فروش وجود ندارد.");
+    lines.push("");
+    lines.push("ابتدا منابع تولیدشده را برداشت کن.");
+  } else {
+    for(const row of rows){
+      const resource=resourceByCode(String(row.resource_code));
+      lines.push("⛂ - "+(resource?.name??String(row.resource_code))+" : "+fa(Number(row.amount)));
+    }
+    lines.push("");
+    lines.push("★ - ثبت آگهی");
+    lines.push("نام کالا، تعداد و قیمت واحد را مشخص کن.");
+    lines.push("فرمت : فروش <نام کالا> <تعداد> <قیمت واحد>");
+    lines.push("نمونه : فروش چوب جنگلی 10 8");
+  }
+  lines.push("",westernLine("market"),"",WORLD_SEPARATOR);
+  return lines.join("\n");
+}
+
+function marketSellKeyboard(userId:number,rows:Array<{resource_code:string;amount:number}>){
+  const s=String(userId);
+  const kb:any[]=[];
+  for(const row of rows){
+    const resource=resourceByCode(String(row.resource_code));
+    kb.push([{text:"‹ "+(resource?.name??String(row.resource_code))+" · "+fa(Number(row.amount)),callback_data:"world:market:sellitem:"+String(row.resource_code)+":"+s}]);
+  }
+  kb.push([{text:"‹ راهنمای ثبت آگهی",callback_data:"world:market:help:"+s}]);
+  kb.push([{text:"‹ بازگشت",callback_data:"world:market:local:"+s}]);
+  return {inline_keyboard:kb};
+}
+
+async function marketSellItemText(pool:Pool,ctx:WorldContext,resourceCode:string){
+  const resource=resourceByCode(resourceCode);
+  if(!resource)return {text:"✗ این کالا شناخته‌شده نیست.",replyMarkup:marketKeyboard(ctx.userId)};
+  const row=(await pool.query<any>(
+    "SELECT amount FROM game_world_resource_inventory WHERE group_id=$1 AND user_id=$2 AND resource_code=$3 LIMIT 1",
+    [ctx.chatId,ctx.userId,resourceCode],
+  )).rows[0];
+  const amount=Math.floor(Number(row?.amount??0));
+  if(amount<=0)return {text:"« از این کالا چیزی برای فروش در انبارت نیست.»",replyMarkup:marketKeyboard(ctx.userId)};
+  return {
+    text:[
+      "◈ ثبت آگهی فروش",
+      "",
+      WORLD_SEPARATOR,
+      "",
+      "★ - کالا : "+resource.name,
+      "⛂ - موجودی : "+fa(amount),
+      "",
+      "حالا مقدار و قیمت واحد را مشخص کن.",
+      "فرمت : فروش "+resource.name+" <تعداد> <قیمت واحد>",
+      "نمونه : فروش "+resource.name+" 10 8",
+      "",
+      "برای ثبت نهایی، همین دستور را در چت بفرست.",
+      "",
+      westernLine("market"),
+      "",
+      WORLD_SEPARATOR
+    ].join("\n"),
+    replyMarkup:marketKeyboard(ctx.userId)
+  };
 }
 
 async function marketText(pool:Pool,ctx:WorldContext,mode:"local"|"mine"|"help") {
