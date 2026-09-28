@@ -392,6 +392,23 @@ async function joinGameRoom(ctx:GameContext,roomId:number){
     const nextStatus=nextCount>=Number(room.max_players)?"ready":"waiting";
     await client.query("UPDATE game_multiplayer_rooms SET status=$2 WHERE id=$1",[roomId,nextStatus]);
     await client.query("COMMIT");
+
+    if(nextStatus==="ready"){
+      const hostRow=(await ctx.pool.query<any>(
+        "SELECT user_id,username,first_name,COALESCE(first_name,username,user_id::text) AS display_name FROM game_players WHERE group_id=$1 AND user_id=$2 LIMIT 1",
+        [ctx.chatId,Number(room.host_id)]
+      )).rows[0];
+      const starterCtx:GameContext={
+        ...ctx,
+        userId:Number(room.host_id),
+        user:{
+          id:Number(room.host_id),
+          username:hostRow?.username,
+          firstName:hostRow?.first_name,
+        },
+      };
+      return await startGameRoom(starterCtx,roomId);
+    }
   }catch(error){
     await client.query("ROLLBACK").catch(()=>{});
     const code=String((error as any)?.code??"");
@@ -746,8 +763,6 @@ export async function handleGameCallback(ctx:GameContext,data:string):Promise<{t
   }
 
   if(action==="engine"){
-    const owner=Number(parts[parts.length-1]??0);
-    if(owner && owner!==ctx.userId)return {text:"⛂ - این بازی متعلق به بازیکن دیگری است.",replyMarkup:{inline_keyboard:[]}};
     return await handleEngineCallback(ctx,parts);
   }
 
