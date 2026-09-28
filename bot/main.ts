@@ -899,6 +899,7 @@ async function processMessage(msg: TgMessage, edited = false) {
       first_name: msg.from.first_name,
     },
     chatTitle: chat.title,
+    userRank: ctx.userRank,
   }, text);
   if (worldResult !== null) {
     await telegramApi("sendMessage", {
@@ -1036,6 +1037,7 @@ async function poll() {
                   first_name:callback.from.first_name,
                 },
                 chatTitle: chat.title,
+                userRank: String(ctx.userRank),
               },data);
 
               if(worldResult){
