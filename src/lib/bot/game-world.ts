@@ -1623,6 +1623,19 @@ export async function handleWorldCallback(ctx: WorldContext, data: string): Prom
 
   if (action === "market") {
     const mode=String(parts[2]??"local");
+    if(mode==="sell"){
+      const rows=(await ctx.pool.query<any>(
+        "SELECT resource_code, amount FROM game_world_resource_inventory WHERE group_id=$1 AND user_id=$2 AND amount>0 ORDER BY resource_code ASC",
+        [ctx.chatId,ctx.userId],
+      )).rows;
+      return {
+        text:await marketSellText(ctx.pool,ctx),
+        replyMarkup:marketSellKeyboard(ctx.userId,rows.map((row:any)=>({resource_code:String(row.resource_code),amount:Number(row.amount)}))),
+      };
+    }
+    if(mode==="sellitem"){
+      return await marketSellItemText(ctx.pool,ctx,String(parts[3]??""));
+    }
     return {text:await marketText(ctx.pool,ctx,mode==="mine"?"mine":mode==="help"?"help":"local"),replyMarkup:marketKeyboard(ctx.userId)};
   }
 
