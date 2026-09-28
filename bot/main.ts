@@ -1018,6 +1018,12 @@ async function poll() {
             const data=String(callback.data??"");
             if (data.startsWith("world:")) {
               const chat=callback.message.chat as TgChat;
+
+              // Acknowledge the Telegram button immediately so the tap feels instant.
+              await telegramApi("answerCallbackQuery",{
+                callback_query_id:callback.id,
+              });
+
               const worldResult=await handleWorldCallback({
                 pool:studioPool!,
                 chatId:chat.id,
@@ -1028,10 +1034,7 @@ async function poll() {
                   first_name:callback.from.first_name,
                 },
               },data);
-              await telegramApi("answerCallbackQuery",{
-                callback_query_id:callback.id,
-                text:worldResult ? "انجام شد." : "عملیات ناشناخته",
-              });
+
               if(worldResult){
                 await telegramApi("editMessageText",{
                   chat_id:chat.id,
