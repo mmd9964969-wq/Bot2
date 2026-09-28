@@ -443,12 +443,12 @@ export async function handleWorldCallback(ctx: WorldContext, data: string): Prom
     return { text: "✗ فعلاً اجرای این بخش ممکن نشد. دوباره تلاش کن." };
   }
 
-  const ownerId = Number(parts[parts.length - 1]);
-  if (!Number.isSafeInteger(ownerId) || ownerId !== ctx.userId) {
+  const action = parts[1];
+  const callbackUserId = action === "gender" ? Number(parts[2]) : Number(parts[parts.length - 1]);
+
+  if (!Number.isSafeInteger(callbackUserId) || callbackUserId !== ctx.userId) {
     return { text: unauthorizedText(), replyMarkup: backKeyboard(ctx.userId) };
   }
-
-  const action = parts[1];
 
   if (action === "register") {
     const account = await getAccount(ctx.pool, ctx.chatId, ctx.userId);
