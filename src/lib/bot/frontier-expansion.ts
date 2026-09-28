@@ -1077,7 +1077,7 @@ async function newspaperText(ctx:FrontierExpansionContext){
   return lines.join("\n");
 }
 
-export async async function themedFrontierExpansionMenuText(ctx:FrontierExpansionContext){
+export async function themedFrontierExpansionMenuText(ctx:FrontierExpansionContext){
   const a=await account(ctx);
   const woman=isWoman(a);
   return [
