@@ -970,11 +970,23 @@ export async function handleFrontierExpansionCallback(ctx:FrontierExpansionConte
   }
   if(sub==="profpick")return await chooseProfession(ctx,String(parts[3]??""));
   if(sub==="career"){
+    if(parts[3]==="action"){
+      const p=(await ctx.pool.query<any>("SELECT profession_code FROM game_world_professions WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId])).rows[0];
+      const actionMap:Record<string,string>={seamstress:"craft",healer:"service",innkeeper:"service",frontier_journalist:"report",schoolteacher:"teach",saloon_keeper:"saloon"};
+      const action=actionMap[String(p?.profession_code??"")];
+      if(!action)return {text:"✗ برای این حرفه کار ویژه‌ای ثبت نشده است.",replyMarkup:back(ctx.userId)};
+      return await doCareerAction(ctx,action,String(ctx.userId));
+    }
     if(parts[3]==="sell"||parts[3]==="craft"||parts[3]==="service"||parts[3]==="teach"||parts[3]==="report"||parts[3]==="saloon"){
       return await doCareerAction(ctx,parts[3],parts[4]);
     }
+    const p=(await ctx.pool.query<any>("SELECT profession_code FROM game_world_professions WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId])).rows[0];
+    const actionMap:Record<string,string>={seamstress:"craft",healer:"service",innkeeper:"service",frontier_journalist:"report",schoolteacher:"teach",saloon_keeper:"saloon"};
+    const action=actionMap[String(p?.profession_code??"")];
+    const label=String(p?.profession_code??"")==="seamstress"?"دوخت لباس":String(p?.profession_code??"")==="frontier_journalist"?"گزارش مرزی":String(p?.profession_code??"")==="schoolteacher"?"آموزش":String(p?.profession_code??"")==="healer"?"درمان خود":String(p?.profession_code??"")==="innkeeper"?"اقامت خود":"شب سالون";
     return {text:await careerText(ctx),replyMarkup:{inline_keyboard:[
-      [{text:"‹ اجرای کار ویژه",callback_data:"world:expand:career:action:"+ctx.userId}],
+      [{text:"‹ "+label,callback_data:"world:expand:career:action:"+ctx.userId}],
+      ...(String(p?.profession_code??"")==="seamstress"?[[{text:"‹ فروش یک لباس · 95",callback_data:"world:expand:career:sell:"+ctx.userId}]]:[]),
       [{text:"‹ بازگشت",callback_data:"world:expand:profession:"+ctx.userId}]
     ]}};
   }
