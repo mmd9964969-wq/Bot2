@@ -257,7 +257,7 @@ function miniMarkup(sessionId:number,code:string,userId:number,privateChat=false
   // From a group we use a callback that sends a real WebApp button to the user's private chat.
   if(!privateChat){
     return {inline_keyboard:[
-      [{text:"‹ اجرای "+gameName+" در PV",callback_data:"game:engine:launch:"+sessionId+":"+code+":"+userId}],
+      [{text:"‹ اجرای "+gameName+" در PV",callback_data:"game:engine:launch:"+sessionId+":"+code}],
       [{text:"‹ وضعیت بازی",callback_data:"game:engine:view:"+sessionId+":"+userId}],
       [{text:"‹ مرکز بازی",callback_data:"game:center"}]
     ]};
@@ -510,9 +510,9 @@ async function launchMiniAppForSession(ctx:GameContext,sessionId:number){
 export async function handleEngineCallback(ctx:GameContext,parts:string[]){
   const sub=parts[2]??"";
   const sessionId=Number(parts[3]??0);
-  const owner=Number(parts[parts.length-1]??0);
-  if(owner&&owner!==ctx.userId)return {text:"⛂ - این بازی متعلق به بازیکن دیگری است.",replyMarkup:{inline_keyboard:[]}};
   if(sub==="start"){
+    const owner=Number(parts[parts.length-1]??0);
+    if(owner&&owner!==ctx.userId)return {text:"⛂ - این بازی متعلق به بازیکن دیگری است.",replyMarkup:{inline_keyboard:[]}};
     const code=parts[4]??"";
     return await startEngine(ctx,code,"solo",[ctx.userId]);
   }
