@@ -76,6 +76,9 @@ export async function ensureFrontierExpansionSchema(pool:Pool){
 
       await pool.query("CREATE TABLE IF NOT EXISTS game_world_bank_accounts(group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,balance BIGINT NOT NULL DEFAULT 0 CHECK(balance>=0),debt BIGINT NOT NULL DEFAULT 0 CHECK(debt>=0),credit_score INT NOT NULL DEFAULT 600 CHECK(credit_score BETWEEN 0 AND 900),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),PRIMARY KEY(group_id,user_id))");
       await pool.query("CREATE TABLE IF NOT EXISTS game_world_bank_ledger(id BIGSERIAL PRIMARY KEY,group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,kind TEXT NOT NULL,amount BIGINT NOT NULL CHECK(amount>0),balance_after BIGINT NOT NULL CHECK(balance_after>=0),created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+      await pool.query("CREATE TABLE IF NOT EXISTS game_world_economy_ledger(id BIGSERIAL PRIMARY KEY,group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,kind TEXT NOT NULL CHECK(kind IN ('income','expense','transfer')),amount BIGINT NOT NULL CHECK(amount>0),balance_after BIGINT NOT NULL CHECK(balance_after>=0),source TEXT NOT NULL,reference TEXT,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+      await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_economy_user_time ON game_world_economy_ledger(group_id,user_id,created_at DESC)");
+      await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_economy_source ON game_world_economy_ledger(group_id,source,created_at DESC)");
       await pool.query("CREATE TABLE IF NOT EXISTS game_world_tools(group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,tool_code TEXT NOT NULL,level INT NOT NULL DEFAULT 1 CHECK(level>=1),durability INT NOT NULL DEFAULT 100 CHECK(durability>=0),quantity INT NOT NULL DEFAULT 1 CHECK(quantity>=0),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),PRIMARY KEY(group_id,user_id,tool_code))");
       await pool.query("CREATE TABLE IF NOT EXISTS game_world_professions(group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,profession_code TEXT NOT NULL,level INT NOT NULL DEFAULT 1 CHECK(level>=1),xp BIGINT NOT NULL DEFAULT 0 CHECK(xp>=0),last_work_at TIMESTAMPTZ,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),PRIMARY KEY(group_id,user_id))");
       await pool.query("CREATE TABLE IF NOT EXISTS game_world_player_missions(group_id BIGINT NOT NULL,user_id BIGINT NOT NULL,code TEXT NOT NULL,title TEXT NOT NULL,target INT NOT NULL CHECK(target>0),progress INT NOT NULL DEFAULT 0 CHECK(progress>=0),reward_coins BIGINT NOT NULL DEFAULT 0 CHECK(reward_coins>=0),reward_xp BIGINT NOT NULL DEFAULT 0 CHECK(reward_xp>=0),claim_key TEXT NOT NULL,claimed BOOLEAN NOT NULL DEFAULT FALSE,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),PRIMARY KEY(group_id,user_id,code))");
@@ -115,8 +118,9 @@ function back(userId:number){
 function expansionMenu(userId:number){
   const s=String(userId);
   return {inline_keyboard:[
-    [{text:"‹ بانک و اقتصاد",callback_data:"world:expand:bank:"+s},{text:"‹ ملک و زمین",callback_data:"world:expand:property:"+s}],
-    [{text:"‹ مزرعه و دامداری",callback_data:"world:expand:farm:"+s},{text:"‹ اسب و حمل‌ونقل",callback_data:"world:expand:transport:"+s}],
+    [{text:"‹ بانک و اقتصاد",callback_data:"world:expand:bank:"+s},{text:"‹ دفتر درآمد",callback_data:"world:expand:economy:"+s}],
+    [{text:"‹ ملک و زمین",callback_data:"world:expand:property:"+s},{text:"‹ مزرعه و دامداری",callback_data:"world:expand:farm:"+s}],
+    [{text:"‹ اسب و حمل‌ونقل",callback_data:"world:expand:transport:"+s},{text:"‹ انبار و ابزار",callback_data:"world:expand:tools:"+s}],
     [{text:"‹ انبار و ابزار",callback_data:"world:expand:tools:"+s},{text:"‹ حرفه و مهارت",callback_data:"world:expand:profession:"+s}],
     [{text:"‹ کسب‌وکار",callback_data:"world:expand:business:"+s},{text:"‹ قانون و شهرت",callback_data:"world:expand:law:"+s}],
     [{text:"‹ مأموریت و قرارداد",callback_data:"world:expand:missions:"+s},{text:"‹ باند و روابط",callback_data:"world:expand:band:"+s}],
@@ -140,10 +144,67 @@ async function ensureBank(ctx:FrontierExpansionContext){
   return (await ctx.pool.query<any>("SELECT * FROM game_world_bank_accounts WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId])).rows[0];
 }
 
+async function recordEconomy(pool:Pool,groupId:number,userId:number,kind:"income"|"expense"|"transfer",amount:number,source:string,reference?:string){
+  const value=Math.floor(Number(amount)||0);
+  if(value<=0)return;
+  const row=(await pool.query<any>("SELECT coins FROM game_world_accounts WHERE group_id=$1 AND user_id=$2 LIMIT 1",[groupId,userId])).rows[0];
+  if(!row)return;
+  await pool.query(
+    "INSERT INTO game_world_economy_ledger(group_id,user_id,kind,amount,balance_after,source,reference) VALUES($1,$2,$3,$4,$5,$6,$7)",
+    [groupId,userId,kind,value,Math.max(0,Math.floor(Number(row.coins)||0)),source,reference??null],
+  );
+}
+
+async function economyText(ctx:FrontierExpansionContext){
+  const a=await account(ctx); if(!a)return "✗ اکانتت هنوز ثبت نشده است.";
+  const today=(await ctx.pool.query<any>(
+    "SELECT COALESCE(SUM(amount) FILTER(WHERE kind='income'),0) income,COALESCE(SUM(amount) FILTER(WHERE kind='expense'),0) expense FROM game_world_economy_ledger WHERE group_id=$1 AND user_id=$2 AND created_at>=CURRENT_DATE",
+    [ctx.chatId,ctx.userId],
+  )).rows[0];
+  const recent=(await ctx.pool.query<any>(
+    "SELECT kind,amount,source,created_at FROM game_world_economy_ledger WHERE group_id=$1 AND user_id=$2 ORDER BY created_at DESC LIMIT 8",
+    [ctx.chatId,ctx.userId],
+  )).rows;
+  const business=(await ctx.pool.query<any>(
+    "SELECT COALESCE(SUM(cashbox),0) cashbox FROM game_world_businesses WHERE group_id=$1 AND user_id=$2 AND status='open'",
+    [ctx.chatId,ctx.userId],
+  )).rows[0];
+  const p=(await ctx.pool.query<any>(
+    "SELECT profession_code,level FROM game_world_professions WHERE group_id=$1 AND user_id=$2 LIMIT 1",
+    [ctx.chatId,ctx.userId],
+  )).rows[0];
+  const prof=p?PROFESSIONS[String(p.profession_code)]:null;
+  const lines=[
+    "◈ دفتر درآمد و اقتصاد",
+    "",
+    SEP,
+    "",
+    "★ - وضعیت امروز",
+    "⛂ - موجودی نقد : "+money(+a.coins),
+    "⛂ - موجودی بانک : "+money(+(await ensureBank(ctx)).balance),
+    "⛂ - درآمد ثبت‌شده امروز : +"+money(+today.income),
+    "⛂ - هزینه ثبت‌شده امروز : -"+money(+today.expense),
+    "⛂ - گردش خالص امروز : "+money(+today.income-+today.expense),
+    "⛂ - پول داخل کسب‌وکارها : "+money(+business.cashbox),
+    "",
+    "★ - موتور درآمد فعلی",
+    p&&prof ? "⛂ - "+prof.name+" · "+money(prof.pay)+" پایه در هر نوبت" : "⛂ - هنوز حرفه‌ای برای درآمد شغلی انتخاب نکرده‌ای.",
+    "",
+    "★ - آخرین گردش حساب",
+  ];
+  if(!recent.length)lines.push("⛂ - هنوز گردش مالی ثبت نشده است.");
+  else for(const row of recent){
+    const prefix=String(row.kind)==="income"?"+":String(row.kind)==="expense"?"-":"↔";
+    lines.push("⛂ - "+prefix+money(+row.amount)+" · "+String(row.source));
+  }
+  lines.push("","« پول باید حرکت کند؛ درآمد می‌آید، خرج می‌شود و دوباره به بازار برمی‌گردد.»","",SEP);
+  return lines.join("\n");
+}
+
 async function bankText(ctx:FrontierExpansionContext){
   const a=await account(ctx); if(!a)return "✗ اکانتت هنوز ثبت نشده است.";
   const b=await ensureBank(ctx);
-  return ["◈ بانک مرزی","",SEP,"","★ - صاحب حساب : "+nameOf(ctx),"⛂ - موجودی نقد : "+money(+a.coins),"⛂ - موجودی بانک : "+money(+b.balance),"⛂ - بدهی : "+money(+b.debt),"⛂ - اعتبار بانکی : "+fa(+b.credit_score),"","« بانک پول را نگه می‌دارد؛ بدهی را هم فراموش نمی‌کند.»","",SEP].join("\n");
+  return ["◈ بانک مرزی","",SEP,"","★ - صاحب حساب : "+nameOf(ctx),"⛂ - موجودی نقد : "+money(+a.coins),"⛂ - موجودی بانک : "+money(+b.balance),"⛂ - بدهی : "+money(+b.debt),"⛂ - اعتبار بانکی : "+fa(+b.credit_score),"","‹ برای دیدن گردش کامل حساب، «دفتر درآمد» را باز کن.","","« بانک پول را نگه می‌دارد؛ بدهی را هم فراموش نمی‌کند.»","",SEP].join("\n");
 }
 
 async function propertyText(ctx:FrontierExpansionContext){
@@ -840,6 +901,8 @@ export function frontierExpansionMenuText(){
   return ["◈ دفتر مرز","",SEP,"","★ - بانک و اقتصاد","★ - خانه و زمین","★ - مزرعه و دامداری","★ - اسب و حمل‌ونقل","★ - انبار و ابزار","★ - حرفه و مهارت","★ - کسب‌وکار و مغازه","★ - قانون و شهرت","★ - مأموریت و قرارداد","★ - باند و روابط","★ - نقشه و سفر","★ - رویداد و روزنامه","★ - وضعیت زندگی","", "« اینجا دفتر کاغذی نیست؛ هر تصمیم روی پول، زمان، دارایی یا جایگاهت در مرز اثر می‌گذارد.»","",SEP].join("\n");
 }
 
+export { recordEconomy };
+
 export async function handleFrontierExpansionText(ctx:FrontierExpansionContext,text:string):Promise<FrontierExpansionResult|null>{
   const n=String(text??"").trim().replace(/^[\\/!.]+/,"").replace(/\s+/g," ").toLowerCase();
   if(["توسعه مرز","مرکز توسعه","دفتر مرز","frontier expansion","frontier"].includes(n))return menuResult(await themedFrontierExpansionMenuText(ctx),ctx.userId);
@@ -850,6 +913,7 @@ export async function handleFrontierExpansionText(ctx:FrontierExpansionContext,t
   if(n==="کسب و کار"||n==="کسب‌وکار"||n==="مغازه من")return {text:await businessText(ctx),replyMarkup:expansionMenu(ctx.userId)};
   if(n==="روزنامه"||n==="روزنامه مرزی")return {text:await newspaperText(ctx),replyMarkup:expansionMenu(ctx.userId)};
   if(n==="بانک"||n==="بانک من")return {text:await bankText(ctx),replyMarkup:expansionMenu(ctx.userId)};
+  if(n==="اقتصاد من"||n==="دفتر درآمد"||n==="درآمد من"||n==="گردش مالی")return {text:await economyText(ctx),replyMarkup:expansionMenu(ctx.userId)};
   if(n==="کار امروز"||n==="کار")return await doWork(ctx);
   if(n==="کار ویژه"||n==="خدمات بانوی مرز"||n==="کار تخصصی")return {text:await careerText(ctx),replyMarkup:{inline_keyboard:[[ {text:"‹ اجرای کار ویژه",callback_data:"world:expand:career:"+ctx.userId} ],[ {text:"‹ بازگشت",callback_data:"world:home:"+ctx.userId} ]]}};
   if(n==="دوخت لباس")return await doCareerAction(ctx,"craft");
@@ -882,6 +946,7 @@ export async function handleFrontierExpansionCallback(ctx:FrontierExpansionConte
     if(parts[3]==="deposit"||parts[3]==="withdraw")return await bankMovement(ctx,parts[3],Number(parts[4]));
     return menuResult(await bankText(ctx),ctx.userId);
   }
+  if(sub==="economy")return menuResult(await economyText(ctx),ctx.userId);
   if(sub==="property"){
     if(parts[3]==="home")return await upgradeHome(ctx);
     if(parts[3]==="land")return await upgradeLand(ctx);
