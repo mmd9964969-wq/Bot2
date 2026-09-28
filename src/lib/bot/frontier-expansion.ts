@@ -919,18 +919,19 @@ async function doWork(ctx:FrontierExpansionContext){
   const p=(await ctx.pool.query<any>("SELECT * FROM game_world_professions WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId])).rows[0];
   if(!p)return {text:"✗ اول یک حرفه انتخاب کن.",replyMarkup:back(ctx.userId)};
   const prof=PROFESSIONS[String(p.profession_code)];
+  if(!prof)return {text:"✗ مشخصات این حرفه پیدا نشد.",replyMarkup:back(ctx.userId)};
   const last=p.last_work_at?new Date(p.last_work_at).getTime():0;
   const remain=Math.max(0,Math.ceil((last+prof.cooldown*1000-Date.now())/1000));
-  if(remain>0)return {text:"⛂ - برای نوبت بعدی "+fa(remain)+" ثانیه صبر کن.",replyMarkup:back(ctx.userId)};
+  if(remain>0)return {text:["⛂ - نوبت کاری قبلی هنوز در فاصله انتظار است.","⛂ - زمان باقی‌مانده : "+fa(remain)+" ثانیه","","⛂ - نوبت کاری یعنی یک بار انجام کار حرفه‌ای و دریافت مزد همان نوبت.","⛂ - برداشت جداگانه برای درآمد شغلی لازم نیست."].join("\n"),replyMarkup:back(ctx.userId)};
   const pay=prof.pay+(+p.level-1)*25;
   const xp=prof.xp;
   const nextXp=+p.xp+xp;
   const nextLevel=Math.max(1,Math.floor(Math.sqrt(nextXp/100))+1);
   await ctx.pool.query("UPDATE game_world_accounts SET coins=coins+$3,xp=xp+$4,last_active_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,pay,xp]);
-  await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"income",pay,"حقوق حرفه",prof.name);
+  await recordEconomy(ctx.pool,ctx.chatId,ctx.userId,"income",pay,"نوبت کاری · "+prof.name,prof.name);
   await ctx.pool.query("UPDATE game_world_professions SET xp=xp+$3,level=GREATEST(level,$4),last_work_at=NOW(),updated_at=NOW() WHERE group_id=$1 AND user_id=$2",[ctx.chatId,ctx.userId,xp,nextLevel]);
   await ctx.pool.query("UPDATE game_world_player_missions SET progress=LEAST(target,progress+1),updated_at=NOW() WHERE group_id=$1 AND user_id=$2 AND code='work_3' AND claim_key=$3",[ctx.chatId,ctx.userId,new Date().toISOString().slice(0,10)]);
-  return {text:["✓ کار انجام شد.","","⛂ - حرفه : "+prof.name,"⛂ - درآمد : +"+money(pay),"⛂ - تجربه : +"+fa(xp),"⛂ - سطح حرفه : "+fa(nextLevel),"","« کار تمام شد. مزدش را گرفتی؛ فردا باز همین مرز سر جایش است.»"].join("\n"),replyMarkup:back(ctx.userId)};
+  return {text:["✓ نوبت کاری انجام شد.","","★ - تسویه نوبت","⛂ - حرفه : "+prof.name,"⛂ - مزد این نوبت : +"+money(pay),"⛂ - موجودی نقد : "+money(+((await account(ctx))?.coins??0)),"⛂ - تجربه : +"+fa(xp),"⛂ - سطح حرفه : "+fa(nextLevel),"","★ - وضعیت","⛂ - این درآمد مستقیماً به موجودی نقد اضافه شد.","⛂ - برداشت جداگانه لازم نیست.","⛂ - نوبت بعدی پس از "+fa(prof.cooldown)+" ثانیه فعال می‌شود.","","« یک نوبت کاری تمام شد؛ مزدش همان لحظه تسویه شد.»"].join("\n"),replyMarkup:back(ctx.userId)};
 }
 
 async function bankMovement(ctx:FrontierExpansionContext,kind:"deposit"|"withdraw",amount:number){
@@ -1275,7 +1276,7 @@ export async function handleFrontierExpansionText(ctx:FrontierExpansionContext,t
   if(n==="اقتصاد مرزی"||n==="قیمت‌های مرزی"||n==="قیمت پویا"||n==="عرضه و تقاضا")return {text:await dynamicMarketOverview(ctx),replyMarkup:expansionMenu(ctx.userId)};
   if(n==="زنجیره تولید و مصرف"||n==="زنجیره اقتصاد"||n==="جریان کالا"||n==="تولید و مصرف")return {text:await supplyChainText(ctx),replyMarkup:expansionMenu(ctx.userId)};
   if(n==="راهنمای اقتصاد"||n==="راهنمای اقتصاد و نمادها"||n==="راهنمای سرزمین پرشین")return {text:worldGuideText(),replyMarkup:expansionMenu(ctx.userId)};
-  if(n==="کار امروز"||n==="کار")return await doWork(ctx);
+  if(n==="کار امروز"||n==="کار"||n==="نوبت کاری"||n==="شروع نوبت کاری")return await doWork(ctx);
   if(n==="کار ویژه"||n==="خدمات بانوی مرز"||n==="کار تخصصی")return {text:await careerText(ctx),replyMarkup:{inline_keyboard:[[ {text:"‹ اجرای کار ویژه",callback_data:"world:expand:career:"+ctx.userId} ],[ {text:"‹ بازگشت",callback_data:"world:home:"+ctx.userId} ]]}};
   if(n==="دوخت لباس")return await doCareerAction(ctx,"craft");
   if(n==="فروش لباس")return await doCareerAction(ctx,"sell");
@@ -1397,7 +1398,7 @@ export async function handleFrontierExpansionCallback(ctx:FrontierExpansionConte
     }
     rows.push([{text:"‹ کار ویژه",callback_data:"world:expand:career:"+ctx.userId}]);
     if(isWoman(a))rows.push([{text:"‹ دفتر بانوان مرز",callback_data:"world:expand:ladies:"+ctx.userId}]);
-    rows.push([{text:"‹ کار امروز",callback_data:"world:expand:work:"+ctx.userId},{text:"‹ بازگشت",callback_data:"world:home:"+ctx.userId}]);
+    rows.push([{text:"‹ شروع نوبت کاری",callback_data:"world:expand:work:"+ctx.userId},{text:"‹ بازگشت",callback_data:"world:home:"+ctx.userId}]);
     return {text:await professionText(ctx)+(p?"\n\n★ - برای رفتن سر کار، «کار امروز» را بزن.":""),replyMarkup:{inline_keyboard:rows}};
   }
   if(sub==="profpick")return await chooseProfession(ctx,String(parts[3]??""));
