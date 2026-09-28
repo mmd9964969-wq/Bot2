@@ -1,4 +1,4 @@
-import type { Pool } from "pg";
+import type { Pool } from "pg";\nimport { handleFrontierExpansionText, handleFrontierExpansionCallback, ensureFrontierExpansionSchema } from "./frontier-expansion.ts";
 
 export type WorldUser = {
   id: number;
@@ -300,6 +300,7 @@ export async function ensureWorldSchema(pool: Pool) {
 
   await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_resource_factories_group_user ON game_world_resource_factories(group_id,user_id,active)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_game_world_resource_inventory_group_user ON game_world_resource_inventory(group_id,user_id)");
+  await ensureFrontierExpansionSchema(pool);
 }
 
 async function getAccount(pool: Pool, groupId: number, userId: number) {
@@ -487,7 +488,15 @@ function mainKeyboard(userId: number) {
       ],
       [
         { text: "‹ ملک و دارایی", callback_data: "world:section:assets:" + s },
+        { text: "‹ مزرعه و اسب", callback_data: "world:expand:farm:" + s },
+      ],
+      [
+        { text: "‹ بانک و پول", callback_data: "world:expand:bank:" + s },
+        { text: "‹ انبار و ابزار", callback_data: "world:expand:tools:" + s },
+      ],
+      [
         { text: "‹ ماجرا", callback_data: "world:section:adventure:" + s },
+        { text: "‹ قانون و شهرت", callback_data: "world:expand:law:" + s },
       ],
       [
         { text: "‹ سالون", callback_data: "world:section:games:" + s },
@@ -1346,6 +1355,9 @@ export async function handleWorldText(ctx: WorldContext, text: string): Promise<
     };
   }
 
+  const frontierExpansion=await handleFrontierExpansionText(ctx,text);
+  if(frontierExpansion!==null)return frontierExpansion;
+
   if(auxiliary){
     const sold=await createMarketListingFromText(ctx.pool,ctx,text);
     if(sold!==null)return sold;
@@ -1384,6 +1396,9 @@ export async function handleWorldCallback(ctx: WorldContext, data: string): Prom
   if (!Number.isSafeInteger(callbackUserId) || callbackUserId !== ctx.userId) {
     return { text: unauthorizedText(), replyMarkup: backKeyboard(ctx.userId) };
   }
+
+  const frontierExpansion=await handleFrontierExpansionCallback(ctx,parts);
+  if(frontierExpansion!==null)return frontierExpansion;
 
   if (action === "register") {
     const account = await getAccount(ctx.pool, ctx.chatId, ctx.userId);
