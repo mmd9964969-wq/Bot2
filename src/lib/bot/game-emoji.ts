@@ -48,6 +48,16 @@ export function gameEmoji(key: GameEmojiKey, fallback = FALLBACK_BY_KEY[key]): s
   return `<tg-emoji emoji-id="${id}">${fallback}</tg-emoji>`;
 }
 
+export function renderGameText(text: string): { text: string; parseMode?: "HTML" } {
+  if (!text.includes("<tg-emoji")) return { text };
+  const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const restored = escaped.replace(
+    /&lt;tg-emoji emoji-id="(\\d+)"&gt;(.*?)&lt;\\/tg-emoji&gt;/g,
+    '<tg-emoji emoji-id="$1">$2</tg-emoji>',
+  );
+  return { text: restored, parseMode: "HTML" };
+}
+
 export function gameEmojiIds(): Record<GameEmojiKey, string> {
   return Object.fromEntries(
     Object.entries(ENV_BY_KEY).map(([key, env]) => [key, String(process.env[env] ?? "").trim()]),
