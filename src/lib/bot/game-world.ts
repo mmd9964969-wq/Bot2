@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import { handleFrontierExpansionText, handleFrontierExpansionCallback, ensureFrontierExpansionSchema, recordEconomy, marketReferencePrice, recalculateDynamicMarketPrice } from "./frontier-expansion.ts";
+import { gameEmoji } from "./game-emoji.ts";
 
 export type WorldUser = {
   id: number;
@@ -22,7 +23,7 @@ export type WorldResult = {
   parseMode?: "HTML";
 };
 
-export const WORLD_SEPARATOR = "─────━━───── ◈ ─────━━─────";
+export const WORLD_SEPARATOR = `─────━━───── ${gameEmoji("world")} ─────━━─────`;
 
 const WORLD_COMMANDS = [
   "ورود به جهان",
@@ -875,15 +876,14 @@ function registrationText(user: WorldUser) {
     "",
     WORLD_SEPARATOR,
     "",
-    "شهر هنوز نامت را نمی‌شناسد.",
-    "برای شروع زندگی در این سرزمین، باید هویتت را ثبت کنی.",
+    "★ - کلانتر : «هی، تازه‌وارد! اسمت رو بگو تا تو دفتر شهر ثبتت کنم.",
+    "اینجا بدون اسم و رسم نمی‌تونی کاری از پیش ببری.»",
     "",
-    "این شهر برای تازه‌واردها جای راحتی نیست.",
-    "از صفر شروع می‌کنی؛ بقیه‌اش با خودت است.",
-    "",
-    "★ - تازه‌وارد : " + displayName(user),
+    "⛂ - تازه‌وارد : " + displayName(user),
     "⛂ - شناسه : " + fa(user.id),
-    "⛂ - وضعیت هویت : ثبت‌نشده",
+    "⛂ - وضعیت هویت : ✗ ثبت‌نشده",
+    "",
+    "- برای ثبت هویتت اسمت رو بفرست.",
     "",
     WORLD_SEPARATOR,
     "",
