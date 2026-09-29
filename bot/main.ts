@@ -850,6 +850,36 @@ async function processMessage(msg: TgMessage, edited = false) {
     staff: [...adminIds].map((id) => ({ id, name: String(id), rank: rankOf(id, adminIds) })),
   };
 
+  const worldEntry = String(text ?? "").trim().replace(/^[\\/!.]+/, "").replace(/[\\u200c\\u200d]/g, " ").replace(/\\s+/g, " ").toLowerCase();
+  const isDirectWorldEntry = ["ورود به جهان", "جهان", "جهان من", "دنیای من", "world", "my world", "enter world"].includes(worldEntry);
+  if (isDirectWorldEntry) {
+    const worldResult = await handleWorldText({
+      pool: studioPool!,
+      chatId: chat.id,
+      userId: msg.from.id,
+      user: {
+        id: msg.from.id,
+        username: msg.from.username,
+        first_name: msg.from.first_name,
+      },
+      chatTitle: chat.title,
+      userRank: ctx.userRank,
+    }, text);
+    if (worldResult !== null) {
+      const renderedWorld = renderGameText(worldResult.text);
+      await telegramApi("sendMessage", {
+        chat_id: chat.id,
+        text: renderedWorld.text,
+        reply_to_message_id: msg.message_id,
+        reply_markup: worldResult.replyMarkup,
+        ...(renderedWorld.parseMode || worldResult.parseMode
+          ? { parse_mode: renderedWorld.parseMode || worldResult.parseMode }
+          : {}),
+      });
+      return;
+    }
+  }
+
   if (studioPool && await dispatchPanelMessage(studioPool, msg, config.ownerIds)) {
     // The panel entry message belongs to the temporary panel session.
     // Normal bot commands remain in the chat for manual cleanup by admins.
