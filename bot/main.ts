@@ -21,6 +21,7 @@ import { handleGameText, handleGameCallback, gameCenterKeyboard, isGameCenterCom
 import { ensureEngineSchema, getEngineGame } from "../src/lib/bot/game-engine.ts";
 import { handleWorldCallback, handleWorldText } from "../src/lib/bot/game-world.ts";
 import { handleFrontierExpansionCallback } from "../src/lib/bot/frontier-expansion.ts";
+import { renderGameText } from "../src/lib/bot/game-emoji.ts";
 
 const TOKEN = process.env.BOT_TOKEN ?? "";
 if (!TOKEN) { console.error("BOT_TOKEN is missing"); process.exit(1); }
@@ -903,12 +904,15 @@ async function processMessage(msg: TgMessage, edited = false) {
     userRank: ctx.userRank,
   }, text);
   if (worldResult !== null) {
+    const renderedWorld = renderGameText(worldResult.text);
     await telegramApi("sendMessage", {
       chat_id: chat.id,
-      text: worldResult.text,
+      text: renderedWorld.text,
       reply_to_message_id: msg.message_id,
       reply_markup: worldResult.replyMarkup,
-      ...(worldResult.parseMode ? { parse_mode: worldResult.parseMode } : {}),
+      ...(renderedWorld.parseMode || worldResult.parseMode
+        ? { parse_mode: renderedWorld.parseMode || worldResult.parseMode }
+        : {}),
     });
     return;
   }
