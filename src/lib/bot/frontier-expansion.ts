@@ -1,4 +1,5 @@
 import type { Pool } from "pg";
+import { gameEmoji } from "./game-emoji.ts";
 
 export type FrontierExpansionContext = {
   pool: Pool;
@@ -14,7 +15,7 @@ export type FrontierExpansionResult = {
   parseMode?: "HTML";
 };
 
-const SEP = "─────━━───── ◈ ─────━━─────";
+const SEP = `─────━━───── ${gameEmoji("world")} ─────━━─────`;
 const fa = (x:number) => String(Math.max(0, Math.floor(Number(x)||0))).replace(/\d/g,d=>"۰۱۲۳۴۵۶۷۸۹"[Number(d)]);
 const nameOf = (ctx:FrontierExpansionContext) => ctx.user.first_name || ctx.user.username || String(ctx.userId);
 const money = (x:number) => fa(x)+" سکه";
