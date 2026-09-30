@@ -19,7 +19,15 @@ const schemaSQL=[
   has_bot BOOLEAN NOT NULL DEFAULT FALSE,content TEXT,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE(group_id,message_id)
 )`,
-`CREATE INDEX IF NOT EXISTS cleanup_messages_group_created_idx ON cleanup_messages(group_id,created_at DESC)`,
+`ALTER TABLE cleanup_messages ADD COLUMN IF NOT EXISTS username TEXT;
+ALTER TABLE cleanup_messages ADD COLUMN IF NOT EXISTS message_type TEXT NOT NULL DEFAULT 'text';
+ALTER TABLE cleanup_messages ADD COLUMN IF NOT EXISTS has_link BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE cleanup_messages ADD COLUMN IF NOT EXISTS has_media BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE cleanup_messages ADD COLUMN IF NOT EXISTS has_bot BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE cleanup_messages ADD COLUMN IF NOT EXISTS content TEXT;
+ALTER TABLE cleanup_messages ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+CREATE UNIQUE INDEX IF NOT EXISTS cleanup_messages_group_message_uidx ON cleanup_messages(group_id,message_id)
+CREATE INDEX IF NOT EXISTS cleanup_messages_group_created_idx ON cleanup_messages(group_id,created_at DESC)`,
 `CREATE INDEX IF NOT EXISTS cleanup_messages_group_user_idx ON cleanup_messages(group_id,user_id,created_at DESC)`,
 `CREATE TABLE IF NOT EXISTS cleanup_jobs(
   id BIGSERIAL PRIMARY KEY,job_key TEXT UNIQUE NOT NULL,group_id BIGINT NOT NULL,actor_id BIGINT NOT NULL,mode TEXT NOT NULL,
@@ -171,6 +179,17 @@ async function pinnedMessageId(groupId:number){
 
 async function candidateRows(pool:Pool,groupId:number,filters:any){
   const f=filterWhere(filters);
+  const messageId=filters?.messageId!=null?Number(filters.messageId):null;
+  if(messageId&&Number.isSafeInteger(messageId)){
+    const r=await pool.query(
+      `SELECT m.message_id,m.user_id,m.message_type,m.has_media,m.has_link,m.has_bot,m.content,m.created_at
+       FROM cleanup_messages m
+       WHERE m.group_id=$1 AND m.message_id=$2
+       AND NOT EXISTS(SELECT 1 FROM cleanup_protected_messages p WHERE p.group_id=m.group_id AND p.message_id=m.message_id)`,
+      [groupId,messageId]
+    );
+    return r.rows;
+  }
   const pinned=await pinnedMessageId(groupId);
   const r=await pool.query(
     `SELECT m.message_id,m.user_id,m.message_type,m.has_media,m.has_link,m.has_bot,m.content,m.created_at
@@ -333,6 +352,7 @@ export async function openCleanupCenter(pool:Pool,chatId:number,actorId:number){
     chat_id:chatId,
     text:panelText("وضعیت",[
       "⛂ - سیستم : ✓ آماده",
+      "⛂ - ایندکس پیام : ✓ فعال",
       "⛂ - دسترسی حذف : ✓",
       "⛂ - Queue : "+queue.rows[0].n,
       "⛂ - عملیات فعال : "+active.rows[0].n,
@@ -347,10 +367,10 @@ export async function openCleanupCenter(pool:Pool,chatId:number,actorId:number){
       "★ - عملیات"
     ]),
     reply_markup:keyboard([
-      ["پاکسازی پیام§cln:scan:all","پاکسازی رسانه§cln:scan:media"],
-      ["پاکسازی لینک§cln:scan:link","پاکسازی کاربر§cln:user"],
-      ["پاکسازی اسپم§cln:spam","پاکسازی سفارشی§cln:custom"],
-      ["پیش‌نمایش§cln:preview","Jobها§cln:jobs"],
+      ["پیام‌ها — اسکن§cln:scan:all","رسانه‌ها — اسکن§cln:scan:media"],
+      ["لینک‌ها — اسکن§cln:scan:link","کاربر — پاکسازی انتخابی§cln:user"],
+      ["اسپم — اسکن§cln:spam","Rule Builder§cln:custom"],
+      ["آخرین Preview§cln:preview","مدیریت Jobها§cln:jobs"],
       ["تاریخچه§cln:history","قوانین§cln:rules"],
       ["استثناها§cln:protected","تنظیمات§cln:settings"],
       ["بازگشت§cln:close"]
@@ -402,6 +422,28 @@ export async function handleCleanupText(pool:Pool,chatId:number,actorId:number,t
         "⛂ - وضعیت : ✓ آماده استفاده در Rule Builder"
       ]),reply_markup:keyboard([["Rule Builder§cln:custom"]])});
     }
+    return true;
+  }
+
+  if((n==="پاکسازی پیام"||n==="cleanup message")&&replyMessageId){
+    const p=await createPreview(pool,chatId,actorId,{type:"all",messageId:replyMessageId});
+    await telegramApi("sendMessage",{chat_id:chatId,text:panelText("پیش‌نمایش پیام انتخاب‌شده",[
+      "⛂ - پیام : "+replyMessageId,
+      "⛂ - بررسی‌شده : "+p.rawCount,
+      "⛂ - قابل حذف : "+p.eligible,
+      "⛂ - مستثنی‌شده : "+p.skipped
+    ]),reply_markup:keyboard([
+      ["تأیید حذف§cln:run:"+p.job.id],["لغو§cln:cancel:"+p.job.id],
+      ["مرکز پاکسازی§cln:center"]
+    ])});
+    return true;
+  }
+  if((n==="پاکسازی پیام"||n==="cleanup message")&&!replyMessageId){
+    await telegramApi("sendMessage",{chat_id:chatId,text:panelText("پاکسازی پیام",[
+      "⛂ - ابتدا روی پیام موردنظر Reply کنید.",
+      "⛂ - سپس بنویسید : پاکسازی پیام",
+      "⛂ - قبل از حذف، Preview نمایش داده می‌شود."
+    ]),reply_markup:keyboard([["مرکز پاکسازی§cln:center"]])});
     return true;
   }
 
@@ -537,7 +579,8 @@ export async function handleCleanupCallback(pool:Pool,cb:any){
     }
 
     if(action==="custom"){
-      await setRuleSession(pool,groupId,actorId,{});
+      const existing=await getRuleSession(pool,groupId,actorId);
+      await setRuleSession(pool,groupId,actorId,existing);
       currentCallbackMessageId=cb.message.message_id;
       return ruleBuilder(pool,groupId,actorId);
     }
