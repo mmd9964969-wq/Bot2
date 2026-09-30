@@ -60,11 +60,9 @@ export async function ensureGroupInfoSchema(pool:Pool){
   return groupInfoSchemaPromise;
 }
 
-export async function recordMemberLeave(chatId:number,userId:number,ts:number){
+export async function recordMemberLeave(pool:Pool,chatId:number,userId:number,ts:number){
   if(!Number.isSafeInteger(chatId)||!Number.isSafeInteger(userId))return;
   try{
-    const pool=(globalThis as typeof globalThis & { __botStudioPool__?:Pool }).__botStudioPool__;
-    if(!pool)return;
     await ensureGroupInfoSchema(pool);
     await pool.query(
       "INSERT INTO bot_member_leave_events(group_id,user_id,left_at) VALUES($1,$2,TO_TIMESTAMP($3/1000.0)) ON CONFLICT DO NOTHING",
@@ -93,9 +91,6 @@ function userStats(chatId:number,userId:number){
   const key=userKey(chatId,userId);
   const daily=userMessageDailyCounts.get(key);
   return { total:userMessageCounts.get(key)??0, today:daily?.day===dayKey()?daily.count:0 };
-}
-export function setGroupInfoPool(pool:Pool|null){
-  (globalThis as typeof globalThis & { __botStudioPool__?:Pool }).__botStudioPool__=pool??undefined;
 }
 export function getGroupStats(chatId:number){
   const daily=groupMessageDailyCounts.get(chatId);
