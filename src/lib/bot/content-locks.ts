@@ -11,6 +11,7 @@ type FileLike={file_name?:string;file_size?:number;mime_type?:string};
 type ForwardOrigin={type?:string;chat?:{id?:number;type?:string};sender_chat?:{id?:number;type?:string};sender_user?:{id?:number}};
 export type ContentLockMessage={
   message_id:number;
+  date?:number;
   chat:{id:number;type:string};
   text?:string;
   caption?:string;
