@@ -33,7 +33,7 @@ const memberJoins=new Map<string,number[]>();
 const userJoinCounts=new Map<string,number[]>();
 const memberJoinDates=new Map<string,number>();
 function userKey(chatId:number,userId:number){ return chatId+":"+userId; }
-function dayKey(){ return new Date().toISOString().slice(0,10); }
+function dayKey(){ return new Intl.DateTimeFormat("en-CA",{year:"numeric",month:"2-digit",day:"2-digit",timeZone:"Asia/Tehran"}).format(new Date()); }
 function userStats(chatId:number,userId:number){
   const key=userKey(chatId,userId);
   const daily=userMessageDailyCounts.get(key);
