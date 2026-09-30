@@ -750,6 +750,15 @@ function rankOf(userId: number, adminIds: Set<number>): Rank {
 function displayName(user:TgUser){
   return [user.first_name,user.last_name].filter(Boolean).join(" ").trim() || (user.username ? "@"+user.username : String(user.id));
 }
+function hasTrackableUserContent(msg:TgMessage){
+  const m:any=msg;
+  return Boolean(
+    String(m.text??"").trim() ||
+    String(m.caption??"").trim() ||
+    m.photo || m.video || m.audio || m.document || m.animation || m.sticker ||
+    m.voice || m.video_note || m.contact || m.location || m.venue || m.poll || m.dice || m.game
+  );
+}
 async function memberJoinDateFromDb(chatId:number,userId:number){
   if(!studioPool)return undefined;
   try{
@@ -908,7 +917,7 @@ async function processMessage(msg: TgMessage, edited = false) {
       if (!joinedUser.is_bot) await persistMemberJoin(chat.id,joinedUser,joinedAt);
     }
   }
-  if (!msg.from.is_bot) {
+  if (!msg.from.is_bot && hasTrackableUserContent(msg)) {
     await recordMessage(chat.id, msg.from.id, msg.message_id);
     try { await trackMessageAndActivity(studioPool, msg); } catch (error) { console.error("[message-tools] persistent message tracking failed", error); }
   }
@@ -934,9 +943,12 @@ async function processMessage(msg: TgMessage, edited = false) {
                AND (TO_TIMESTAMP(telegram_date) AT TIME ZONE 'Asia/Tehran')::date =
                    (NOW() AT TIME ZONE 'Asia/Tehran')::date
            )::int AS today,
+           COUNT(*) FILTER (
+             WHERE telegram_date IS NOT NULL
+               AND TO_TIMESTAMP(telegram_date) >= EXTRACT(EPOCH FROM (NOW() - INTERVAL '7 days'))
+           )::int AS week,
            COUNT(*) FILTER (WHERE telegram_date IS NULL)::int AS legacy_count,
            COUNT(*) FILTER (WHERE telegram_date IS NOT NULL)::int AS exact_count,
-           MIN(telegram_date) FILTER (WHERE telegram_date IS NOT NULL) AS first_activity,
            MAX(telegram_date) FILTER (WHERE telegram_date IS NOT NULL) AS last_activity
          FROM bot_message_records
          WHERE chat_id=$1 AND user_id=$2`,
@@ -947,18 +959,18 @@ async function processMessage(msg: TgMessage, edited = false) {
       const legacyCount=Number(row.legacy_count ?? 0);
       const exactCount=Number(row.exact_count ?? 0);
       const today=Number(row.today ?? 0);
-      const firstActivity=row.first_activity ? Number(row.first_activity)*1000 : undefined;
+      const week=Number(row.week ?? 0);
       const lastActivity=row.last_activity ? Number(row.last_activity)*1000 : undefined;
 
       let average:number|null=null;
-      if(exactCount>0 && legacyCount===0 && firstActivity){
-        const formatter=new Intl.DateTimeFormat("en-CA",{year:"numeric",month:"2-digit",day:"2-digit",timeZone:"Asia/Tehran"});
-        const firstDay=formatter.format(new Date(firstActivity));
-        const currentDay=formatter.format(new Date());
-        const firstUtc=Date.parse(firstDay+"T00:00:00Z");
-        const currentUtc=Date.parse(currentDay+"T00:00:00Z");
-        const elapsedDays=Math.max(1,Math.floor((currentUtc-firstUtc)/86400000)+1);
-        average=Math.round((total/elapsedDays)*10)/10;
+      if(total===0){
+        average=0;
+      }else if(exactCount>0 && legacyCount===0){
+        const membershipDate=await memberJoinDateFromDb(chatId,userId);
+        if(membershipDate){
+          const elapsedDays=Math.max(1,Math.ceil((Date.now()-membershipDate)/86400000));
+          average=Math.round((total/elapsedDays)*10)/10;
+        }
       }
 
       if(total<=0){
@@ -978,9 +990,10 @@ async function processMessage(msg: TgMessage, edited = false) {
       );
 
       return {
-        // Today's count is exact for messages that Telegram timestamp tracking has captured.
-        // Legacy rows from before timestamp tracking must not make today's count unknown.
+        // Today is a Tehran calendar-day count; week is a rolling 7*24h count.
+        // Legacy rows do not invalidate today's/week's exact counts when telegram_date exists.
         today,
+        week,
         total,
         average,
         rank:Number(rankResult.rows[0]?.rank ?? 1),
