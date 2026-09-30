@@ -2610,8 +2610,14 @@ export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:str
         cb.from.id,
       ).catch(()=>{});
     }
-    if(!allowed(cb.from.id))return;
+    // Callback queries are already user-initiated Telegram events; do not run them
+    // through the message throttle. The old shared throttle could silently drop
+    // panel clicks arriving shortly after a panel-opening message or another click.
     const data=String(cb.data||"");
+    // Route panel callbacks before secondary feature handlers so every main
+    // customer/owner navigation callback reaches its dedicated controller.
+    if(data.startsWith("o:")) return ownerCallback(pool,cb,ownerIds);
+    if(data.startsWith("c:")) return customerCallback(pool,cb,ownerIds);
     if(data.startsWith("link:")) return handleInviteLinkCallback(pool,cb as any);
     if(data.startsWith("cfg:")) return handleGroupConfigCallback(pool,cb as any);
     if(data.startsWith("spb:")) return handleSpecialBulkCallback(pool,cb,ownerIds);
