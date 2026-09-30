@@ -864,7 +864,7 @@ async function processMessage(msg: TgMessage, edited = false) {
   };
 
   if (!isPrivate && ["owner","sudo","admin"].includes(ctx.userRank)) {
-    if (await handleCleanupText(studioPool, chat.id, msg.from.id, text)) return;
+    if (await handleCleanupText(studioPool, chat.id, msg.from.id, text, msg.reply_to_message?.from?.id, msg.reply_to_message?.message_id)) return;
   }
 
   if (studioPool && await dispatchPanelMessage(studioPool, msg, config.ownerIds)) {
