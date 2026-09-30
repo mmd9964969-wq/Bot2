@@ -85,6 +85,7 @@ const K={
     [["مرکز اتوماسیون","c:automation"],["استودیو دستورات","c:commands"]],
     [["استودیو محتوا","c:content"],["زمان‌بندی پیام‌ها","c:schedule"]],
     [["تحلیل و آمار","c:analytics"],["مرکز دسترسی","c:permissions"]],
+    [["مرکز مدیران","c:managers"]],
     [["مرکز استثناها","c:exceptions"],["ممیزی گروه","c:audit"]],
     [["سلامت ربات","c:health"],["پشتیبانی و راهنما","c:support"]],
     [["خروج از پنل","c:exit"]]
@@ -1417,6 +1418,76 @@ async function handleCustomer(pool:Pool,msg:TgMessage,ownerIds:string[]){
   return false;
 }
 
+
+async function getManagerSnapshot(pool:Pool,uid:number,groupId:number){
+  const [member,summary,warn,deleted,settingsChanged,accessChanged,adminChanged,lastChange,alerts]=await Promise.all([
+    telegramApi<any>("getChatMember",{chat_id:groupId,user_id:uid}).catch(()=>({ok:false,result:null})),
+    pool.query(
+      "SELECT COUNT(*) FILTER (WHERE created_at>=NOW()-INTERVAL '1 day')::int AS today,COUNT(*) FILTER (WHERE created_at>=NOW()-INTERVAL '7 days')::int AS week,COUNT(*) FILTER (WHERE created_at>=NOW()-INTERVAL '30 days')::int AS month,COUNT(*)::int AS total,COUNT(*) FILTER (WHERE status='success')::int AS success,COUNT(*) FILTER (WHERE status<>'success')::int AS failed,COUNT(DISTINCT target_id)::int AS managed,COUNT(*) FILTER (WHERE action_type='warn')::int AS warns,COUNT(*) FILTER (WHERE action_type IN ('mute','perm_mute'))::int AS mutes,COUNT(*) FILTER (WHERE action_type='ban')::int AS bans,COUNT(*) FILTER (WHERE action_type='kick')::int AS kicks,COUNT(*) FILTER (WHERE action_type IN ('unmute','unban'))::int AS unrestrict FROM moderation_actions WHERE group_id=$1 AND actor_id=$2",
+      [groupId,uid]
+    ).catch(()=>({rows:[{today:0,week:0,month:0,total:0,success:0,failed:0,managed:0,warns:0,mutes:0,bans:0,kicks:0,unrestrict:0}]})),
+    pool.query("SELECT COUNT(*)::int n FROM warning_events WHERE group_id=$1 AND action_type='warning' AND (actor_id=$2 OR created_by=$2 OR moderator_id=$2)",[groupId,uid]).catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(*)::int n FROM audit_logs WHERE actor_id=$1 AND target=$2 AND action IN ('message_deleted','message_delete','delete_message')",[String(uid),String(groupId)]).catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(*)::int n FROM audit_logs WHERE actor_id=$1 AND (target=$2 OR COALESCE(after_data->>'groupId','')=$2 OR COALESCE(after_data->>'group_id','')=$2) AND action IN ('group_language_changed','content_lock_rule_changed','content_lock_domain_added','content_lock_domain_removed','content_lock_exception_added','content_lock_exception_removed','automation_created','automation_managed','owner_group_status_changed')",[String(uid),String(groupId)]).catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(*)::int n FROM audit_logs WHERE actor_id=$1 AND (target=$2 OR COALESCE(after_data->>'groupId','')=$2 OR COALESCE(after_data->>'group_id','')=$2) AND (action ILIKE '%permission%' OR action ILIKE '%access%')",[String(uid),String(groupId)]).catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(*)::int n FROM audit_logs WHERE actor_id=$1 AND (target=$2 OR COALESCE(after_data->>'groupId','')=$2 OR COALESCE(after_data->>'group_id','')=$2) AND (action ILIKE '%admin%' OR action ILIKE '%manager%')",[String(uid),String(groupId)]).catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT MAX(created_at) AS last_change FROM audit_logs WHERE actor_id=$1 AND (target=$2 OR COALESCE(after_data->>'groupId','')=$2 OR COALESCE(after_data->>'group_id','')=$2)",[String(uid),String(groupId)]).catch(()=>({rows:[{last_change:null}]})),
+    pool.query("SELECT COUNT(*)::int n FROM supervision_events WHERE group_id=$1 AND severity IN ('warning','error','critical') AND created_at>=NOW()-INTERVAL '30 days'",[groupId]).catch(()=>({rows:[{n:0}]}))
+  ]);
+  const row=summary.rows[0]||{};
+  const memberRow:any=(member as any).result||{};
+  const isOwner=String(memberRow.status||"")!=="creator" ? false : true;
+  const isAdmin=isOwner||String(memberRow.status||"")==="administrator";
+  const p=memberRow;
+  const last=await pool.query("SELECT action_type,target_id,created_at,status FROM moderation_actions WHERE group_id=$1 AND actor_id=$2 ORDER BY created_at DESC LIMIT 1",[groupId,uid]).catch(()=>({rows:[]}));
+  const lastAction=last.rows[0]||null;
+  return {
+    member:memberRow,
+    role:isOwner?"مالک":String(memberRow.status||"")==="administrator"?"مدیر":String(memberRow.status||"")==="member"?"عضو":"نامشخص",
+    active:isAdmin,
+    permissions:{
+      deleteMessages:isOwner||!!p.can_delete_messages,
+      warnUsers:isOwner||!!p.can_restrict_members,
+      restrict:isOwner||!!p.can_restrict_members,
+      ban:isOwner||!!p.can_restrict_members,
+      links:isOwner||!!p.can_invite_users,
+      settings:isOwner||!!p.can_change_info,
+      manageAdmins:isOwner||!!p.can_promote_members
+    },
+    stats:{
+      today:Number(row.today||0),week:Number(row.week||0),month:Number(row.month||0),total:Number(row.total||0),
+      success:Number(row.success||0),failed:Number(row.failed||0),managed:Number(row.managed||0),
+      warns:Number(row.warns||0)+Number(warn.rows[0]?.n||0),mutes:Number(row.mutes||0),bans:Number(row.bans||0),
+      kicks:Number(row.kicks||0),unrestrict:Number(row.unrestrict||0),deleted:Number(deleted.rows[0]?.n||0),
+      settingsChanged:Number(settingsChanged.rows[0]?.n||0),accessChanged:Number(accessChanged.rows[0]?.n||0),
+      adminChanged:Number(adminChanged.rows[0]?.n||0),alerts:Number(alerts.rows[0]?.n||0)
+    },
+    lastAction,
+    lastChange:lastChange.rows[0]?.last_change||null
+  };
+}
+
+function managerMainMessage(s:any){
+  return [
+    "◈ سیستم پیشرفته مدیران","",
+    "★ - پروفایل مدیر","",
+    "⛂ - نام : "+valueOrDash(s.member?.user?.first_name),
+    "⛂ - نام کاربری : "+(s.member?.user?.username?"@"+s.member.user.username:"ثبت نشده"),
+    "⛂ - شناسه : "+valueOrDash(s.member?.user?.id),
+    "⛂ - مقام : "+s.role,
+    "⛂ - وضعیت : "+(s.active?"فعال":"نامشخص"),
+    "⛂ - آخرین فعالیت : همین الان",
+    "","─────━━───── ◈ ─────━━─────","",
+    "برای مشاهده جزئیات عملکرد، اقدامات، دسترسی‌ها و نظارت، یکی از بخش‌های زیر را انتخاب کنید."
+  ].join("\n");
+}
+
+function managerDetailMessage(title:string,lines:string[]){
+  return panelTitle("سیستم پیشرفته مدیران",title+"\n\n"+lines.join("\n"));
+}
+
+function managerBackButtons(){return menu([[["‹ بازگشت","c:managers"]]]);}
+
 async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   const uid=cb.from.id;
   const msg=cb.message;
@@ -1466,6 +1537,107 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   }
 
   if(data==="c:home")return edit(msg.chat.id,msg.message_id,mainCustomerMessage(),menu(K.customerMain));
+
+
+  if(data==="c:managers"||data==="c:manager:refresh"){
+    const snap=await getManagerSnapshot(pool,uid,groupId);
+    return edit(msg.chat.id,msg.message_id,managerMainMessage(snap),menu([
+      [["عملکرد مدیریتی","c:manager:performance"],["اقدامات مدیریتی","c:manager:actions"]],
+      [["دسترسی‌های مدیریتی","c:manager:permissions"],["فعالیت و نظارت","c:manager:activity"]],
+      [["تغییرات مدیریتی","c:manager:changes"],["وضعیت نهایی","c:manager:status"]],
+      [["بروزرسانی","c:manager:refresh"]],
+      [["‹ بازگشت","c:home"]]
+    ]));
+  }
+
+  if(data==="c:manager:performance"||data==="c:manager:actions"||data==="c:manager:permissions"||data==="c:manager:activity"||data==="c:manager:changes"||data==="c:manager:status"){
+    const snap=await getManagerSnapshot(pool,uid,groupId);
+    const x=snap.stats;
+    const lastAction=snap.lastAction
+      ?"⛂ - "+faDate(snap.lastAction.created_at)+" · "+valueOrDash(snap.lastAction.action_type)+" · کاربر : "+valueOrDash(snap.lastAction.target_id)
+      :"⛂ - آخرین اقدام : ثبت نشده";
+    if(data==="c:manager:performance"){
+      return edit(msg.chat.id,msg.message_id,managerDetailMessage("◈ عملکرد مدیریتی",[
+        "⛂ - اقدامات امروز : "+x.today,
+        "⛂ - اقدامات این هفته : "+x.week,
+        "⛂ - اقدامات این ماه : "+x.month,
+        "⛂ - کل اقدامات : "+x.total,
+        "⛂ - کاربران مدیریت‌شده : "+x.managed,
+        lastAction
+      ]),menu([
+        [["امروز","c:manager:performance"],["این هفته","c:manager:performance"]],
+        [["این ماه","c:manager:performance"],["کل عملکرد","c:manager:performance"]],
+        [["‹ بازگشت","c:managers"]]
+      ]));
+    }
+    if(data==="c:manager:actions"){
+      return edit(msg.chat.id,msg.message_id,managerDetailMessage("◈ اقدامات مدیریتی",[
+        "⛂ - اخطار : "+x.warns,
+        "⛂ - سکوت : "+x.mutes,
+        "⛂ - مسدودسازی : "+x.bans,
+        "⛂ - اخراج : "+x.kicks,
+        "⛂ - حذف پیام : "+x.deleted,
+        "⛂ - رفع محدودیت : "+x.unrestrict,
+        "⛂ - آخرین اقدام : "+(snap.lastAction?valueOrDash(snap.lastAction.action_type):"ثبت نشده"),
+        "⛂ - وضعیت ثبت : فعال"
+      ]),managerBackButtons());
+    }
+    if(data==="c:manager:permissions"){
+      const yes=(v:boolean)=>v?"مجاز":"غیرمجاز";
+      return edit(msg.chat.id,msg.message_id,managerDetailMessage("◈ دسترسی‌های مدیریتی",[
+        "⛂ - حذف پیام : "+yes(snap.permissions.deleteMessages),
+        "⛂ - اخطار کاربران : "+yes(snap.permissions.warnUsers),
+        "⛂ - محدودسازی : "+yes(snap.permissions.restrict),
+        "⛂ - مسدودسازی : "+yes(snap.permissions.ban),
+        "⛂ - مدیریت لینک‌ها : "+yes(snap.permissions.links),
+        "⛂ - تغییر تنظیمات : "+yes(snap.permissions.settings),
+        "⛂ - مدیریت مدیران : "+yes(snap.permissions.manageAdmins),
+        "⛂ - سطح دسترسی Telegram : "+snap.role
+      ]),menu([
+        [["بروزرسانی دسترسی","c:manager:permissions"]],
+        [["‹ بازگشت","c:managers"]]
+      ]));
+    }
+    if(data==="c:manager:activity"){
+      return edit(msg.chat.id,msg.message_id,managerDetailMessage("◈ فعالیت و نظارت",[
+        "⛂ - وضعیت فعالیت : "+(snap.active?"فعال":"نامشخص"),
+        lastAction,
+        "⛂ - اقدامات موفق : "+x.success,
+        "⛂ - اقدامات ناموفق : "+x.failed,
+        "⛂ - رویدادهای ثبت‌شده : "+x.total,
+        "⛂ - هشدارهای امنیتی : "+x.alerts,
+        "⛂ - بازه هشدار امنیتی : ۳۰ روز اخیر"
+      ]),menu([
+        [["رویدادهای اخیر","c:manager:activity"],["هشدارهای امنیتی","c:manager:activity"]],
+        [["‹ بازگشت","c:managers"]]
+      ]));
+    }
+    if(data==="c:manager:changes"){
+      return edit(msg.chat.id,msg.message_id,managerDetailMessage("◈ تغییرات مدیریتی",[
+        "⛂ - تغییرات تنظیمات : "+x.settingsChanged,
+        "⛂ - تغییرات دسترسی : "+x.accessChanged,
+        "⛂ - تغییرات مدیران : "+x.adminChanged,
+        "⛂ - آخرین تغییر : "+(snap.lastChange?faDate(snap.lastChange):"ثبت نشده")
+      ]),menu([
+        [["سابقه تغییرات","c:manager:changes"],["تغییرات تنظیمات","c:manager:changes"]],
+        [["تغییرات دسترسی","c:manager:changes"],["تغییرات مدیران","c:manager:changes"]],
+        [["‹ بازگشت","c:managers"]]
+      ]));
+    }
+    if(data==="c:manager:status"){
+      const access=Object.values(snap.permissions).every(Boolean);
+      return edit(msg.chat.id,msg.message_id,managerDetailMessage("★ - وضعیت نهایی",[
+        "⛂ - وضعیت مدیر : "+(snap.active?"فعال":"نامشخص"),
+        "⛂ - وضعیت دسترسی : "+(access?"مجاز":"محدود"),
+        "⛂ - وضعیت نظارت : "+(snap.active?"فعال":"غیرفعال"),
+        "⛂ - وضعیت ثبت رویداد : "+(x.total>=0?"فعال":"نامشخص"),
+        "⛂ - اتصال Telegram : "+(snap.member?.status?"فعال":"نامشخص"),
+        "⛂ - وضعیت داده‌های مدیریتی : آماده"
+      ]),managerBackButtons());
+    }
+  }
+
+
 
   if(data==="c:language"){
     const current=await getGroupLanguage(pool,groupId,"fa");
