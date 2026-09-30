@@ -5,9 +5,9 @@ import { cloneStudioDefaults, type StudioDocument } from "../src/lib/bot/studio.
 import { type Lang, type Rank } from "../src/lib/bot/registry.ts";
 import { telegramApi } from "../src/lib/telegram/api.ts";
 import { rankAtLeast } from "../src/lib/bot/registry.ts";
-import { runLiveCommand, recordMessage, recordMemberJoin, getGroupStats } from "../src/lib/bot/runtime.ts";
-import { enforceContentLocks, runContentLockCommand, sendContentLockCenter, type ContentLockMessage } from "../src/lib/bot/content-locks.ts";
-import { trackMessageAndActivity } from "../src/lib/bot/message-tools.ts";
+import { runLiveCommand, recordMessage, recordMemberJoin, recordMemberLeave, ensureGroupInfoSchema, type GroupInfoSnapshot } from "../src/lib/bot/runtime.ts";
+import { enforceContentLocks, ensureContentLocks, runContentLockCommand, sendContentLockCenter, type ContentLockMessage } from "../src/lib/bot/content-locks.ts";
+import { ensureMessageToolsSchema, trackMessageAndActivity } from "../src/lib/bot/message-tools.ts";
 import { isRuntimeMaintenance, startRuntimeControlServer } from "./runtime-control.ts";
 import { ensureAutomationSchema, runAutomations, tickSchedules } from "../src/lib/bot/automation-engine.ts";
 import { dispatchPanelMessage, dispatchPanelCallback, openModerationCenterFromCommand } from "./panel-system.ts";
@@ -825,6 +825,199 @@ async function persistMemberJoin(chatId:number,user:TgUser,ts:number){
     console.error("[member-profile] join persistence failed:",error);
   }
 }
+async function getGroupInfoSnapshot(chatId:number):Promise<GroupInfoSnapshot>{
+  const zero:GroupInfoSnapshot={
+    messagesToday:0,messagesWeek:0,messagesMonth:0,messagesTotal:0,
+    activeDays:0,averageDaily:0,busiestHour:null,busiestDay:null,activeUsers:0,
+    joinsToday:0,joinsWeek:0,joinsMonth:0,joinsTotal:0,
+    leavesToday:0,leavesWeek:0,leavesMonth:0,leavesTotal:0,
+    specialCount:0,mutedCount:0,
+    warningsActive:0,warningsToday:0,warningsWeek:0,warningsTotal:0,
+    deletedToday:0,deletedWeek:0,deletedTotal:0,
+    activeLocks:0,violationsToday:0,violationsWeek:0,violationsTotal:0,
+    moderationActionsToday:0,
+    inviteUsageToday:0,inviteUsageWeek:0,inviteUsageMonth:0,inviteUsageTotal:0,
+  };
+  if(!studioPool)return zero;
+
+  const q=async<T=any>(sql:string,params:unknown[]=[]):Promise<T|undefined>=>{
+    try{
+      const r=await studioPool!.query<T>(sql,params);
+      return r.rows[0];
+    }catch(error){
+      console.error("[group-info] query failed:",error);
+      return undefined;
+    }
+  };
+
+  try{
+    await ensureGroupInfoSchema(studioPool);
+    await ensureMessageToolsSchema(studioPool);
+    await ensureContentLocks(studioPool,chatId);
+  }catch(error){
+    console.error("[group-info] schema bootstrap failed:",error);
+  }
+
+  const [msg,join,leave,special,muted,warn,locks,violations,actions,invites,invTotal,hour,weekday]=await Promise.all([
+    q<any>(`
+      WITH m AS (
+        SELECT COALESCE(TO_TIMESTAMP(telegram_date),created_at) AS ts
+        FROM bot_message_records WHERE chat_id=$1
+      )
+      SELECT
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE (ts AT TIME ZONE 'Asia/Tehran')::date=(NOW() AT TIME ZONE 'Asia/Tehran')::date)::int AS today,
+        COUNT(*) FILTER (WHERE ts>=NOW()-INTERVAL '7 days')::int AS week,
+        COUNT(*) FILTER (WHERE (ts AT TIME ZONE 'Asia/Tehran')>=date_trunc('month',NOW() AT TIME ZONE 'Asia/Tehran'))::int AS month,
+        COUNT(DISTINCT (ts AT TIME ZONE 'Asia/Tehran')::date)::int AS active_days,
+        COUNT(DISTINCT user_id) FILTER (WHERE ts>=NOW()-INTERVAL '30 minutes')::int AS active_users
+      FROM (
+        SELECT COALESCE(TO_TIMESTAMP(telegram_date),created_at) AS ts,user_id
+        FROM bot_message_records WHERE chat_id=$1
+      ) x
+    `,[chatId]),
+    q<any>(`
+      SELECT
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE (joined_at AT TIME ZONE 'Asia/Tehran')::date=(NOW() AT TIME ZONE 'Asia/Tehran')::date)::int AS today,
+        COUNT(*) FILTER (WHERE joined_at>=NOW()-INTERVAL '7 days')::int AS week,
+        COUNT(*) FILTER (WHERE (joined_at AT TIME ZONE 'Asia/Tehran')>=date_trunc('month',NOW() AT TIME ZONE 'Asia/Tehran'))::int AS month
+      FROM bot_member_join_events WHERE group_id=$1
+    `,[chatId]),
+    q<any>(`
+      SELECT
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE (left_at AT TIME ZONE 'Asia/Tehran')::date=(NOW() AT TIME ZONE 'Asia/Tehran')::date)::int AS today,
+        COUNT(*) FILTER (WHERE left_at>=NOW()-INTERVAL '7 days')::int AS week,
+        COUNT(*) FILTER (WHERE (left_at AT TIME ZONE 'Asia/Tehran')>=date_trunc('month',NOW() AT TIME ZONE 'Asia/Tehran'))::int AS month
+      FROM bot_member_leave_events WHERE group_id=$1
+    `,[chatId]),
+    q<any>(`
+      SELECT COUNT(*)::int AS count
+      FROM special_users
+      WHERE group_id=$1 AND status='active' AND (expires_at IS NULL OR expires_at>NOW())
+    `,[chatId]),
+    q<any>(`
+      WITH latest AS (
+        SELECT DISTINCT ON (target_id) target_id,action_type,status,created_at,duration_seconds
+        FROM moderation_actions
+        WHERE group_id=$1 AND action_type IN ('mute','unmute')
+        ORDER BY target_id,created_at DESC,id DESC
+      )
+      SELECT COUNT(*) FILTER (
+        WHERE action_type='mute' AND status='success'
+          AND (duration_seconds IS NULL OR duration_seconds<=0
+               OR created_at + (duration_seconds * INTERVAL '1 second')>NOW())
+      )::int AS count
+      FROM latest
+    `,[chatId]),
+    q<any>(`
+      SELECT
+        COUNT(*) FILTER (WHERE status='active' AND action_type='warning')::int AS active,
+        COUNT(*) FILTER (WHERE (created_at AT TIME ZONE 'Asia/Tehran')::date=(NOW() AT TIME ZONE 'Asia/Tehran')::date AND action_type='warning')::int AS today,
+        COUNT(*) FILTER (WHERE created_at>=NOW()-INTERVAL '7 days' AND action_type='warning')::int AS week,
+        COUNT(*) FILTER (WHERE action_type='warning')::int AS total
+      FROM warning_events WHERE group_id=$1
+    `,[chatId]),
+    q<any>(`
+      SELECT COUNT(*)::int AS count
+      FROM content_lock_rules r
+      JOIN content_lock_settings s ON s.group_id=r.group_id
+      WHERE r.group_id=$1 AND r.enabled=TRUE AND s.enabled=TRUE
+    `,[chatId]),
+    q<any>(`
+      SELECT
+        COUNT(*) FILTER (
+          WHERE (created_at AT TIME ZONE 'Asia/Tehran')::date=(NOW() AT TIME ZONE 'Asia/Tehran')::date
+        )::int AS today,
+        COUNT(*) FILTER (WHERE created_at>=NOW()-INTERVAL '7 days')::int AS week,
+        COUNT(*)::int AS total
+      FROM (
+        SELECT created_at FROM warning_events WHERE group_id=$1 AND action_type='warning'
+        UNION ALL
+        SELECT created_at FROM content_lock_logs
+        WHERE group_id=$1 AND LOWER(action) IN ('delete','delete_notify','delete_ban','restrict','ban','blocked')
+      ) v
+    `,[chatId]),
+    q<any>(`
+      SELECT COUNT(*)::int AS count
+      FROM moderation_actions
+      WHERE group_id=$1 AND status='success'
+        AND (created_at AT TIME ZONE 'Asia/Tehran')::date=(NOW() AT TIME ZONE 'Asia/Tehran')::date
+        AND action_type NOT IN ('unmute','unban')
+    `,[chatId]),
+    q<any>(`
+      SELECT
+        COUNT(*) FILTER (WHERE created_at>=NOW()-INTERVAL '7 days')::int AS week,
+        COUNT(*) FILTER (WHERE (created_at AT TIME ZONE 'Asia/Tehran')>=date_trunc('month',NOW() AT TIME ZONE 'Asia/Tehran'))::int AS month,
+        COUNT(*)::int AS total
+      FROM group_invite_events WHERE group_id=$1 AND event_type='used'
+    `,[chatId]),
+    q<any>(`
+      SELECT COALESCE(SUM(usage_count),0)::int AS total
+      FROM group_invite_links WHERE group_id=$1
+    `,[chatId]),
+    q<any>(`
+      SELECT EXTRACT(HOUR FROM (COALESCE(TO_TIMESTAMP(telegram_date),created_at) AT TIME ZONE 'Asia/Tehran'))::int AS hour
+      FROM bot_message_records
+      WHERE chat_id=$1
+      GROUP BY 1 ORDER BY COUNT(*) DESC,1 ASC LIMIT 1
+    `,[chatId]),
+    q<any>(`
+      SELECT EXTRACT(DOW FROM (COALESCE(TO_TIMESTAMP(telegram_date),created_at) AT TIME ZONE 'Asia/Tehran'))::int AS dow
+      FROM bot_message_records
+      WHERE chat_id=$1
+      GROUP BY 1 ORDER BY COUNT(*) DESC,1 ASC LIMIT 1
+    `,[chatId]),
+  ]);
+
+  // invite event names in this project are stored in group_invite_events by the invite-link subsystem.
+  // When that optional table is not available, usage values safely remain zero.
+  const messagesTotal=Number(msg?.total??0);
+  const activeDays=Number(msg?.active_days??0);
+  const averageDaily=Math.round((messagesTotal/Math.max(1,activeDays))*10)/10;
+  const joinsToday=Number(join?.today??0);
+  const leavesToday=Number(leave?.today??0);
+
+  return {
+    messagesToday:Number(msg?.today??0),
+    messagesWeek:Number(msg?.week??0),
+    messagesMonth:Number(msg?.month??0),
+    messagesTotal,
+    activeDays,
+    averageDaily,
+    busiestHour:hour?.hour==null?null:Number(hour.hour),
+    busiestDay:weekday?.dow==null?null:Number(weekday.dow),
+    activeUsers:Number(msg?.active_users??0),
+    joinsToday,
+    joinsWeek:Number(join?.week??0),
+    joinsMonth:Number(join?.month??0),
+    joinsTotal:Number(join?.total??0),
+    leavesToday,
+    leavesWeek:Number(leave?.week??0),
+    leavesMonth:Number(leave?.month??0),
+    leavesTotal:Number(leave?.total??0),
+    specialCount:Number(special?.count??0),
+    mutedCount:Number(muted?.count??0),
+    warningsActive:Number(warn?.active??0),
+    warningsToday:Number(warn?.today??0),
+    warningsWeek:Number(warn?.week??0),
+    warningsTotal:Number(warn?.total??0),
+    deletedToday:Number(violations?.today??0),
+    deletedWeek:Number(violations?.week??0),
+    deletedTotal:Number(violations?.total??0),
+    activeLocks:Number(locks?.count??0),
+    violationsToday:Number(violations?.today??0),
+    violationsWeek:Number(violations?.week??0),
+    violationsTotal:Number(violations?.total??0),
+    moderationActionsToday:Number(actions?.count??0),
+    inviteUsageToday:Number(invites?.today??0),
+    inviteUsageWeek:Number(invites?.week??0),
+    inviteUsageMonth:Number(invites?.month??0),
+    inviteUsageTotal:Number(invTotal?.total??0),
+  };
+}
+
 async function chatAdmins(chatId: number): Promise<Set<number>> {
   const hit = adminCache.get(chatId);
   if (hit && Date.now() - hit.at < 45_000) return hit.ids;
@@ -1032,6 +1225,7 @@ async function processMessage(msg: TgMessage, edited = false) {
     getMemberJoinDate: memberJoinDateFromDb,
     getUserMessageStats,
     getUserJoinStats,
+    getGroupInfo: getGroupInfoSnapshot,
     userRank: rankOf(msg.from.id, adminIds),
     replyToUserId: msg.reply_to_message?.from?.id,
     replyToName: msg.reply_to_message?.from?.username || msg.reply_to_message?.from?.first_name,
@@ -1247,6 +1441,7 @@ async function poll() {
     await ensureModerationSchema(studioPool);
     await ensureInviteLinkSchema(studioPool);
     await ensureSpecialUsersSchema(studioPool);
+    await ensureGroupInfoSchema(studioPool);
   }
   setInterval(() => void refreshStudio(), 5000);
   setInterval(() => { if (studioPool) void tickSchedules(studioPool).catch(error => console.error("[scheduler]", error)); }, 5000);
@@ -1421,23 +1616,29 @@ async function poll() {
             console.error("[update] member handler failed", error);
           });
         }
-        if (upd.chat_member?.new_chat_member?.user && ["member","administrator","creator"].includes(upd.chat_member.new_chat_member.status ?? "")) {
+        if (upd.chat_member?.new_chat_member?.user) {
           const oldStatus=String(upd.chat_member.old_chat_member?.status||"");
-          const isJoin=!oldStatus || ["left","kicked"].includes(oldStatus);
+          const newStatus=String(upd.chat_member.new_chat_member.status||"");
+          const isJoin=["member","administrator","creator"].includes(newStatus) && (!oldStatus || ["left","kicked"].includes(oldStatus));
+          const isLeave=["left","kicked"].includes(newStatus) && ["member","administrator","creator"].includes(oldStatus);
           if (studioPool) {
             void handleInviteLinkUsage(studioPool, upd.chat_member).catch((error) => {
               console.error("[invite-links] usage tracking failed", error);
             });
           }
-          if(isJoin){
-            const joinedUser=upd.chat_member.new_chat_member.user;
-            const joinedAt=(upd.chat_member.date ?? Math.floor(Date.now()/1000))*1000;
+          const eventAt=(upd.chat_member.date ?? Math.floor(Date.now()/1000))*1000;
+          const changedUser=upd.chat_member.new_chat_member.user;
+          if(!changedUser.is_bot && isJoin){
             void Promise.all([
-              persistMemberJoin(upd.chat_member.chat.id,joinedUser,joinedAt),
-              recordMemberJoin(upd.chat_member.chat.id,joinedUser.id,joinedAt),
+              persistMemberJoin(upd.chat_member.chat.id,changedUser,eventAt),
+              recordMemberJoin(upd.chat_member.chat.id,changedUser.id,eventAt),
             ]).catch((error)=>console.error("[member-profile] join tracking failed:",error));
           }
-          console.log("[member] join observed:", upd.chat_member.chat.id, upd.chat_member.new_chat_member.user.id, isJoin?"(joined)":"(membership update)");
+          if(studioPool && !changedUser.is_bot && isLeave){
+            void recordMemberLeave(studioPool,upd.chat_member.chat.id,changedUser.id,eventAt)
+              .catch((error)=>console.error("[member-profile] leave tracking failed:",error));
+          }
+          console.log("[member] membership change:", upd.chat_member.chat.id, changedUser.id, isJoin?"(joined)":isLeave?"(left)":"(updated)");
         }
       }
     } catch (err) {
