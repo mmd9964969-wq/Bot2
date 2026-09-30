@@ -1488,6 +1488,29 @@ function managerDetailMessage(title:string,lines:string[]){
 
 function managerBackButtons(){return menu([[["‹ بازگشت","c:managers"]]]);}
 
+export async function openManagerCenterFromCommand(pool:Pool,chatId:number,actorId:number){
+  const snap=await getManagerSnapshot(pool,actorId,chatId);
+  const markup=menu([
+    [["عملکرد مدیریتی","c:manager:performance"],["اقدامات مدیریتی","c:manager:actions"]],
+    [["دسترسی‌های مدیریتی","c:manager:permissions"],["فعالیت و نظارت","c:manager:activity"]],
+    [["تغییرات مدیریتی","c:manager:changes"],["وضعیت نهایی","c:manager:status"]],
+    [["بروزرسانی","c:manager:refresh"]],
+    [["‹ بازگشت","c:home"]]
+  ]);
+  const result=await telegramApi("sendMessage",{
+    chat_id:chatId,
+    text:managerMainMessage(snap),
+    reply_markup:markup
+  });
+  if(result.ok){
+    const messageId=Number((result.result as any)?.message_id);
+    if(Number.isSafeInteger(messageId)&&messageId>0){
+      await bindPanelMessage(pool,chatId,messageId,actorId,"panel").catch(()=>{});
+    }
+  }
+  return result;
+}
+
 async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   const uid=cb.from.id;
   const msg=cb.message;
