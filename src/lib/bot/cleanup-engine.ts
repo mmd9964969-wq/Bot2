@@ -86,7 +86,7 @@ export async function trackCleanupMessage(pool:Pool,msg:TgMessage){
   const m=meta(msg);
   await pool.query(
     `INSERT INTO cleanup_messages(group_id,message_id,user_id,username,message_type,has_link,has_media,has_bot,content,created_at)
-     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE(to_timestamp($11),NOW()))
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,COALESCE(to_timestamp($10),NOW()))
      ON CONFLICT(group_id,message_id) DO UPDATE SET
        content=EXCLUDED.content,username=EXCLUDED.username,message_type=EXCLUDED.message_type,
        has_link=EXCLUDED.has_link,has_media=EXCLUDED.has_media,has_bot=EXCLUDED.has_bot`,
