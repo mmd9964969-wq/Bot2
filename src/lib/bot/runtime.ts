@@ -95,7 +95,9 @@ function stats(chatId:number){const s=state(chatId);return {warnings:[...s.warni
 
 export async function runLiveCommand(ctx:LiveContext,token:string,args:string[]):Promise<string>{
   const command=resolveCommand(token); if(!command)return fa(ctx.lang,"✗ دستور ناشناخته است.","✗ Unknown command.");
-  const rank=await realRank(ctx,ctx.userId);\n  if(rank==="member" && command.id!=="me") return fa(ctx.lang,"✗ کاربران عادی اجازه اجرای این دستور را ندارند.","✗ Regular members are not allowed to execute this command.");\n  const s=state(ctx.chatId); const targetId=target(ctx,args);
+  const rank=await realRank(ctx,ctx.userId);
+  if(rank==="member" && command.id!=="me") return fa(ctx.lang,"✗ کاربران عادی اجازه اجرای این دستور را ندارند.","✗ Regular members are not allowed to execute this command.");
+  const s=state(ctx.chatId); const targetId=target(ctx,args);
   const requireGroup=()=>{if(ctx.chatType==="private")throw new Error(fa(ctx.lang,"این دستور فقط در گروه قابل اجراست.","This command works in groups only."));};
   const requireAdmin=()=>{if(!["owner","sudo","admin"].includes(rank))throw new Error(fa(ctx.lang,"✗ دسترسی مدیریتی ندارید.","✗ Administrator access required."));};
   const targetRequired=()=>{if(!targetId)throw new Error(fa(ctx.lang,"✗ روی پیام کاربر ریپلای کن یا شناسه عددی بده.","✗ Reply to a user or provide a numeric ID."));return targetId;};
