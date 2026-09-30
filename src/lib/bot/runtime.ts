@@ -7,7 +7,8 @@ export type BotContext = {
   text:string; chatType:"private"|"group"|"supergroup"; chatId:number; chatTitle:string; chatUsername?:string;
   membersCount:number; userId:number; userName:string; userUsername?:string; userRank:Rank; lang:Lang;
   getMemberJoinDate?: (chatId:number,userId:number)=>Promise<number|undefined>;
-  getUserMessageStats?: (chatId:number,userId:number)=>Promise<{today:number;week:number;total:number;average:number;rank:number;lastActivity?:number}>;
+  getUserMessageStats?: (chatId:number,userId:number)=>Promise<{today:number;total:number;average:number;rank:number;lastActivity?:number}>;
+  getUserJoinStats?: (chatId:number,userId:number)=>Promise<{today:number;total:number}>;
   config:BotConfig; now:number; staff:{id:number;name:string;rank:Rank}[];
 };
 
@@ -156,11 +157,13 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         : undefined;
       const us=persistentStats ?? {
         ...fallbackStats,
-        week:fallbackStats.total,
         average:fallbackStats.total,
         rank:0,
       };
       const joinList=userJoinCounts.get(userKeyValue)??[];
+      const persistentJoinStats=ctx.getUserJoinStats
+        ? await ctx.getUserJoinStats(ctx.chatId,ctx.userId).catch(()=>undefined)
+        : undefined;
       const joinedAt=ctx.getMemberJoinDate
         ? (await ctx.getMemberJoinDate(ctx.chatId,ctx.userId)) ?? memberJoinDates.get(userKeyValue)
         : memberJoinDates.get(userKeyValue);
@@ -179,7 +182,8 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
             .filter(([k])=>k.startsWith(ctx.chatId+":"))
             .sort((a,b)=>b[1]-a[1])
             .findIndex(([k])=>k===userKeyValue)+1;
-      const todayJoins=joinList.filter(t=>new Date(t).toISOString().slice(0,10)===dayKey()).length;
+      const todayJoins=persistentJoinStats?.today ?? joinList.filter(t=>new Date(t).toISOString().slice(0,10)===dayKey()).length;
+      const totalJoins=persistentJoinStats?.total ?? joinList.length;
       const faText=[
         "◈ اطلاعات کاربر",
         "",
@@ -193,7 +197,6 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "                         ─────━━───── ◈ ─────━━───── ",
         "",
         "⛂ - تعداد پیام امروز : "+us.today,
-        "⛂ - تعداد پیام هفته : "+us.week,
         "⛂ - تعداد پیام کل : "+us.total,
         "⛂ - میانگین پیام روزانه : "+average,
         "⛂ - رتبه در گروه : #"+(rankByMessages||"—"),
@@ -201,7 +204,7 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "                         ─────━━───── ◈ ─────━━───── ",
         "",
         "⛂ - تعداد عضویت امروز : "+todayJoins,
-        "⛂ - تعداد عضویت کل : "+joinList.length,
+        "⛂ - تعداد عضویت کل : "+totalJoins,
         "⛂ - اخطارها : "+warnings+"/3",
         "⛂ - وضعیت سکوت : "+(muted?"دارد":"ندارد")
       ].join("\n");
@@ -218,7 +221,6 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "                         ─────━━───── ◈ ─────━━───── ",
         "",
         "⛂ - Messages today : "+us.today,
-        "⛂ - Messages this week : "+us.week,
         "⛂ - Total messages : "+us.total,
         "⛂ - Average daily messages : "+average,
         "⛂ - Group rank : #"+(rankByMessages||"—"),
@@ -226,7 +228,7 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "─────━━───── ◈ ─────━━─────",
         "",
         "⛂ - Joins today : "+todayJoins,
-        "⛂ - Total joins : "+joinList.length,
+        "⛂ - Total joins : "+totalJoins,
         "⛂ - Warnings : "+warnings+"/3",
         "⛂ - Mute status : "+(muted?"Muted":"Not muted")
       ].join("\n");
