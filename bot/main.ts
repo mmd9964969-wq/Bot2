@@ -505,10 +505,18 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
   });
   if(!studioCommand && !panelCommand)return null;
 
-  // «من» is an admin-only identity command and must match exactly with no arguments.
-  if(studioCommand?.id==="me" && !rankAtLeast(ctx.userRank,"admin")){
-    await logCommandAccess(ctx,"me","permission_denied","admin_only",panelRoleForRank(ctx.userRank));
-    return ctx.lang==="fa" ? "✗ دستور «من» فقط برای مدیران گروه و مالک قابل استفاده است." : "✗ The «me» command is available only to group admins and the owner.";
+  // «من» is the single text command that members may use; all other commands are admin+.
+  const panelIsMe = panelCommand
+    ? [panelCommand.command_key,panelCommand.fa_name,panelCommand.en_name]
+        .some(value => ["me","من"].includes(normalizeCommand(value)))
+    : false;
+  const isMemberSelfCommand = studioCommand?.id==="me" || panelIsMe;
+  if(ctx.userRank==="member" && !isMemberSelfCommand){
+    const deniedKey = studioCommand?.id || panelCommand?.command_key || "unknown";
+    await logCommandAccess(ctx,deniedKey,"permission_denied","member_command_blocked",panelRoleForRank(ctx.userRank));
+    return ctx.lang==="fa"
+      ? "✗ کاربران عادی اجازه اجرای دستورات نوشتاری را ندارند."
+      : "✗ Regular members are not allowed to execute text commands.";
   }
 
   if(studioCommand){
