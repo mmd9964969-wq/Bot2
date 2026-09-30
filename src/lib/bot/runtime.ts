@@ -170,12 +170,10 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
 
       const warnings=state(ctx.chatId).warnings.get(ctx.userId)?.count??0;
       const muted=state(ctx.chatId).muted.has(ctx.userId);
-      const now=Date.now();
-      const lastAt=userLastMessageAt.get(userKeyValue);
-      const elapsedDays=joinedAt?Math.max(1,Math.ceil((now-joinedAt)/86400000)):1;
-      const average=persistentStats?.average ?? Math.round(us.total/elapsedDays);
-      const lastTimestamp=persistentStats?.lastActivity ?? lastAt;
-      const lastActivity=lastTimestamp?relativeTime(lastTimestamp,ctx.lang):"ثبت نشده";
+      const average=persistentStats?.average ?? null;
+      // Last activity is always derived from the latest Telegram message timestamp.
+      const lastTimestamp=persistentStats?.lastActivity;
+      const lastActivity=lastTimestamp?relativeTime(lastTimestamp,ctx.lang):"قابل تعیین نیست";
       const rankByMessages=persistentStats?.rank
         ? persistentStats.rank
         : Array.from(userMessageCounts.entries())
