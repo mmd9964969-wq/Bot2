@@ -62,25 +62,34 @@ function panelText(title:string,lines:string[]){return "◈ Pᴇʀsɪᴀɴ ᴮ�
 function keyboard(rows:string[][]){return {inline_keyboard:rows.map(r=>r.map(x=>{const [text,data]=x.split("§");return {text,callback_data:data};}))};}
 export async function openCleanupCenter(pool:Pool,chatId:number,actorId:number){
   await ensureCleanupSchema(pool);
-  const stats=await pool.query("SELECT COUNT(*)::int count,COUNT(*) FILTER(WHERE created_at>=NOW()-INTERVAL '48 hours')::int recent FROM cleanup_messages WHERE group_id=$1",[chatId]);
-  const s=stats.rows[0]??{count:0,recent:0};
-  const r=await telegramApi("sendMessage",{chat_id:chatId,text:panelText("مرکز کنترل پاکسازی",[
-    "⛂ - پیام‌های ثبت‌شده : "+s.count,
-    "⛂ - پیام‌های ۴۸ ساعت اخیر : "+s.recent,
-    "⛂ - حالت : دستی / ایمن",
-    "⛂ - وضعیت : ✓ آماده",
+  const stats=await pool.query("SELECT COUNT(*)::int count FROM cleanup_messages WHERE group_id=$1",[chatId]);
+  const removed=await pool.query("SELECT COALESCE(SUM(success_count),0)::int n FROM cleanup_jobs WHERE group_id=$1",[chatId]);
+  const ok=await pool.query("SELECT COUNT(*)::int n FROM cleanup_jobs WHERE group_id=$1 AND status='completed'",[chatId]);
+  const bad=await pool.query("SELECT COUNT(*)::int n FROM cleanup_jobs WHERE group_id=$1 AND failure_count>0",[chatId]);
+  const s=stats.rows[0]??{count:0};
+  return (await telegramApi("sendMessage",{chat_id:chatId,text:panelText("وضعیت",[
+    "⛂ - سیستم : ✓ آماده",
+    "⛂ - دسترسی حذف : ✓",
+    "⛂ - Queue : 0",
+    "⛂ - عملیات فعال : 0",
     "",
-    "★ - انتخاب عملیات"
+    "★ - آمار",
+    "",
+    "⛂ - پیام بررسی‌شده : "+s.count,
+    "⛂ - پیام حذف‌شده : "+removed.rows[0].n,
+    "⛂ - عملیات موفق : "+ok.rows[0].n,
+    "⛂ - عملیات ناموفق : "+bad.rows[0].n,
+    "",
+    "★ - عملیات"
   ]),reply_markup:keyboard([
-    ["پیام‌ها§cln:scan:all","رسانه§cln:scan:media"],
-    ["لینک‌ها§cln:scan:link","ربات‌ها§cln:scan:bot"],
-    ["آخرین 100 پیام§cln:scan:limit:100","آخرین 500§cln:scan:limit:500"],
-    ["۲۴ ساعت§cln:scan:hours:24","۴۸ ساعت§cln:scan:hours:48"],
-    ["کاربر§cln:user","سفارشی§cln:custom"],
-    ["تاریخچه§cln:history","استثناها§cln:protected"],
-    ["وضعیت Job§cln:jobs"]
-  ])});
-  return r.ok;
+    ["پاکسازی پیام§cln:scan:all","پاکسازی رسانه§cln:scan:media"],
+    ["پاکسازی لینک§cln:scan:link","پاکسازی کاربر§cln:user"],
+    ["پاکسازی اسپم§cln:spam","پاکسازی سفارشی§cln:custom"],
+    ["پیش‌نمایش§cln:preview","Jobها§cln:jobs"],
+    ["تاریخچه§cln:history","قوانین§cln:rules"],
+    ["استثناها§cln:protected","تنظیمات§cln:settings"],
+    ["بازگشت§cln:close"]
+  ])})).ok;
 }
 export async function handleCleanupText(pool:Pool,chatId:number,actorId:number,text:string,replyUserId?:number,replyMessageId?:number){
   const raw=text.trim().replace(/^[/!]/,"").trim();
