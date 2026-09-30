@@ -14,7 +14,7 @@ const capabilities: StudioCapability[] = [
 
 const fa: Record<string, string> = {
   robot: "{{robot_line}}",
-  id: "◈ اطلاعات کاربر\n\n⛂ - نام : {{user_name}}\n⛂ - شناسه : {{user_id}}\n⛂ - نام کاربری : {{username}}\n⛂ - مقام : {{rank}}\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - تعداد پیام امروز : {{messages_today}}\n⛂ - تعداد عضویت امروز : —\n⛂ - تعداد پیام کل : {{messages_total}}\n⛂ - تعداد عضویت کل : —",
+  id: "{{live_card}}",
   admin: "{{admin_result}}",
   info: "◈ اطلاعات گروه\n\n⛂ - نام گروه : {{chat_title}}\n⛂ - شناسه گروه : {{chat_id}}\n⛂ - نام کاربری گروه : {{chat_username}}\n⛂ - نوع گروه : {{chat_type}}\n⛂ - تعداد اعضا : {{members_count}}\n⛂ - تعداد مدیران : {{admins_count}}\n⛂ - مالک گروه : —\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - پیام‌های امروز : {{messages_today}}\n⛂ - اعضای جدید امروز : —\n⛂ - پیام‌های کل : {{messages_total}}\n⛂ - اعضای فعلی : {{members_count}}\n⛂ - تعداد افراد در لیست سکوت : —\n⛂ - تعداد افراد در لیست ویژه : —\n⛂ - تعداد اخطار های فعال : —\n\n★ - تاریخ ساخت گروه : —\n★ - لینک دعوت : —\n★ - وضعیت لینک دعوت : —",
   rank: "{{rank_card}}",
@@ -79,7 +79,7 @@ const responseTemplates: StudioResponseTemplate[] = [
 
 const en: Record<string, string> = {
   robot: "{{robot_line}}",
-  id: "◈ User information\n\n⛂ - Name : {{user_name}}\n⛂ - ID : {{user_id}}\n⛂ - Username : {{username}}\n⛂ - Rank : {{rank}}\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - Messages today : {{messages_today}}\n⛂ - Joins today : —\n⛂ - Total messages : {{messages_total}}\n⛂ - Total joins : —",
+  id: "{{live_card}}",
   admin: "{{admin_result}}",
   info: "◈ Group information\n\n⛂ - Group name : {{chat_title}}\n⛂ - Group ID : {{chat_id}}\n⛂ - Group username : {{chat_username}}\n⛂ - Group type : {{chat_type}}\n⛂ - Members : {{members_count}}\n⛂ - Admins : {{admins_count}}\n⛂ - Owner : —\n\n─────━━───── ◈ ─────━━─────\n\n⛂ - Messages today : {{messages_today}}\n⛂ - New members today : —\n⛂ - Total messages : {{messages_total}}\n⛂ - Current members : {{members_count}}\n⛂ - Muted users : —\n⛂ - Special users : —\n⛂ - Active warnings : —\n\n★ - Group creation date : —\n★ - Invite link : —\n★ - Invite status : —",
   rank: "{{rank_card}}",
