@@ -169,6 +169,14 @@ export async function ensureMessageToolsSchema(pool:Pool){
 
 export async function trackMessageAndActivity(pool:Pool,msg:TgMessage){
   if(msg.chat.type==="private"||!msg.from||msg.from.is_bot)return;
+  const m:any=msg;
+  const hasUserContent=Boolean(
+    String(m.text??"").trim() ||
+    String(m.caption??"").trim() ||
+    m.photo || m.video || m.audio || m.document || m.animation || m.sticker ||
+    m.voice || m.video_note || m.contact || m.location || m.venue || m.poll || m.dice || m.game
+  );
+  if(!hasUserContent)return;
   try{
     await ensureMessageToolsSchema(pool);
     const raw=String(msg.text||msg.caption||"");
