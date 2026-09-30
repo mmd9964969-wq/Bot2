@@ -146,8 +146,8 @@ function filterWhere(filters:any){
     else if(filters.type==="bot") w.push("m.has_bot=TRUE");
     else {w.push(`m.message_type=$${n}`);p.push(filters.type);n++;}
   }
-  if(filters.userId){w.push(`m.user_id=$${n}`);p.push(String(filters.userId));n++;}
-  if(filters.userType==="member") w.push(`NOT EXISTS(SELECT 1 FROM cleanup_protected_messages pm WHERE pm.group_id=m.group_id AND pm.message_id=m.message_id AND pm.reason='admin')`);
+  if(filters.userId){w.push(`m.user_id=${n}`);p.push(String(filters.userId));n++;}
+  if(filters.userType==="members"){w.push("m.has_bot=FALSE");}
   if(filters.contains){w.push(`COALESCE(m.content,'') ILIKE $${n}`);p.push("%"+String(filters.contains)+"%");n++;}
   if(filters.notContains){w.push(`COALESCE(m.content,'') NOT ILIKE $${n}`);p.push("%"+String(filters.notContains)+"%");n++;}
   if(filters.spamThreshold){
@@ -383,6 +383,28 @@ export async function handleCleanupText(pool:Pool,chatId:number,actorId:number,t
     return true;
   }
 
+  if(n==="پاکسازی متن"){
+    await telegramApi("sendMessage",{chat_id:chatId,text:panelText("شرط متنی",[
+      "⛂ - قالب : پاکسازی متن <عبارت>",
+      "⛂ - نمونه : پاکسازی متن تبلیغ",
+      "⛂ - عبارت در پیام یا کپشن جست‌وجو می‌شود."
+    ])});
+    return true;
+  }
+  if(n.startsWith("پاکسازی متن ")){
+    const phrase=raw.slice("پاکسازی متن ".length).trim();
+    if(phrase){
+      const f=await getRuleSession(pool,chatId,actorId);
+      f.contains=phrase;
+      await setRuleSession(pool,chatId,actorId,f);
+      await telegramApi("sendMessage",{chat_id:chatId,text:panelText("شرط متنی ثبت شد",[
+        "⛂ - شامل : "+phrase,
+        "⛂ - وضعیت : ✓ آماده استفاده در Rule Builder"
+      ]),reply_markup:keyboard([["Rule Builder§cln:custom"]])});
+    }
+    return true;
+  }
+
   if(n==="پاکسازی کاربر"&&replyUserId){
     const p=await createPreview(pool,chatId,actorId,{type:"all",userId:replyUserId});
     await telegramApi("sendMessage",{chat_id:chatId,text:panelText("پیش‌نمایش کاربر",[
@@ -419,13 +441,15 @@ async function handleBuilderCallback(pool:Pool,cb:any,parts:string[],groupId:num
     f={};await setRuleSession(pool,groupId,actorId,f);currentCallbackMessageId=cb.message.message_id;await ruleBuilder(pool,groupId,actorId);return true;
   }
   if(sub==="type"){
-    const current=Array.isArray(f.types)?f.types:[];
-    const all=["photo","video","document","audio","voice","sticker","text"];
-    const next=all.filter(x=>!current.includes(x));
-    const selected=next.length?next:[];
-    f.types=selected;delete f.type;
+    const seq=["all","text","photo","video","document","audio","voice","sticker","media","link","bot"];
+    const cur=String(f.type??"all");
+    const idx=Math.max(0,seq.indexOf(cur));
+    const next=seq[(idx+1)%seq.length];
+    f.type=next;
+    delete f.types;
   }else if(sub==="user"){
     f.userMode=f.userMode==="members"?"all":"members";
+    if(f.userMode==="members")f.userType="members";else delete f.userType;
   }else if(sub==="hours"){
     const seq=[undefined,1,6,24,48,168];const cur=Number(f.hours||0);const idx=seq.findIndex(x=>Number(x||0)===cur);const next=seq[(idx+1)%seq.length];
     if(next)f.hours=next;else delete f.hours;
@@ -436,10 +460,8 @@ async function handleBuilderCallback(pool:Pool,cb:any,parts:string[],groupId:num
     const seq=[undefined,60,80];const cur=Number(f.spamThreshold||0);const idx=seq.findIndex(x=>Number(x||0)===cur);const next=seq[(idx+1)%seq.length];
     if(next)f.spamThreshold=next;else delete f.spamThreshold;
   }else if(sub==="text"){
-    f.contains=f.contains?"":(f.contains??"");
-    if(!f.contains){
-      await telegramApi("answerCallbackQuery",{callback_query_id:cb.id,text:"برای شرط متن، از دستور «پاکسازی متن» استفاده کنید.",show_alert:true});
-    }
+    await telegramApi("answerCallbackQuery",{callback_query_id:cb.id,text:"شرط متن را با «پاکسازی متن عبارت» ثبت کنید.",show_alert:true});
+    return ruleBuilder(pool,groupId,actorId);
   }else if(sub==="preview"){
     const p=await createPreview(pool,groupId,actorId,f);
     await telegramApi("editMessageText",{chat_id:groupId,message_id:cb.message.message_id,text:panelText("پیش‌نمایش Rule",[
@@ -686,6 +708,28 @@ export async function handleCleanupCallback(pool:Pool,cb:any){
         "⛂ - فیلترها : "+JSON.stringify(x.filters)
       ]:["⛂ - هنوز Previewای ثبت نشده است."];
       await telegramApi("editMessageText",{chat_id:groupId,message_id:cb.message.message_id,text:panelText("آخرین پیش‌نمایش",lines),reply_markup:keyboard([["بازگشت§cln:center"]])});
+      return true;
+    }
+
+    if(action==="rule_toggle"||action==="rule_delete"){
+      const id=Number(parts[2]);
+      const r=(await pool.query("SELECT * FROM cleanup_rules WHERE id=$1 AND group_id=$2",[id,groupId])).rows[0];
+      if(!r)throw new Error("RULE_NOT_FOUND");
+      if(action==="rule_toggle"){
+        await pool.query("UPDATE cleanup_rules SET enabled=NOT enabled,updated_at=NOW() WHERE id=$1",[id]);
+      }else{
+        await pool.query("DELETE FROM cleanup_rules WHERE id=$1",[id]);
+      }
+      const rows=await pool.query("SELECT id,name,enabled FROM cleanup_rules WHERE group_id=$1 ORDER BY id DESC LIMIT 12",[groupId]);
+      const lines=rows.rows.length?rows.rows.map((x:any)=>"⛂ - "+x.id+" · "+x.name+" · "+(x.enabled?"فعال":"خاموش")):["⛂ - هنوز Ruleای ذخیره نشده است."];
+      const keys:string[][]=rows.rows.map((x:any)=>[x.name+" · اجرا§cln:rule_run:"+x.id,x.enabled?"خاموش§cln:rule_toggle:"+x.id:"فعال§cln:rule_toggle:"+x.id,x.name+" · حذف§cln:rule_delete:"+x.id]);
+      keys.push(["Rule جدید§cln:custom"],["بازگشت§cln:center"]);
+      await telegramApi("editMessageText",{chat_id:groupId,message_id:cb.message.message_id,text:panelText("قوانین",lines),reply_markup:keyboard(keys)});
+      return true;
+    }
+
+    if(action==="close"){
+      await telegramApi("deleteMessage",{chat_id:groupId,message_id:cb.message.message_id}).catch(()=>{});
       return true;
     }
 
