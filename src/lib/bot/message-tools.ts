@@ -3,7 +3,7 @@ import { telegramApi } from "../telegram/api.ts";
 import { bindPanelMessage } from "./panel-session.ts";
 import { glassKeyboard } from "./panel-design.ts";
 
-type TgUser={id:number;first_name?:string;username?:string};
+type TgUser={id:number;first_name?:string;username?:string;is_bot?:boolean};
 type TgChat={id:number;type:string;title?:string};
 type TgMessage={
   message_id:number;
