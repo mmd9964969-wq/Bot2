@@ -78,13 +78,14 @@ async function actorCanDelete(pool:Pool,chatId:number,actorId:number,ownerIds:st
   const isGroupAdmin=status==="creator"||status==="administrator";
   const canDelete=isGroupAdmin && (status==="creator" || actor.result?.can_delete_messages===true);
   const authorized=isBotOwner||isGroupAdmin;
+  const actorCanExecute=isBotOwner || canDelete;
   return {
     ok:true,
     authorized,
     owner:isBotOwner,
     isGroupAdmin,
-    canDelete,
-    reason:!authorized?"not_admin":authorized&&!canDelete?"delete_permission_missing":"allowed",
+    canDelete:actorCanExecute,
+    reason:!authorized?"not_admin":!actorCanExecute?"delete_permission_missing":"allowed",
   };
 }
 
