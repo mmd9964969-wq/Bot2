@@ -945,7 +945,7 @@ async function processMessage(msg: TgMessage, edited = false) {
            )::int AS today,
            COUNT(*) FILTER (
              WHERE telegram_date IS NOT NULL
-               AND TO_TIMESTAMP(telegram_date) >= EXTRACT(EPOCH FROM (NOW() - INTERVAL '7 days'))
+               AND TO_TIMESTAMP(telegram_date) >= NOW() - INTERVAL '7 days'
            )::int AS week,
            COUNT(*) FILTER (WHERE telegram_date IS NULL)::int AS legacy_count,
            COUNT(*) FILTER (WHERE telegram_date IS NOT NULL)::int AS exact_count,
