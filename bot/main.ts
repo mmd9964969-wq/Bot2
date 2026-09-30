@@ -931,11 +931,20 @@ async function getGroupInfoSnapshot(chatId:number):Promise<GroupInfoSnapshot>{
           WHERE (created_at AT TIME ZONE 'Asia/Tehran')::date=(NOW() AT TIME ZONE 'Asia/Tehran')::date
         )::int AS today,
         COUNT(*) FILTER (WHERE created_at>=NOW()-INTERVAL '7 days')::int AS week,
-        COUNT(*)::int AS total
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (
+          WHERE kind='deletion'
+            AND (created_at AT TIME ZONE 'Asia/Tehran')::date=(NOW() AT TIME ZONE 'Asia/Tehran')::date
+        )::int AS deleted_today,
+        COUNT(*) FILTER (WHERE kind='deletion' AND created_at>=NOW()-INTERVAL '7 days')::int AS deleted_week,
+        COUNT(*) FILTER (WHERE kind='deletion')::int AS deleted_total
       FROM (
-        SELECT created_at FROM warning_events WHERE group_id=$1 AND action_type='warning'
+        SELECT created_at,'warning'::text AS kind
+        FROM warning_events
+        WHERE group_id=$1 AND action_type='warning'
         UNION ALL
-        SELECT created_at FROM content_lock_logs
+        SELECT created_at,'deletion'::text AS kind
+        FROM content_lock_logs
         WHERE group_id=$1 AND LOWER(action) IN ('delete','delete_notify','delete_ban','restrict','ban','blocked')
       ) v
     `,[chatId]),
@@ -951,7 +960,7 @@ async function getGroupInfoSnapshot(chatId:number):Promise<GroupInfoSnapshot>{
         COUNT(*) FILTER (WHERE created_at>=NOW()-INTERVAL '7 days')::int AS week,
         COUNT(*) FILTER (WHERE (created_at AT TIME ZONE 'Asia/Tehran')>=date_trunc('month',NOW() AT TIME ZONE 'Asia/Tehran'))::int AS month,
         COUNT(*)::int AS total
-      FROM group_invite_events WHERE group_id=$1 AND event_type='used'
+      FROM invite_link_events WHERE group_id=$1 AND event_type='used'
     `,[chatId]),
     q<any>(`
       SELECT COALESCE(SUM(usage_count),0)::int AS total
@@ -1003,9 +1012,9 @@ async function getGroupInfoSnapshot(chatId:number):Promise<GroupInfoSnapshot>{
     warningsToday:Number(warn?.today??0),
     warningsWeek:Number(warn?.week??0),
     warningsTotal:Number(warn?.total??0),
-    deletedToday:Number(violations?.today??0),
-    deletedWeek:Number(violations?.week??0),
-    deletedTotal:Number(violations?.total??0),
+    deletedToday:Number(violations?.deleted_today??0),
+    deletedWeek:Number(violations?.deleted_week??0),
+    deletedTotal:Number(violations?.deleted_total??0),
     activeLocks:Number(locks?.count??0),
     violationsToday:Number(violations?.today??0),
     violationsWeek:Number(violations?.week??0),
