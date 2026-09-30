@@ -7,7 +7,7 @@ export type BotContext = {
   text:string; chatType:"private"|"group"|"supergroup"; chatId:number; chatTitle:string; chatUsername?:string;
   membersCount:number; userId:number; userName:string; userUsername?:string; userRank:Rank; lang:Lang;
   getMemberJoinDate?: (chatId:number,userId:number)=>Promise<number|undefined>;
-  getUserMessageStats?: (chatId:number,userId:number)=>Promise<{today:number;total:number;average:number;rank:number;lastActivity?:number}>;
+  getUserMessageStats?: (chatId:number,userId:number)=>Promise<{today:number;total:number;average:number|null;rank:number;lastActivity?:number;exact:boolean}>;
   getUserJoinStats?: (chatId:number,userId:number)=>Promise<{today:number;total:number}>;
   config:BotConfig; now:number; staff:{id:number;name:string;rank:Rank}[];
 };
@@ -192,13 +192,13 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "⛂ - نام کاربری : "+(ctx.userUsername?"@"+ctx.userUsername.replace(/^@/,""):"ثبت نشده"),
         "⛂ - مقام : "+rankLabel(ctx.lang,rank),
         "⛂ - تاریخ عضویت : "+(joinedAt?formatDate(joinedAt,"fa"):"ثبت نشده"),
-        "⛂ - آخرین فعالیت : "+lastActivity,
+        "⛂ - آخرین فعالیت : "+(persistentStats && !persistentStats.lastActivity ? "قابل تعیین نیست" : lastActivity),
         "",
         "                         ─────━━───── ◈ ─────━━───── ",
         "",
-        "⛂ - تعداد پیام امروز : "+us.today,
+        "⛂ - تعداد پیام امروز : "+(us.today<0?"قابل تعیین نیست":us.today),
         "⛂ - تعداد پیام کل : "+us.total,
-        "⛂ - میانگین پیام روزانه : "+average,
+        "⛂ - میانگین پیام روزانه : "+(persistentStats && !persistentStats.exact ? "قابل تعیین نیست" : (average??"قابل تعیین نیست")),
         "⛂ - رتبه در گروه : #"+(rankByMessages||"—"),
         "",
         "                         ─────━━───── ◈ ─────━━───── ",
@@ -216,13 +216,13 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "⛂ - Username : "+(ctx.userUsername?"@"+ctx.userUsername.replace(/^@/,""):"Not set"),
         "⛂ - Rank : "+rank,
         "⛂ - Join date : "+(joinedAt?formatDate(joinedAt,"en-GB"):"Not recorded"),
-        "⛂ - Last activity : "+lastActivity,
+        "⛂ - Last activity : "+(persistentStats && !persistentStats.lastActivity ? "Cannot determine" : lastActivity),
         "",
         "                         ─────━━───── ◈ ─────━━───── ",
         "",
-        "⛂ - Messages today : "+us.today,
+        "⛂ - Messages today : "+(us.today<0?"Cannot determine":us.today),
         "⛂ - Total messages : "+us.total,
-        "⛂ - Average daily messages : "+average,
+        "⛂ - Average daily messages : "+(persistentStats && !persistentStats.exact ? "Cannot determine" : (average??"Cannot determine")),
         "⛂ - Group rank : #"+(rankByMessages||"—"),
         "",
         "─────━━───── ◈ ─────━━─────",
