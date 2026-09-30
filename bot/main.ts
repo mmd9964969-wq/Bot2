@@ -938,6 +938,11 @@ async function processMessage(msg: TgMessage, edited = false) {
     if (!["owner","sudo","admin"].includes(ctx.userRank)) return;
 
     try {
+      const actorMember=await telegramApi<any>("getChatMember",{chat_id:ctx.chatId,user_id:ctx.userId}).catch(()=>null);
+      const actorRole=String(actorMember?.ok ? actorMember.result?.status : "");
+      const actorIsManager=["owner","sudo","admin"].includes(ctx.userRank) || ["creator","administrator"].includes(actorRole);
+      if(!actorIsManager) return;
+
       const targetId=Number(ctx.replyToUserId || ctx.userId);
       let target:any=null;
       if(ctx.replyToUserId){
@@ -958,6 +963,7 @@ async function processMessage(msg: TgMessage, edited = false) {
         userName:displayName(targetUser),
         userUsername:targetUser.username,
         userRank:targetRank,
+        authorizedByManager:actorIsManager && !!ctx.replyToUserId,
         replyToUserId:undefined,
         replyToName:undefined
       };
