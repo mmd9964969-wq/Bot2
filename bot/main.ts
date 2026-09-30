@@ -10,7 +10,7 @@ import { enforceContentLocks, ensureContentLocks, runContentLockCommand, sendCon
 import { ensureMessageToolsSchema, trackMessageAndActivity } from "../src/lib/bot/message-tools.ts";
 import { isRuntimeMaintenance, startRuntimeControlServer } from "./runtime-control.ts";
 import { ensureAutomationSchema, runAutomations, tickSchedules } from "../src/lib/bot/automation-engine.ts";
-import { dispatchPanelMessage, dispatchPanelCallback, openModerationCenterFromCommand } from "./panel-system.ts";
+import { dispatchPanelMessage, dispatchPanelCallback, openModerationCenterFromCommand, openManagerCenterFromCommand } from "./panel-system.ts";
 import { bindPanelMessage } from "../src/lib/bot/panel-session.ts";
 import { ensureSpecialUsersSchema, sweepSpecialUsers } from "../src/lib/bot/special-users.ts";
 import { ensureGroupLanguageSchema, getGroupLanguage, normalizeBotLang, setGroupLanguage, languageChangedText, languagePickerText, SUPPORTED_LANGUAGES } from "../src/lib/bot/i18n.ts";
@@ -568,6 +568,14 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
         const opened=await sendContentLockCenter(studioPool!,ctx.chatId,ctx.userId,"command");
         await logCommandAccess(ctx,studioCommand.id,"command_executed","allowed",auth.role);
         if(!opened.ok)return ctx.lang==="fa"?"✗ بازکردن مرکز قفل ناموفق بود.":"✗ Could not open the lock center.";
+        return null;
+      }
+      if(studioCommand.id==="rank" && studioPool){
+        const opened=await openManagerCenterFromCommand(studioPool,ctx.chatId,ctx.userId);
+        await logCommandAccess(ctx,"rank","command_executed",opened.ok?"allowed":"manager_center_failed",auth.role);
+        if(!opened.ok){
+          return ctx.lang==="fa"?"✗ بازکردن مرکز مدیران ناموفق بود.":"✗ Could not open the manager center.";
+        }
         return null;
       }
       if(studioCommand.id==="id"){
