@@ -991,6 +991,19 @@ async function processMessage(msg: TgMessage, edited = false) {
     }
   };
 
+  const getUserJoinStats = async (chatId:number,userId:number) => {
+    try {
+      const result = await studioPool!.query<any>(
+        "SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE (joined_at AT TIME ZONE 'Asia/Tehran')::date = (NOW() AT TIME ZONE 'Asia/Tehran')::date)::int AS today FROM bot_member_join_events WHERE group_id=$1 AND user_id=$2",
+        [chatId,userId],
+      );
+      const row=result.rows[0] ?? {};
+      return { today:Number(row.today ?? 0), total:Number(row.total ?? 0) };
+    } catch (error) {
+      console.error('[member-stats] persistent join stats query failed:', error);
+      return undefined;
+    }
+  };
   const ctx: BotContext = {
     text,
     chatType: isPrivate ? "private" : chat.type === "group" ? "group" : "supergroup",
