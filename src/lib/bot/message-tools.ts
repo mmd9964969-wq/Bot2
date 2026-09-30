@@ -88,6 +88,7 @@ export async function ensureMessageToolsSchema(pool:Pool){
         first_name TEXT,
         kind TEXT NOT NULL DEFAULT 'text',
         has_link BOOLEAN NOT NULL DEFAULT FALSE,
+        telegram_date BIGINT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         PRIMARY KEY(chat_id,message_id)
       );
@@ -171,10 +172,10 @@ export async function trackMessageAndActivity(pool:Pool,msg:TgMessage){
     await ensureMessageToolsSchema(pool);
     const raw=String(msg.text||msg.caption||"");
     await pool.query(
-      `INSERT INTO bot_message_records(chat_id,message_id,user_id,username,first_name,kind,has_link)
-       VALUES($1,$2,$3,$4,$5,$6,$7)
+      `INSERT INTO bot_message_records(chat_id,message_id,user_id,username,first_name,kind,has_link,telegram_date)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8)
        ON CONFLICT(chat_id,message_id) DO NOTHING`,
-      [msg.chat.id,msg.message_id,msg.from.id,msg.from.username??null,msg.from.first_name??null,messageKind(msg),isLink(raw)],
+      [msg.chat.id,msg.message_id,msg.from.id,msg.from.username??null,msg.from.first_name??null,messageKind(msg),isLink(raw),msg.date??null],
     );
     await pool.query(
       `INSERT INTO member_tag_activity(group_id,user_id,username,first_name,last_message_at,last_message_id)
