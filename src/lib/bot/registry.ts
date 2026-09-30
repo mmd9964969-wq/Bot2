@@ -15,15 +15,15 @@ export type CommandDef = {
 };
 
 const defs: CommandDef[] = [
-  { id:"robot", phase:1, minRank:"member", aliasesEn:["robot"], aliasesFa:["ربات"], usageEn:"robot", usageFa:"ربات", descEn:"Robot response", descFa:"پاسخ ربات" },
-  { id:"id", phase:1, minRank:"member", aliasesEn:["id"], aliasesFa:["آیدی"], usageEn:"id", usageFa:"آیدی", descEn:"User identity", descFa:"اطلاعات هویتی کاربر" },
-  { id:"admin", phase:1, minRank:"member", aliasesEn:["admin"], aliasesFa:["ادمین"], usageEn:"admin", usageFa:"ادمین", descEn:"Check admin access", descFa:"بررسی دسترسی ادمین" },
-  { id:"info", phase:1, minRank:"member", aliasesEn:["info"], aliasesFa:["اطلاعات"], usageEn:"info", usageFa:"اطلاعات", descEn:"Group information", descFa:"اطلاعات گروه" },
-  { id:"rank", phase:1, minRank:"member", aliasesEn:["rank"], aliasesFa:["مقام","اطلاعات مقام"], usageEn:"rank", usageFa:"مقام", descEn:"Show user rank", descFa:"نمایش مقام کاربر" },
+  { id:"robot", phase:1, minRank:"admin", aliasesEn:["robot"], aliasesFa:["ربات"], usageEn:"robot", usageFa:"ربات", descEn:"Robot response", descFa:"پاسخ ربات" },
+  { id:"id", phase:1, minRank:"admin", aliasesEn:["id"], aliasesFa:["آیدی"], usageEn:"id", usageFa:"آیدی", descEn:"User identity", descFa:"اطلاعات هویتی کاربر" },
+  { id:"admin", phase:1, minRank:"admin", aliasesEn:["admin"], aliasesFa:["ادمین"], usageEn:"admin", usageFa:"ادمین", descEn:"Check admin access", descFa:"بررسی دسترسی ادمین" },
+  { id:"info", phase:1, minRank:"admin", aliasesEn:["info"], aliasesFa:["اطلاعات"], usageEn:"info", usageFa:"اطلاعات", descEn:"Group information", descFa:"اطلاعات گروه" },
+  { id:"rank", phase:1, minRank:"admin", aliasesEn:["rank"], aliasesFa:["مقام","اطلاعات مقام"], usageEn:"rank", usageFa:"مقام", descEn:"Show user rank", descFa:"نمایش مقام کاربر" },
   { id:"me", phase:1, minRank:"member", aliasesEn:["me"], aliasesFa:["من"], usageEn:"me", usageFa:"من", descEn:"Show personal profile", descFa:"نمایش پروفایل شخصی" },
-  { id:"ping", phase:2, minRank:"member", aliasesEn:["ping"], aliasesFa:["پینگ"], usageEn:"ping", usageFa:"پینگ", descEn:"System status", descFa:"وضعیت سیستم" },
-  { id:"bot", phase:2, minRank:"member", aliasesEn:["bot"], aliasesFa:["بات"], usageEn:"bot", usageFa:"بات", descEn:"Technical bot information", descFa:"اطلاعات فنی ربات" },
-  { id:"status", phase:2, minRank:"member", aliasesEn:["status"], aliasesFa:["وضعیت"], usageEn:"status", usageFa:"وضعیت", descEn:"Group status", descFa:"وضعیت گروه" },
+  { id:"ping", phase:2, minRank:"admin", aliasesEn:["ping"], aliasesFa:["پینگ"], usageEn:"ping", usageFa:"پینگ", descEn:"System status", descFa:"وضعیت سیستم" },
+  { id:"bot", phase:2, minRank:"admin", aliasesEn:["bot"], aliasesFa:["بات"], usageEn:"bot", usageFa:"بات", descEn:"Technical bot information", descFa:"اطلاعات فنی ربات" },
+  { id:"status", phase:2, minRank:"admin", aliasesEn:["status"], aliasesFa:["وضعیت"], usageEn:"status", usageFa:"وضعیت", descEn:"Group status", descFa:"وضعیت گروه" },
   { id:"lang", phase:2, minRank:"admin", aliasesEn:["lang","language"], aliasesFa:["زبان","تغییر زبان"], usageEn:"lang [code]", usageFa:"زبان [کد]", descEn:"Change this group language", descFa:"تغییر زبان همین گروه" },
   { id:"warn", phase:2, minRank:"admin", aliasesEn:["warn","warning"], aliasesFa:["اخطار","هشدار"], usageEn:"warn [user] [reason]", usageFa:"اخطار [کاربر] [دلیل]", descEn:"Issue a warning and apply configured penalties", descFa:"صدور اخطار و اجرای جریمه‌های تنظیم‌شده" },
   { id:"mute", phase:2, minRank:"admin", aliasesEn:["mute"], aliasesFa:["سکوت","محدود"], usageEn:"mute [user] [duration]", usageFa:"سکوت [کاربر] [مدت]", descEn:"Temporarily restrict a member", descFa:"سکوت موقت یک عضو" },
