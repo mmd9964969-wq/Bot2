@@ -166,7 +166,7 @@ export async function ensureMessageToolsSchema(pool:Pool){
 }
 
 export async function trackMessageAndActivity(pool:Pool,msg:TgMessage){
-  if(msg.chat.type==="private"||!msg.from)return;
+  if(msg.chat.type==="private"||!msg.from||msg.from.is_bot)return;
   try{
     await ensureMessageToolsSchema(pool);
     const raw=String(msg.text||msg.caption||"");
