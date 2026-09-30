@@ -28,6 +28,7 @@ const userLastMessageAt=new Map<string,number>();
 const groupMessageTotals=new Map<number,number>();
 const groupMessageDailyCounts=new Map<number,{day:string;count:number}>();
 const memberJoins=new Map<string,number[]>();
+const userJoinCounts=new Map<string,number[]>();
 const memberJoinDates=new Map<string,number>();
 function userKey(chatId:number,userId:number){ return chatId+":"+userId; }
 function dayKey(){ return new Date().toISOString().slice(0,10); }
@@ -64,6 +65,9 @@ export async function recordMemberJoin(chatId:number,userId:number,ts:number){
   list.push(ts);
   memberJoins.set(key,list);
   const user=userKey(chatId,userId);
+  const userJoins=userJoinCounts.get(user)??[];
+  userJoins.push(ts);
+  userJoinCounts.set(user,userJoins);
   if(!memberJoinDates.has(user)) memberJoinDates.set(user,ts);
   const s=state(chatId);
   if(!s.joins.has(userId)) s.joins.set(userId,ts);
@@ -123,37 +127,70 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
     }
     case "id": {
       const us=userStats(ctx.chatId,ctx.userId);
-      const gs=getGroupStats(ctx.chatId);
-      const username=ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName;
+      const userKeyValue=userKey(ctx.chatId,ctx.userId);
+      const joinList=userJoinCounts.get(userKeyValue)??[];
+      const joinedAt=memberJoinDates.get(userKeyValue);
+      const warnings=state(ctx.chatId).warnings.get(ctx.userId)?.count??0;
+      const muted=state(ctx.chatId).muted.has(ctx.userId);
+      const now=Date.now();
+      const lastAt=userLastMessageAt.get(userKeyValue);
+      const elapsedDays=joinedAt?Math.max(1,Math.ceil((now-joinedAt)/86400000)):1;
+      const average=Math.round(us.total/elapsedDays);
+      const lastActivity=lastAt?relativeTime(lastAt,ctx.lang):"ثبت نشده";
+      const rankByMessages=Array.from(userMessageCounts.entries())
+        .filter(([k])=>k.startsWith(ctx.chatId+":"))
+        .sort((a,b)=>b[1]-a[1])
+        .findIndex(([k])=>k===userKeyValue)+1;
+      const todayJoins=joinList.filter(t=>new Date(t).toISOString().slice(0,10)===dayKey()).length;
       const faText=[
         "◈ اطلاعات کاربر",
         "",
         "⛂ - نام : "+ctx.userName,
         "⛂ - شناسه : "+ctx.userId,
-        "⛂ - نام کاربری : "+username,
+        "⛂ - نام کاربری : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName),
         "⛂ - مقام : "+rankLabel(ctx.lang,rank),
+        "⛂ - تاریخ عضویت : "+(joinedAt?formatDate(joinedAt,"fa"):"ثبت نشده"),
+        "⛂ - آخرین فعالیت : "+lastActivity,
         "",
         "─────━━───── ◈ ─────━━─────",
         "",
         "⛂ - تعداد پیام امروز : "+us.today,
-        "⛂ - تعداد عضویت امروز : "+gs.joinsToday,
+        "⛂ - تعداد پیام هفته : "+us.total,
         "⛂ - تعداد پیام کل : "+us.total,
-        "⛂ - تعداد عضویت کل : "+gs.joinsTotal
+        "⛂ - میانگین پیام روزانه : "+average,
+        "⛂ - رتبه در گروه : #"+(rankByMessages||"—"),
+        "",
+        "─────━━───── ◈ ─────━━─────",
+        "",
+        "⛂ - تعداد عضویت امروز : "+todayJoins,
+        "⛂ - تعداد عضویت کل : "+joinList.length,
+        "⛂ - اخطارها : "+warnings+"/3",
+        "⛂ - وضعیت سکوت : "+(muted?"دارد":"ندارد")
       ].join("\n");
       const enText=[
         "◈ User information",
         "",
         "⛂ - Name : "+ctx.userName,
         "⛂ - ID : "+ctx.userId,
-        "⛂ - Username : "+username,
+        "⛂ - Username : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName),
         "⛂ - Rank : "+rank,
+        "⛂ - Join date : "+(joinedAt?formatDate(joinedAt,"en-GB"):"Not recorded"),
+        "⛂ - Last activity : "+lastActivity,
         "",
         "─────━━───── ◈ ─────━━─────",
         "",
         "⛂ - Messages today : "+us.today,
-        "⛂ - Joins today : "+gs.joinsToday,
+        "⛂ - Messages this week : "+us.total,
         "⛂ - Total messages : "+us.total,
-        "⛂ - Total joins : "+gs.joinsTotal
+        "⛂ - Average daily messages : "+average,
+        "⛂ - Group rank : #"+(rankByMessages||"—"),
+        "",
+        "─────━━───── ◈ ─────━━─────",
+        "",
+        "⛂ - Joins today : "+todayJoins,
+        "⛂ - Total joins : "+joinList.length,
+        "⛂ - Warnings : "+warnings+"/3",
+        "⛂ - Mute status : "+(muted?"Muted":"Not muted")
       ].join("\n");
       return fa(ctx.lang,faText,enText);
     }
