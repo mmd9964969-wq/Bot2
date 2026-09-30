@@ -1379,6 +1379,28 @@ async function processMessage(msg: TgMessage, edited = false) {
   if (studioResult !== null) {
     const payload:any = { chat_id: chat.id, text: studioResult, reply_to_message_id: msg.message_id };
     if (!edited && isGameCenterCommand(text)) payload.reply_markup = gameCenterKeyboard(ctx.userId);
+
+    // Core «اطلاعات / info» gets live drill-down buttons into the existing
+    // management centers. Normal buttons use the › marker; back is blue.
+    const isInfoCommand = ["info","اطلاعات"].includes(directToken) && directArgs.length === 0;
+    if (isInfoCommand) {
+      const faButtons = [
+        [{text:"› اعضا",callback_data:"c:members"},{text:"› فعالیت",callback_data:"c:analytics"}],
+        [{text:"› امنیت",callback_data:"c:security"},{text:"› تخلفات",callback_data:"c:warnings"}],
+        [{text:"› مدیریت",callback_data:"c:audit"},{text:"› سیستم ربات",callback_data:"c:health"}],
+        [{text:"› دعوت و رشد",callback_data:"link:menu"},{text:"› وضعیت نهایی",callback_data:"c:status"}],
+        [{text:"‹ بازگشت",callback_data:"c:home",style:"primary"}],
+      ];
+      const enButtons = [
+        [{text:"› Members",callback_data:"c:members"},{text:"› Activity",callback_data:"c:analytics"}],
+        [{text:"› Security",callback_data:"c:security"},{text:"› Violations",callback_data:"c:warnings"}],
+        [{text:"› Management",callback_data:"c:audit"},{text:"› Bot system",callback_data:"c:health"}],
+        [{text:"› Invite & growth",callback_data:"link:menu"},{text:"› Final status",callback_data:"c:status"}],
+        [{text:"‹ Back",callback_data:"c:home",style:"primary"}],
+      ];
+      payload.reply_markup = {inline_keyboard: ctx.lang === "fa" ? faButtons : enButtons};
+    }
+
     await telegramApi("sendMessage", payload);
     return;
   }
