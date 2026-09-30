@@ -7,6 +7,7 @@ type TgUser={id:number;first_name?:string;username?:string;is_bot?:boolean};
 type TgChat={id:number;type:string;title?:string};
 type TgMessage={
   message_id:number;
+  date?:number;
   chat:TgChat;
   from?:TgUser;
   text?:string;
