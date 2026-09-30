@@ -81,9 +81,33 @@ export async function openCleanupCenter(pool:Pool,chatId:number,actorId:number){
   ])});
   return r.ok;
 }
-export async function handleCleanupText(pool:Pool,chatId:number,actorId:number,text:string){
-  const n=text.trim().replace(/^[/!]/,"").trim().toLowerCase();
+export async function handleCleanupText(pool:Pool,chatId:number,actorId:number,text:string,replyUserId?:number,replyMessageId?:number){
+  const raw=text.trim().replace(/^[/!]/,"").trim();
+  const n=raw.toLowerCase();
   if(!["پاکسازی","cleanup"].includes(n)&&!n.startsWith("پاکسازی "))return false;
+  await ensureCleanupSchema(pool);
+  if(n==="پاکسازی محافظت"&&replyMessageId){
+    await pool.query("INSERT INTO cleanup_protected_messages(group_id,message_id,created_by,reason) VALUES($1,$2,$3,'manual') ON CONFLICT DO NOTHING",[chatId,replyMessageId,actorId]);
+    await telegramApi("sendMessage",{chat_id:chatId,text:panelText("پیام محافظت شد",["⛂ - پیام : "+replyMessageId,"⛂ - وضعیت : ✓ در برابر پاکسازی محافظت شد"])});
+    return true;
+  }
+  if(n==="پاکسازی رفع محافظت"&&replyMessageId){
+    await pool.query("DELETE FROM cleanup_protected_messages WHERE group_id=$1 AND message_id=$2",[chatId,replyMessageId]);
+    await telegramApi("sendMessage",{chat_id:chatId,text:panelText("حفاظت حذف شد",["⛂ - پیام : "+replyMessageId,"⛂ - وضعیت : ✓ دوباره قابل بررسی است"])});
+    return true;
+  }
+  if(n==="پاکسازی کاربر"&&replyUserId){
+    const p=await createPreview(pool,chatId,actorId,{type:"all",userId:replyUserId});
+    await telegramApi("sendMessage",{chat_id:chatId,text:panelText("پیش‌نمایش کاربر",["⛂ - کاربر : "+replyUserId,"⛂ - بررسی‌شده : "+p.rawCount,"⛂ - قابل حذف : "+p.eligible,"⛂ - مستثنی‌شده : "+p.skipped]),reply_markup:keyboard([["تأیید حذف§cln:run:"+p.job.id],["لغو§cln:cancel:"+p.job.id]])});
+    return true;
+  }
+  const m=n.match(/^پاکسازی\\s+(لینک|رسانه|عکس|ویدیو|فایل|صوت|ویس|استیکر|ربات)(?:\\s+(\\d+)h)?$/i);
+  if(m){
+    const aliases:any={لینک:"link",رسانه:"media",عکس:"photo",ویدیو:"video",فایل:"document",صوت:"audio",ویس:"voice",استیکر:"sticker",ربات:"bot"};
+    const p=await createPreview(pool,chatId,actorId,{type:aliases[m[1]],hours:m[2]?Number(m[2]):48});
+    await telegramApi("sendMessage",{chat_id:chatId,text:panelText("پیش‌نمایش عملیات",["⛂ - نوع : "+m[1],"⛂ - بازه : "+(m[2]?m[2]+" ساعت":"۴۸ ساعت"),"⛂ - بررسی‌شده : "+p.rawCount,"⛂ - قابل حذف : "+p.eligible,"⛂ - مستثنی‌شده : "+p.skipped]),reply_markup:keyboard([["تأیید حذف§cln:run:"+p.job.id],["لغو§cln:cancel:"+p.job.id]])});
+    return true;
+  }
   await openCleanupCenter(pool,chatId,actorId);return true;
 }
 async function createPreview(pool:Pool,groupId:number,actorId:number,filters:any){
@@ -157,7 +181,7 @@ export async function handleCleanupCallback(pool:Pool,cb:any){
     if(action==="jobs"){const r=await pool.query("SELECT job_key,status,eligible_count,success_count,failure_count FROM cleanup_jobs WHERE group_id=$1 ORDER BY id DESC LIMIT 8",[groupId]);const lines=r.rows.length?r.rows.map((x:any)=>"⛂ - "+x.job_key+" | "+x.status+" | "+x.success_count+"/"+x.eligible_count):["⛂ - Job فعالی وجود ندارد."];await telegramApi("editMessageText",{chat_id:groupId,message_id:cb.message.message_id,text:panelText("Jobهای پاکسازی",lines),reply_markup:keyboard([["‹ بازگشت§cln:center"]])});return true;}
     if(action==="protected"){const r=await pool.query("SELECT message_id,reason FROM cleanup_protected_messages WHERE group_id=$1 ORDER BY created_at DESC LIMIT 30",[groupId]);const lines=r.rows.length?r.rows.map((x:any)=>"⛂ - پیام "+x.message_id+" | "+(x.reason??"—")):["⛂ - پیام محافظت‌شده‌ای ثبت نشده است."];await telegramApi("editMessageText",{chat_id:groupId,message_id:cb.message.message_id,text:panelText("استثناها و پیام‌های محافظت‌شده",lines),reply_markup:keyboard([["‹ بازگشت§cln:center"]])});return true;}
     if(action==="user"){await telegramApi("editMessageText",{chat_id:groupId,message_id:cb.message.message_id,text:panelText("پاکسازی کاربر",["⛂ - این بخش برای Reply به پیام کاربر طراحی شده است.","⛂ - در نسخه فعلی، پیام‌های کاربر از طریق فیلتر Job قابل اجرا هستند."]),reply_markup:keyboard([["‹ بازگشت§cln:center"]])});return true;}
-    if(action==="custom"){await telegramApi("editMessageText",{chat_id:groupId,message_id:cb.message.message_id,text:panelText("پاکسازی سفارشی",["⛂ - Rule Engine آماده است.","⛂ - برای جلوگیری از حذف اشتباه، Rule سفارشی در مرحله بعد از طریق پنل تنظیم می‌شود."]),reply_markup:keyboard([["‹ بازگشت§cln:center"]])});return true;}
+    if(action==="custom"){await telegramApi("editMessageText",{chat_id:groupId,message_id:cb.message.message_id,text:panelText("پاکسازی سفارشی",["⛂ - نمونه : پاکسازی لینک 24h","⛂ - نمونه : «پاکسازی کاربر» در پاسخ به پیام کاربر","⛂ - پیام محافظت‌شده با «پاکسازی محافظت» در Reply ثبت می‌شود.","⛂ - همه عملیات قبل از حذف وارد Preview می‌شوند."]),reply_markup:keyboard([["‹ بازگشت§cln:center"]])});return true;}
   }catch(e){
     const msg=String((e as any)?.message??e);await telegramApi("editMessageText",{chat_id:groupId,message_id:cb.message.message_id,text:panelText("خطای پاکسازی",["⛂ - وضعیت : ✗ عملیات انجام نشد","⛂ - خطا : "+msg]),reply_markup:keyboard([["‹ بازگشت§cln:center"]])}).catch(()=>{});
   }
