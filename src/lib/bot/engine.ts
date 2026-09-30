@@ -37,6 +37,7 @@ export type BotContext = {
   replyToName?: string;
   lang: Lang;
   getMemberJoinDate?: (chatId:number,userId:number)=>Promise<number|undefined>;
+  getUserMessageStats?: (chatId:number,userId:number)=>Promise<{today:number;week:number;total:number;average:number;rank:number;lastActivity?:number}>;
   config: BotConfig;
   now: number;
   staff: { id: number; name: string; rank: Rank }[];
