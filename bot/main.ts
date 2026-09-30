@@ -763,6 +763,30 @@ async function memberJoinDateFromDb(chatId:number,userId:number){
     return undefined;
   }
 }
+async function getUserJoinStats(chatId:number,userId:number){
+  if(!studioPool)return {today:0,total:0};
+  try{
+    const r=await studioPool.query(
+      `SELECT
+         COUNT(*)::int AS total,
+         COUNT(*) FILTER (
+           WHERE (joined_at AT TIME ZONE 'Asia/Tehran')::date =
+                 (NOW() AT TIME ZONE 'Asia/Tehran')::date
+         )::int AS today
+       FROM bot_member_join_events
+       WHERE group_id=$1 AND user_id=$2`,
+      [chatId,userId],
+    );
+    return {
+      today:Number(r.rows[0]?.today ?? 0),
+      total:Number(r.rows[0]?.total ?? 0),
+    };
+  }catch(error){
+    console.error("[member-stats] join stats lookup failed:",error);
+    return {today:0,total:0};
+  }
+}
+
 async function persistMemberJoin(chatId:number,user:TgUser,ts:number){
   if(!studioPool||user.is_bot)return;
   try{
