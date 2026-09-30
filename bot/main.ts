@@ -22,6 +22,7 @@ import { ensureEngineSchema, getEngineGame } from "../src/lib/bot/game-engine.ts
 import { handleWorldCallback, handleWorldText } from "../src/lib/bot/game-world.ts";
 import { handleFrontierExpansionCallback } from "../src/lib/bot/frontier-expansion.ts";
 import { renderGameText } from "../src/lib/bot/game-emoji.ts";
+import { ensureCleanupSchema, trackCleanupMessage, handleCleanupText, handleCleanupCallback } from "../src/lib/bot/cleanup-engine.ts";
 
 const TOKEN = process.env.BOT_TOKEN ?? "";
 if (!TOKEN) { console.error("BOT_TOKEN is missing"); process.exit(1); }
@@ -832,6 +833,7 @@ async function processMessage(msg: TgMessage, edited = false) {
   const lang = await getGroupLanguage(studioPool, chat.id, config.defaultLang);
 
   await recordMessage(chat.id, msg.from.id, msg.message_id);
+  try { await trackCleanupMessage(studioPool, msg); } catch (error) { console.error("[cleanup] message tracking failed", error); }
 
   let membersCount = 0;
   if (!isPrivate) {
@@ -860,6 +862,10 @@ async function processMessage(msg: TgMessage, edited = false) {
     now: Date.now(),
     staff: [...adminIds].map((id) => ({ id, name: String(id), rank: rankOf(id, adminIds) })),
   };
+
+  if (!isPrivate && ["owner","sudo","admin"].includes(ctx.userRank)) {
+    if (await handleCleanupText(studioPool, chat.id, msg.from.id, text)) return;
+  }
 
   if (studioPool && await dispatchPanelMessage(studioPool, msg, config.ownerIds)) {
     // The panel entry message belongs to the temporary panel session.
@@ -995,6 +1001,7 @@ async function poll() {
   let offset = 0;
   await refreshStudio();
   if (studioPool) {
+    await ensureCleanupSchema(studioPool);
     await ensureInstallationSchema(studioPool);
     await ensureAutomationSchema(studioPool);
     await ensureGroupLanguageSchema(studioPool);
@@ -1035,6 +1042,17 @@ async function poll() {
           void (async () => {
             const callback=upd.callback_query as any;
             const data=String(callback.data??"");
+            if (data.startsWith("cln:")) {
+              const adminIds=callback.message.chat.type==="private"?new Set<number>():await chatAdmins(callback.message.chat.id);
+              const rank=rankOf(callback.from.id,adminIds);
+              if (["owner","sudo","admin"].includes(rank)) {
+                await telegramApi("answerCallbackQuery",{callback_query_id:callback.id}).catch(()=>{});
+                await handleCleanupCallback(studioPool!,callback);
+              } else {
+                await telegramApi("answerCallbackQuery",{callback_query_id:callback.id,text:"✗ دسترسی مدیریتی ندارید.",show_alert:true}).catch(()=>{});
+              }
+              return;
+            }
             if (data.startsWith("world:")) {
               const chat=callback.message.chat as TgChat;
 
