@@ -104,9 +104,7 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
 
   switch(command.id){
     case "robot": {
-      const faLines=["جانم من اینجا هستم حاضر و آماده در خدمت شما","بله فرمانده فرمان بدی آماده‌ خدمتم","کاپیتان دستور بده که رو این دریا یه کاپیتان داریم اونم شمایی"];
-      const enLines=["I am here and ready to serve.","Yes, commander. Give the order.","Captain, give the order. There is one captain here — you."];
-      const lines=ctx.lang==="fa"?faLines:enLines;
+      const lines=ctx.lang==="fa"?robotLinesFa:robotLinesEn;
       const out=lines[robotIndex%lines.length];
       robotIndex=(robotIndex+1)%lines.length;
       return out;
