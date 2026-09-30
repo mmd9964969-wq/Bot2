@@ -7,6 +7,7 @@ export type BotContext = {
   text:string; chatType:"private"|"group"|"supergroup"; chatId:number; chatTitle:string; chatUsername?:string;
   membersCount:number; userId:number; userName:string; userUsername?:string; userRank:Rank; lang:Lang;
   getMemberJoinDate?: (chatId:number,userId:number)=>Promise<number|undefined>;
+  getUserMessageStats?: (chatId:number,userId:number)=>Promise<{today:number;week:number;total:number;average:number;rank:number;lastActivity?:number}>;
   config:BotConfig; now:number; staff:{id:number;name:string;rank:Rank}[];
 };
 
@@ -148,8 +149,17 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "◈ System status\n\n⛂ - Bot : Online\n⛂ - Response : "+ms+"ms\n⛂ - Database : "+(process.env.DATABASE_URL?"Connected":"Local")+"\n⛂ - Group : Active\n⛂ - Version : v"+(process.env.BOT_VERSION??"2.0.0")+"\n⛂ - Anti-spam : Active\n⛂ - Online admins : "+ctx.staff.length+"\n\n─────━━───── ◈ ─────━━─────\n\n★ - System is stable");
     }
     case "id": {
-      const us=userStats(ctx.chatId,ctx.userId);
       const userKeyValue=userKey(ctx.chatId,ctx.userId);
+      const fallbackStats=userStats(ctx.chatId,ctx.userId);
+      const persistentStats=ctx.getUserMessageStats
+        ? await ctx.getUserMessageStats(ctx.chatId,ctx.userId).catch(()=>undefined)
+        : undefined;
+      const us=persistentStats ?? {
+        ...fallbackStats,
+        week:fallbackStats.total,
+        average:fallbackStats.total,
+        rank:0,
+      };
       const joinList=userJoinCounts.get(userKeyValue)??[];
       const joinedAt=ctx.getMemberJoinDate
         ? (await ctx.getMemberJoinDate(ctx.chatId,ctx.userId)) ?? memberJoinDates.get(userKeyValue)
@@ -160,12 +170,15 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
       const now=Date.now();
       const lastAt=userLastMessageAt.get(userKeyValue);
       const elapsedDays=joinedAt?Math.max(1,Math.ceil((now-joinedAt)/86400000)):1;
-      const average=Math.round(us.total/elapsedDays);
-      const lastActivity=lastAt?relativeTime(lastAt,ctx.lang):"ثبت نشده";
-      const rankByMessages=Array.from(userMessageCounts.entries())
-        .filter(([k])=>k.startsWith(ctx.chatId+":"))
-        .sort((a,b)=>b[1]-a[1])
-        .findIndex(([k])=>k===userKeyValue)+1;
+      const average=persistentStats?.average ?? Math.round(us.total/elapsedDays);
+      const lastTimestamp=persistentStats?.lastActivity ?? lastAt;
+      const lastActivity=lastTimestamp?relativeTime(lastTimestamp,ctx.lang):"ثبت نشده";
+      const rankByMessages=persistentStats?.rank
+        ? persistentStats.rank
+        : Array.from(userMessageCounts.entries())
+            .filter(([k])=>k.startsWith(ctx.chatId+":"))
+            .sort((a,b)=>b[1]-a[1])
+            .findIndex(([k])=>k===userKeyValue)+1;
       const todayJoins=joinList.filter(t=>new Date(t).toISOString().slice(0,10)===dayKey()).length;
       const faText=[
         "◈ اطلاعات کاربر",
@@ -180,7 +193,7 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "─────━━───── ◈ ─────━━─────",
         "",
         "⛂ - تعداد پیام امروز : "+us.today,
-        "⛂ - تعداد پیام هفته : "+us.total,
+        "⛂ - تعداد پیام هفته : "+us.week,
         "⛂ - تعداد پیام کل : "+us.total,
         "⛂ - میانگین پیام روزانه : "+average,
         "⛂ - رتبه در گروه : #"+(rankByMessages||"—"),
@@ -205,7 +218,7 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "─────━━───── ◈ ─────━━─────",
         "",
         "⛂ - Messages today : "+us.today,
-        "⛂ - Messages this week : "+us.total,
+        "⛂ - Messages this week : "+us.week,
         "⛂ - Total messages : "+us.total,
         "⛂ - Average daily messages : "+average,
         "⛂ - Group rank : #"+(rankByMessages||"—"),
