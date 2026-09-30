@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS bot_member_profiles (
   joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  join_count INTEGER NOT NULL DEFAULT 1,
   PRIMARY KEY (group_id, user_id)
 );
 
