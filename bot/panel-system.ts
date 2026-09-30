@@ -15,7 +15,6 @@ import { handleSpecialCallback, handleSpecialCommand, handleSpecialTextInput } f
 import { handleSpecialBulkCallback, handleSpecialBulkCommand, handleSpecialBulkTextInput } from "../src/lib/bot/special-bulk.ts";
 import { handleMemberControlCallback, handleMemberControlTextInput, renderMemberControl } from "../src/lib/bot/member-control.ts";
 import { trackMessageAndActivity, handleMessageToolsText, handleMessageToolsCallback } from "../src/lib/bot/message-tools.ts";
-import { cleanupStats, prepareFullCleanup, executeFullCleanup } from "../src/lib/bot/cleanup-engine.ts";
 import { executeRuntimeAction, isRuntimeMaintenance } from "./runtime-control.ts";
 import {
   ensurePanelSessionSchema,
@@ -87,8 +86,7 @@ const K={
     [["استودیو محتوا","c:content"],["زمان‌بندی پیام‌ها","c:schedule"]],
     [["تحلیل و آمار","c:analytics"],["مرکز دسترسی","c:permissions"]],
     [["مرکز استثناها","c:exceptions"],["ممیزی گروه","c:audit"]],
-    [["پاکسازی گروه","c:cleanup"],["سلامت ربات","c:health"]],
-    [["پشتیبانی و راهنما","c:support"]],
+    [["سلامت ربات","c:health"],["پشتیبانی و راهنما","c:support"]],
     [["خروج از پنل","c:exit"]]
   ]
 };
@@ -157,7 +155,6 @@ const BUTTON_LABELS:Record<string,Partial<Record<BotLang,string>>> = {
   "مرکز دسترسی":{en:"Permission center",ar:"الصلاحيات",ru:"Права доступа",tr:"Yetkiler",zh:"权限"},
   "مرکز استثناها":{en:"Exceptions",ar:"الاستثناءات",ru:"Исключения",tr:"İstisnalar",zh:"例外"},
   "ممیزی گروه":{en:"Group audit",ar:"تدقيق المجموعة",ru:"Аудит группы",tr:"Grup denetimi",zh:"群组审计"},
-  "پاکسازی گروه":{en:"Group cleanup",ar:"تنظيف المجموعة",ru:"Очистка группы",tr:"Grup temizleme",zh:"群组清理"},
   "سلامت ربات":{en:"Bot health",ar:"حالة البوت",ru:"Состояние бота",tr:"Bot durumu",zh:"机器人状态"},
   "پشتیبانی و راهنما":{en:"Support & help",ar:"الدعم والمساعدة",ru:"Поддержка",tr:"Destek",zh:"支持与帮助"},
   "خروج از پنل":{en:"Exit panel",ar:"خروج",ru:"Выход",tr:"Çıkış",zh:"退出"},
@@ -1470,48 +1467,6 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
 
   if(data==="c:home")return edit(msg.chat.id,msg.message_id,mainCustomerMessage(),menu(K.customerMain));
 
-  if(data==="c:cleanup"){
-    const stats=await cleanupStats(pool,groupId);
-    return edit(msg.chat.id,msg.message_id,panelTitle("پاکسازی گروه",
-      "⛂ - حالت خودکار : ✗ خاموش\\n⛂ - پاکسازی خودکار هیچ فعالیتی ندارد.\\n⛂ - پیام‌های قابل پاکسازی ثبت‌شده : "+stats.active+"\\n⛂ - عملیات ناموفق اخیر : "+stats.failed+"\\n\\n★ - پاکسازی کامل فقط با تأیید دومرحله‌ای از همین پنل انجام می‌شود."
-    ),menu([
-      [["پاکسازی کامل","cln:all:open"]],
-      [["‹ بازگشت","c:home"]]
-    ]));
-  }
-
-  if(data==="cln:all:open"){
-    const prepared=await prepareFullCleanup(pool,groupId,uid,msg.message_id,ownerIds);
-    if(!prepared.ok){
-      await audit(pool,String(uid),"cleanup_full_denied",String(groupId),{reason:prepared.error});
-      return edit(msg.chat.id,msg.message_id,panelTitle("پاکسازی کامل",
-        "⛂ - وضعیت : ✗ عملیات آماده نشد\\n⛂ - دلیل : "+prepared.error
-      ),menu([[["‹ بازگشت","c:cleanup"]]]));
-    }
-    return edit(msg.chat.id,msg.message_id,panelTitle("تأیید پاکسازی کامل",
-      "★ - هشدار\\n\\n⛂ - پیام‌های ثبت‌شده قابل حذف : "+prepared.active+"\\n⛂ - حالت خودکار : ✗ خاموش\\n⛂ - اجرای نهایی : نیازمند تأیید\\n⛂ - اعتبار تأیید : ۶۰ ثانیه\\n\\nبا تأیید، تمام پیام‌های ثبت‌شده و قابل حذف این گروه پاک خواهند شد."
-    ),menu([
-      [["✓ تأیید نهایی","cln:all:confirm:"+prepared.token],["× لغو","c:cleanup"]]
-    ]));
-  }
-
-  if(data.startsWith("cln:all:confirm:")){
-    const token=data.slice("cln:all:confirm:".length);
-    const result=await executeFullCleanup(pool,groupId,uid,msg.message_id,token,ownerIds);
-    if(!result.ok){
-      await audit(pool,String(uid),"cleanup_full_failed",String(groupId),{reason:result.error});
-      return edit(msg.chat.id,msg.message_id,panelTitle("پاکسازی کامل",
-        "⛂ - وضعیت : ✗ اجرا نشد\\n⛂ - دلیل : "+result.error
-      ),menu([[["پاکسازی گروه","c:cleanup"],["‹ بازگشت","c:home"]]]));
-    }
-    await audit(pool,String(uid),"cleanup_full_executed",String(groupId),{requested:result.requested,deleted:result.deleted,failed:result.failed});
-    return edit(msg.chat.id,msg.message_id,panelTitle("پاکسازی کامل",
-      "✓ عملیات انجام شد.\\n\\n⛂ - بررسی‌شده : "+result.requested+"\\n⛂ - حذف‌شده : "+result.deleted+"\\n⛂ - ناموفق : "+result.failed
-    ),menu([[["پاکسازی گروه","c:cleanup"],["‹ بازگشت","c:home"]]]));
-  }
-
-
-
   if(data==="c:language"){
     const current=await getGroupLanguage(pool,groupId,"fa");
     const buttons:any[][]=SUPPORTED_LANGUAGES.map(x=>[[languageButtonLabel(x.code,current),"c:setlang:"+x.code]]);
@@ -2473,7 +2428,7 @@ export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:str
     // Customer/lock panel callbacks must keep their customer context even for the bot owner.
     // Otherwise ownerCallback receives c:/cl:/clt:/cls: actions and silently ignores them.
     if(
-      /^(c|cl|clt|cls|cln|auto|ex|w|m|wel|cmd|sc|sec|st|tw|twx|twc|wd|wc|tm|tp|tu|bp|br|brx|bt|btd|bu|ban|mute):/.test(data)
+      /^(c|cl|clt|cls|auto|ex|w|m|wel|cmd|sc|sec|st|tw|twx|twc|wd|wc|tm|tp|tu|bp|br|brx|bt|btd|bu|ban|mute):/.test(data)
     ){
       return customerCallback(pool,cb,ownerIds);
     }
