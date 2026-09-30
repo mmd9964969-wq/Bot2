@@ -665,7 +665,7 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
   if(!template.trim()) return ctx.lang==="fa"?"✓ دستور شناسایی شد، اما پاسخ آن در پنل تنظیم نشده است.":"✓ Command recognized, but its response is not configured in the panel.";
   const values:Record<string,string>={
     user_name:ctx.userName,
-    username:ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName,
+    username:ctx.userUsername?"@"+ctx.userUsername.replace(/^@/,""):"ثبت نشده",
     user_id:String(ctx.userId),
     rank:ctx.userRank,
     chat_title:ctx.chatTitle,
@@ -684,7 +684,7 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
 function render(template: string, ctx: BotContext) {
   const values: Record<string, string> = {
     user_name: ctx.userName,
-    username: ctx.userName.startsWith("@") ? ctx.userName : "@" + ctx.userName,
+    username: ctx.userUsername ? "@"+ctx.userUsername.replace(/^@/,"") : "ثبت نشده",
     user_id: String(ctx.userId),
     rank: ctx.userRank,
     chat_title: ctx.chatTitle,
