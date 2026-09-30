@@ -22,6 +22,7 @@ import { ensureEngineSchema, getEngineGame } from "../src/lib/bot/game-engine.ts
 import { handleWorldCallback, handleWorldText } from "../src/lib/bot/game-world.ts";
 import { handleFrontierExpansionCallback } from "../src/lib/bot/frontier-expansion.ts";
 import { renderGameText } from "../src/lib/bot/game-emoji.ts";
+import { ensureCleanupSchema, recordCleanupMessage, handleCleanupText } from "../src/lib/bot/cleanup-engine.ts";
 
 const TOKEN = process.env.BOT_TOKEN ?? "";
 if (!TOKEN) { console.error("BOT_TOKEN is missing"); process.exit(1); }
@@ -853,6 +854,16 @@ async function processMessage(msg: TgMessage, edited = false) {
     staff: [...adminIds].map((id) => ({ id, name: String(id), rank: rankOf(id, adminIds) })),
   };
 
+  if (!isPrivate) await recordCleanupMessage(studioPool!, msg as any);
+
+  if (!isPrivate && !edited) {
+    const cleanupResult = await handleCleanupText(studioPool!, ctx, msg as any, config.ownerIds);
+    if (cleanupResult !== null) {
+      await telegramApi("sendMessage", { chat_id: chat.id, text: cleanupResult, reply_to_message_id: msg.message_id });
+      return;
+    }
+  }
+
   if (studioPool && await dispatchPanelMessage(studioPool, msg, config.ownerIds)) {
     // The panel entry message belongs to the temporary panel session.
     // Normal bot commands remain in the chat for manual cleanup by admins.
@@ -991,6 +1002,7 @@ async function poll() {
     await ensureAutomationSchema(studioPool);
     await ensureGroupLanguageSchema(studioPool);
     await ensureModerationSchema(studioPool);
+    await ensureCleanupSchema(studioPool);
     await ensureInviteLinkSchema(studioPool);
     await ensureSpecialUsersSchema(studioPool);
   }
