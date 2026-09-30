@@ -5,7 +5,7 @@ type TgMessage = {
   message_id:number; chat:{id:number;type:string}; from?:{id:number;username?:string;first_name?:string};
   text?:string; caption?:string; photo?:unknown[]; video?:unknown; audio?:unknown; document?:unknown;
   animation?:unknown; sticker?:unknown; voice?:unknown; video_note?:unknown; contact?:unknown; location?:unknown;
-  poll?:unknown; venue?:unknown; dice?:unknown;
+  poll?:unknown; venue?:unknown; dice?:unknown; date?:number;
 };
 
 const running=new Set<number>();
@@ -26,14 +26,15 @@ function meta(msg:TgMessage){
   const media=!!(msg.photo||msg.video||msg.audio||msg.document||msg.animation||msg.sticker||msg.voice||msg.video_note);
   const type=msg.photo?"photo":msg.video?"video":msg.document?"document":msg.audio?"audio":msg.voice?"voice":msg.video_note?"video_note":msg.animation?"animation":msg.sticker?"sticker":msg.contact?"contact":msg.location?"location":msg.poll?"poll":msg.venue?"venue":msg.dice?"dice":"text";
   const link=/(https?:\/\/|t\.me\/|www\\.)/i.test(content);
-  return {content,media,type,link};
+  const bot=!!msg.from?.is_bot;
+  return {content,media,type,link,bot};
 }
 export async function trackCleanupMessage(pool:Pool,msg:TgMessage){
   if(!msg.from||msg.chat.type==="private")return;
   const m=meta(msg);
   await pool.query(`INSERT INTO cleanup_messages(group_id,message_id,user_id,username,message_type,has_link,has_media,has_bot,content,created_at)
-    VALUES($1,$2,$3,$4,$5,$6,$7,FALSE,$8,NOW()) ON CONFLICT(group_id,message_id) DO UPDATE SET content=EXCLUDED.content,username=EXCLUDED.username,message_type=EXCLUDED.message_type,has_link=EXCLUDED.has_link,has_media=EXCLUDED.has_media`,
-    [msg.chat.id,msg.message_id,msg.from.id,msg.from.username??null,m.type,m.link,m.media,m.content]);
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE(to_timestamp($11),NOW())) ON CONFLICT(group_id,message_id) DO UPDATE SET content=EXCLUDED.content,username=EXCLUDED.username,message_type=EXCLUDED.message_type,has_link=EXCLUDED.has_link,has_media=EXCLUDED.has_media,has_bot=EXCLUDED.has_bot`,
+    [msg.chat.id,msg.message_id,msg.from.id,msg.from.username??null,m.type,m.link,m.media,m.bot,m.content,msg.date??null]);
 }
 function filterWhere(filters:any){
   const w:string[]=["m.group_id=$1"];const p:any[]=[];let n=2;
