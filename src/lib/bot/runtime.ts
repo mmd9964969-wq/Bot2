@@ -7,7 +7,7 @@ export type BotContext = {
   text:string; chatType:"private"|"group"|"supergroup"; chatId:number; chatTitle:string; chatUsername?:string;
   membersCount:number; userId:number; userName:string; userUsername?:string; userRank:Rank; lang:Lang;
   getMemberJoinDate?: (chatId:number,userId:number)=>Promise<number|undefined>;
-  getUserMessageStats?: (chatId:number,userId:number)=>Promise<{today:number;total:number;average:number|null;rank:number;lastActivity?:number;exact:boolean}>;
+  getUserMessageStats?: (chatId:number,userId:number)=>Promise<{today:number;week:number;total:number;average:number|null;rank:number;lastActivity?:number;exact:boolean}>;
   getUserJoinStats?: (chatId:number,userId:number)=>Promise<{today:number;total:number}>;
   config:BotConfig; now:number; staff:{id:number;name:string;rank:Rank}[];
 };
@@ -151,37 +151,40 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
     }
     case "id": {
       const userKeyValue=userKey(ctx.chatId,ctx.userId);
-      const fallbackStats=userStats(ctx.chatId,ctx.userId);
       const persistentStats=ctx.getUserMessageStats
         ? await ctx.getUserMessageStats(ctx.chatId,ctx.userId).catch(()=>undefined)
         : undefined;
+      const messageStatsError=!persistentStats;
       const us=persistentStats ?? {
-        ...fallbackStats,
-        average:fallbackStats.total,
+        today:-1,
+        week:-1,
+        total:-1,
+        average:null,
         rank:0,
+        lastActivity:undefined,
+        exact:false,
       };
-      const joinList=userJoinCounts.get(userKeyValue)??[];
       const persistentJoinStats=ctx.getUserJoinStats
         ? await ctx.getUserJoinStats(ctx.chatId,ctx.userId).catch(()=>undefined)
         : undefined;
+      const joinStatsError=!persistentJoinStats;
       const joinedAt=ctx.getMemberJoinDate
-        ? (await ctx.getMemberJoinDate(ctx.chatId,ctx.userId)) ?? memberJoinDates.get(userKeyValue)
-        : memberJoinDates.get(userKeyValue);
+        ? await ctx.getMemberJoinDate(ctx.chatId,ctx.userId)
+        : undefined;
 
       const warnings=state(ctx.chatId).warnings.get(ctx.userId)?.count??0;
       const muted=state(ctx.chatId).muted.has(ctx.userId);
       const average=persistentStats?.average ?? null;
       // Last activity is always derived from the latest Telegram message timestamp.
       const lastTimestamp=persistentStats?.lastActivity;
-      const lastActivity=lastTimestamp?relativeTime(lastTimestamp,ctx.lang):"قابل تعیین نیست";
-      const rankByMessages=persistentStats?.rank
-        ? persistentStats.rank
-        : Array.from(userMessageCounts.entries())
-            .filter(([k])=>k.startsWith(ctx.chatId+":"))
-            .sort((a,b)=>b[1]-a[1])
-            .findIndex(([k])=>k===userKeyValue)+1;
-      const todayJoins=persistentJoinStats?.today ?? joinList.filter(t=>new Date(t).toISOString().slice(0,10)===dayKey()).length;
-      const totalJoins=persistentJoinStats?.total ?? joinList.length;
+      const lastActivity=messageStatsError
+        ? (ctx.lang==="fa"?"خطا در دریافت اطلاعات":"Error retrieving information")
+        : lastTimestamp
+          ? relativeTime(lastTimestamp,ctx.lang)
+          : (ctx.lang==="fa"?"قابل تعیین نیست":"Cannot determine");
+      const rankByMessages=persistentStats?.rank ?? 0;
+      const todayJoins=joinStatsError ? -1 : persistentJoinStats.today;
+      const totalJoins=joinStatsError ? -1 : persistentJoinStats.total;
       const faText=[
         "◈ اطلاعات کاربر",
         "",
@@ -190,19 +193,20 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "⛂ - نام کاربری : "+(ctx.userUsername?"@"+ctx.userUsername.replace(/^@/,""):"ثبت نشده"),
         "⛂ - مقام : "+rankLabel(ctx.lang,rank),
         "⛂ - تاریخ عضویت : "+(joinedAt?formatDate(joinedAt,"fa"):"ثبت نشده"),
-        "⛂ - آخرین فعالیت : "+(persistentStats && !persistentStats.lastActivity ? "قابل تعیین نیست" : lastActivity),
+        "⛂ - آخرین فعالیت : "+lastActivity,
         "",
         "─────━━───── ◈ ─────━━─────",
         "",
-        "⛂ - تعداد پیام امروز : "+(us.today<0?"قابل تعیین نیست":us.today),
-        "⛂ - تعداد پیام کل : "+us.total,
-        "⛂ - میانگین پیام روزانه : "+(persistentStats && !persistentStats.exact ? "قابل تعیین نیست" : (average??"قابل تعیین نیست")),
-        "⛂ - رتبه در گروه : #"+(rankByMessages||"—"),
+        "⛂ - تعداد پیام امروز : "+(messageStatsError?"خطا در دریافت اطلاعات":us.today),
+        "⛂ - تعداد پیام هفته : "+(messageStatsError?"خطا در دریافت اطلاعات":us.week),
+        "⛂ - تعداد پیام کل : "+(messageStatsError?"خطا در دریافت اطلاعات":us.total),
+        "⛂ - میانگین پیام روزانه : "+(messageStatsError?"خطا در دریافت اطلاعات":(persistentStats && !persistentStats.exact ? "قابل تعیین نیست" : (average??"قابل تعیین نیست"))),
+        "⛂ - رتبه در گروه : "+(messageStatsError?"خطا در دریافت اطلاعات":"#"+(rankByMessages||"—")),
         "",
         "─────━━───── ◈ ─────━━─────",
         "",
-        "⛂ - تعداد عضویت امروز : "+todayJoins,
-        "⛂ - تعداد عضویت کل : "+totalJoins,
+        "⛂ - تعداد عضویت امروز : "+(joinStatsError?"خطا در دریافت اطلاعات":todayJoins),
+        "⛂ - تعداد عضویت کل : "+(joinStatsError?"خطا در دریافت اطلاعات":totalJoins),
         "⛂ - اخطارها : "+warnings+"/3",
         "⛂ - وضعیت سکوت : "+(muted?"دارد":"ندارد")
       ].join("\n");
@@ -214,19 +218,20 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "⛂ - Username : "+(ctx.userUsername?"@"+ctx.userUsername.replace(/^@/,""):"Not set"),
         "⛂ - Rank : "+rank,
         "⛂ - Join date : "+(joinedAt?formatDate(joinedAt,"en-GB"):"Not recorded"),
-        "⛂ - Last activity : "+(persistentStats && !persistentStats.lastActivity ? "Cannot determine" : lastActivity),
+        "⛂ - Last activity : "+lastActivity,
         "",
         "─────━━───── ◈ ─────━━─────",
         "",
-        "⛂ - Messages today : "+(us.today<0?"Cannot determine":us.today),
-        "⛂ - Total messages : "+us.total,
-        "⛂ - Average daily messages : "+(persistentStats && !persistentStats.exact ? "Cannot determine" : (average??"Cannot determine")),
-        "⛂ - Group rank : #"+(rankByMessages||"—"),
+        "⛂ - Messages today : "+(messageStatsError?"Error retrieving information":us.today),
+        "⛂ - Messages this week : "+(messageStatsError?"Error retrieving information":us.week),
+        "⛂ - Total messages : "+(messageStatsError?"Error retrieving information":us.total),
+        "⛂ - Average daily messages : "+(messageStatsError?"Error retrieving information":(persistentStats && !persistentStats.exact ? "Cannot determine" : (average??"Cannot determine"))),
+        "⛂ - Group rank : "+(messageStatsError?"Error retrieving information":"#"+(rankByMessages||"—")),
         "",
         "─────━━───── ◈ ─────━━─────",
         "",
-        "⛂ - Joins today : "+todayJoins,
-        "⛂ - Total joins : "+totalJoins,
+        "⛂ - Joins today : "+(joinStatsError?"Error retrieving information":todayJoins),
+        "⛂ - Total joins : "+(joinStatsError?"Error retrieving information":totalJoins),
         "⛂ - Warnings : "+warnings+"/3",
         "⛂ - Mute status : "+(muted?"Muted":"Not muted")
       ].join("\n");
