@@ -31,10 +31,12 @@ export type BotContext = {
   membersCount: number;
   userId: number;
   userName: string;
+  userUsername?: string;
   userRank: Rank;
   replyToUserId?: number;
   replyToName?: string;
   lang: Lang;
+  getMemberJoinDate?: (chatId:number,userId:number)=>Promise<number|undefined>;
   config: BotConfig;
   now: number;
   staff: { id: number; name: string; rank: Rank }[];
