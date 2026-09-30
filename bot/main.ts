@@ -952,6 +952,27 @@ async function processMessage(msg: TgMessage, edited = false) {
     }
   };
 
+  const getUserJoinStats = async (chatId:number,userId:number) => {
+    try {
+      const result = await studioPool!.query<any>(
+        `SELECT
+           COUNT(*) FILTER (
+             WHERE (joined_at AT TIME ZONE 'Asia/Tehran')::date =
+                   (NOW() AT TIME ZONE 'Asia/Tehran')::date
+           )::int AS today,
+           COUNT(*)::int AS total
+         FROM bot_member_join_events
+         WHERE group_id=$1 AND user_id=$2`,
+        [chatId,userId],
+      );
+      const row=result.rows[0] ?? {};
+      return { today:Number(row.today ?? 0), total:Number(row.total ?? 0) };
+    } catch (error) {
+      console.error('[join-stats] persistent join stats query failed:', error);
+      return undefined;
+    }
+  };
+
   const ctx: BotContext = {
     text,
     chatType: isPrivate ? "private" : chat.type === "group" ? "group" : "supergroup",
@@ -964,6 +985,7 @@ async function processMessage(msg: TgMessage, edited = false) {
     userUsername: msg.from.username,
     getMemberJoinDate: memberJoinDateFromDb,
     getUserMessageStats,
+    getUserJoinStats,
     userRank: rankOf(msg.from.id, adminIds),
     replyToUserId: msg.reply_to_message?.from?.id,
     replyToName: msg.reply_to_message?.from?.username || msg.reply_to_message?.from?.first_name,
