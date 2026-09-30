@@ -5,7 +5,7 @@ import { cloneStudioDefaults, type StudioDocument } from "../src/lib/bot/studio.
 import { type Lang, type Rank } from "../src/lib/bot/registry.ts";
 import { telegramApi } from "../src/lib/telegram/api.ts";
 import { rankAtLeast } from "../src/lib/bot/registry.ts";
-import { runLiveCommand, recordMessage, recordMemberJoin, recordMemberLeave, ensureGroupInfoSchema, type GroupInfoSnapshot } from "../src/lib/bot/runtime.ts";
+import { runLiveCommand, recordMessage, recordMemberJoin, recordMemberLeave, ensureGroupInfoSchema, getGroupStats, type GroupInfoSnapshot } from "../src/lib/bot/runtime.ts";
 import { enforceContentLocks, ensureContentLocks, runContentLockCommand, sendContentLockCenter, type ContentLockMessage } from "../src/lib/bot/content-locks.ts";
 import { ensureMessageToolsSchema, trackMessageAndActivity } from "../src/lib/bot/message-tools.ts";
 import { isRuntimeMaintenance, startRuntimeControlServer } from "./runtime-control.ts";
