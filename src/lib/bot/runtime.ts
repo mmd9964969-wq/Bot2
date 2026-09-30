@@ -2,7 +2,7 @@ import { telegramApi } from "../telegram/api.ts";
 import { resolveCommand, parseDuration, normalizeToken, type Rank, type Lang } from "./registry.ts";
 import type { BotConfig } from "./defaults.ts";
 
-export type LiveContext = BotContext & { messageId:number; replyToUserId?:number; replyToName?:string; replyToMessageId?:number };
+export type LiveContext = BotContext & { messageId:number; replyToUserId?:number; replyToName?:string; replyToMessageId?:number; authorizedByManager?:boolean };
 export type BotContext = {
   text:string; chatType:"private"|"group"|"supergroup"; chatId:number; chatTitle:string; chatUsername?:string;
   membersCount:number; userId:number; userName:string; userUsername?:string; userRank:Rank; lang:Lang;
@@ -123,7 +123,7 @@ function stats(chatId:number){const s=state(chatId);return {warnings:[...s.warni
 export async function runLiveCommand(ctx:LiveContext,token:string,args:string[]):Promise<string>{
   const command=resolveCommand(token); if(!command)return fa(ctx.lang,"✗ دستور ناشناخته است.","✗ Unknown command.");
   const rank=await realRank(ctx,ctx.userId);
-  if(rank==="member" && command.id!=="me") return fa(ctx.lang,"✗ کاربران عادی اجازه اجرای این دستور را ندارند.","✗ Regular members are not allowed to execute this command.");
+  if(rank==="member" && command.id!=="me" && !ctx.authorizedByManager) return fa(ctx.lang,"✗ کاربران عادی اجازه اجرای این دستور را ندارند.","✗ Regular members are not allowed to execute this command.");
   const s=state(ctx.chatId); const targetId=target(ctx,args);
   const requireGroup=()=>{if(ctx.chatType==="private")throw new Error(fa(ctx.lang,"این دستور فقط در گروه قابل اجراست.","This command works in groups only."));};
   const requireAdmin=()=>{if(!["owner","sudo","admin"].includes(rank))throw new Error(fa(ctx.lang,"✗ دسترسی مدیریتی ندارید.","✗ Administrator access required."));};
@@ -190,7 +190,7 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "⛂ - تاریخ عضویت : "+(joinedAt?formatDate(joinedAt,"fa"):"ثبت نشده"),
         "⛂ - آخرین فعالیت : "+lastActivity,
         "",
-        "─────━━───── ◈ ─────━━─────",
+        "                         ─────━━───── ◈ ─────━━───── ",
         "",
         "⛂ - تعداد پیام امروز : "+us.today,
         "⛂ - تعداد پیام هفته : "+us.week,
@@ -198,7 +198,7 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "⛂ - میانگین پیام روزانه : "+average,
         "⛂ - رتبه در گروه : #"+(rankByMessages||"—"),
         "",
-        "─────━━───── ◈ ─────━━─────",
+        "                         ─────━━───── ◈ ─────━━───── ",
         "",
         "⛂ - تعداد عضویت امروز : "+todayJoins,
         "⛂ - تعداد عضویت کل : "+joinList.length,
@@ -215,7 +215,7 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "⛂ - Join date : "+(joinedAt?formatDate(joinedAt,"en-GB"):"Not recorded"),
         "⛂ - Last activity : "+lastActivity,
         "",
-        "─────━━───── ◈ ─────━━─────",
+        "                         ─────━━───── ◈ ─────━━───── ",
         "",
         "⛂ - Messages today : "+us.today,
         "⛂ - Messages this week : "+us.week,
