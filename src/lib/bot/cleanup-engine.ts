@@ -352,9 +352,8 @@ export async function openCleanupCenter(pool:Pool,chatId:number,actorId:number){
     chat_id:chatId,
     text:panelText("وضعیت",[
       "⛂ - سیستم : ✓ آماده",
-      "⛂ - ایندکس پیام : ✓ فعال",
       "⛂ - دسترسی حذف : ✓",
-      "⛂ - Queue : "+queue.rows[0].n,
+      "⛂ - صف عملیات : "+queue.rows[0].n,
       "⛂ - عملیات فعال : "+active.rows[0].n,
       "",
       "★ - آمار",
@@ -367,13 +366,18 @@ export async function openCleanupCenter(pool:Pool,chatId:number,actorId:number){
       "★ - عملیات"
     ]),
     reply_markup:keyboard([
-      ["پیام‌ها — اسکن§cln:scan:all","رسانه‌ها — اسکن§cln:scan:media"],
-      ["لینک‌ها — اسکن§cln:scan:link","کاربر — پاکسازی انتخابی§cln:user"],
-      ["اسپم — اسکن§cln:spam","Rule Builder§cln:custom"],
-      ["آخرین Preview§cln:preview","مدیریت Jobها§cln:jobs"],
-      ["تاریخچه§cln:history","قوانین§cln:rules"],
-      ["استثناها§cln:protected","تنظیمات§cln:settings"],
-      ["بازگشت§cln:close"]
+      ["پاکسازی پیام§cln:scan:all"],
+      ["پاکسازی رسانه§cln:scan:media"],
+      ["پاکسازی لینک§cln:scan:link"],
+      ["پاکسازی کاربر§cln:user"],
+      ["پاکسازی اسپم§cln:spam"],
+      ["پاکسازی سفارشی§cln:custom"],
+      ["پیش‌نمایش§cln:preview"],
+      ["Job§cln:jobs"],
+      ["تاریخچه§cln:history"],
+      ["قوانین§cln:rules"],
+      ["استثناها§cln:protected"],
+      ["تنظیمات§cln:settings"],
     ])
   })).ok;
 }
