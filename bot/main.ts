@@ -957,6 +957,7 @@ async function getGroupInfoSnapshot(chatId:number):Promise<GroupInfoSnapshot>{
     `,[chatId]),
     q<any>(`
       SELECT
+        COUNT(*) FILTER (WHERE (created_at AT TIME ZONE 'Asia/Tehran')::date=(NOW() AT TIME ZONE 'Asia/Tehran')::date)::int AS today,
         COUNT(*) FILTER (WHERE created_at>=NOW()-INTERVAL '7 days')::int AS week,
         COUNT(*) FILTER (WHERE (created_at AT TIME ZONE 'Asia/Tehran')>=date_trunc('month',NOW() AT TIME ZONE 'Asia/Tehran'))::int AS month,
         COUNT(*)::int AS total
@@ -980,8 +981,6 @@ async function getGroupInfoSnapshot(chatId:number):Promise<GroupInfoSnapshot>{
     `,[chatId]),
   ]);
 
-  // invite event names in this project are stored in group_invite_events by the invite-link subsystem.
-  // When that optional table is not available, usage values safely remain zero.
   const messagesTotal=Number(msg?.total??0);
   const activeDays=Number(msg?.active_days??0);
   const averageDaily=Math.round((messagesTotal/Math.max(1,activeDays))*10)/10;
