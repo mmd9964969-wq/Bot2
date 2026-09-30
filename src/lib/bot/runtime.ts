@@ -5,7 +5,8 @@ import type { BotConfig } from "./defaults.ts";
 export type LiveContext = BotContext & { messageId:number; replyToUserId?:number; replyToName?:string; replyToMessageId?:number };
 export type BotContext = {
   text:string; chatType:"private"|"group"|"supergroup"; chatId:number; chatTitle:string; chatUsername?:string;
-  membersCount:number; userId:number; userName:string; userRank:Rank; lang:Lang;
+  membersCount:number; userId:number; userName:string; userUsername?:string; userRank:Rank; lang:Lang;
+  getMemberJoinDate?: (chatId:number,userId:number)=>Promise<number|undefined>;
   config:BotConfig; now:number; staff:{id:number;name:string;rank:Rank}[];
 };
 
@@ -65,9 +66,20 @@ function relativeTime(ts:number,l:Lang){
   const days=Math.floor(hours/24);
   return l==="fa"?days+" روز پیش":days+" days ago";
 }
+function pad2(n:number){return String(n).padStart(2,"0");}
+function dualDate(ts:number|undefined,l:Lang){
+  if(!ts)return l==="fa"?"ثبت نشده":"Not recorded";
+  const d=new Date(ts);
+  const greg=new Intl.DateTimeFormat("en-CA",{year:"numeric",month:"2-digit",day:"2-digit",timeZone:"Asia/Tehran"}).format(d).replace(/-/g,"/");
+  const persianParts=new Intl.DateTimeFormat("fa-IR-u-ca-persian",{year:"numeric",month:"2-digit",day:"2-digit",timeZone:"Asia/Tehran"}).formatToParts(d);
+  const gy=persianParts.find(x=>x.type==="year")?.value??"—";
+  const gm=persianParts.find(x=>x.type==="month")?.value??"—";
+  const gd=persianParts.find(x=>x.type==="day")?.value??"—";
+  const faDate=gy+"/"+gm+"/"+gd;
+  return l==="fa"?faDate+" - "+greg:greg;
+}
 function formatDate(ts:number|undefined,l:Lang){
-  if(!ts)return "ثبت نشده";
-  return new Intl.DateTimeFormat(l==="fa"?"fa-IR":"en-GB",{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",timeZone:"Asia/Tehran"}).format(new Date(ts));
+  return dualDate(ts,l);
 }
 export async function recordMemberJoin(chatId:number,userId:number,ts:number){
   const key=String(chatId);
@@ -139,7 +151,10 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
       const us=userStats(ctx.chatId,ctx.userId);
       const userKeyValue=userKey(ctx.chatId,ctx.userId);
       const joinList=userJoinCounts.get(userKeyValue)??[];
-      const joinedAt=memberJoinDates.get(userKeyValue);
+      const joinedAt=ctx.getMemberJoinDate
+        ? (await ctx.getMemberJoinDate(ctx.chatId,ctx.userId)) ?? memberJoinDates.get(userKeyValue)
+        : memberJoinDates.get(userKeyValue);
+
       const warnings=state(ctx.chatId).warnings.get(ctx.userId)?.count??0;
       const muted=state(ctx.chatId).muted.has(ctx.userId);
       const now=Date.now();
@@ -157,7 +172,7 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "",
         "⛂ - نام : "+ctx.userName,
         "⛂ - شناسه : "+ctx.userId,
-        "⛂ - نام کاربری : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName),
+        "⛂ - نام کاربری : "+(ctx.userUsername?"@"+ctx.userUsername.replace(/^@/,""):"ثبت نشده"),
         "⛂ - مقام : "+rankLabel(ctx.lang,rank),
         "⛂ - تاریخ عضویت : "+(joinedAt?formatDate(joinedAt,"fa"):"ثبت نشده"),
         "⛂ - آخرین فعالیت : "+lastActivity,
@@ -182,7 +197,7 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "",
         "⛂ - Name : "+ctx.userName,
         "⛂ - ID : "+ctx.userId,
-        "⛂ - Username : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName),
+        "⛂ - Username : "+(ctx.userUsername?"@"+ctx.userUsername.replace(/^@/,""):"Not set"),
         "⛂ - Rank : "+rank,
         "⛂ - Join date : "+(joinedAt?formatDate(joinedAt,"en-GB"):"Not recorded"),
         "⛂ - Last activity : "+lastActivity,
@@ -272,7 +287,9 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
       return fa(ctx.lang,faText,enText);
     }
     case "rank": {
-      const rankStart=memberJoinDates.get(userKey(ctx.chatId,ctx.userId));
+      const rankStart=ctx.getMemberJoinDate
+        ? (await ctx.getMemberJoinDate(ctx.chatId,ctx.userId)) ?? memberJoinDates.get(userKey(ctx.chatId,ctx.userId))
+        : memberJoinDates.get(userKey(ctx.chatId,ctx.userId));
       const responsibility=rank==="owner"?"تصمیم‌گیری نهایی و مدیریت کامل گروه":rank==="sudo"?"مدیریت ارشد و نظارت کامل":rank==="admin"?"اجرای مدیریت و کنترل گروه":"عضویت و استفاده از امکانات گروه";
       const responsibilityEn=rank==="owner"?"Final group management and decisions":rank==="sudo"?"Senior management and oversight":rank==="admin"?"Group management and moderation":"Group membership and normal use";
       return fa(ctx.lang,
@@ -280,7 +297,9 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "◈ Advanced manager system\n\n★ - "+rank+"\n\n⛂ - Name : "+ctx.userName+"\n⛂ - Username : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName)+"\n⛂ - ID : "+ctx.userId+"\n⛂ - Rank : "+rank+"\n⛂ - Start date : "+formatDate(rankStart,ctx.lang)+"\n⛂ - Access : "+(rank==="owner"?"Full":rank==="admin"?"Management":"Standard")+"\n⛂ - Responsibility : "+responsibilityEn); }
     case "me": {
       const us=userStats(ctx.chatId,ctx.userId);
-      const joined=memberJoinDates.get(userKey(ctx.chatId,ctx.userId));
+      const joined=ctx.getMemberJoinDate
+        ? (await ctx.getMemberJoinDate(ctx.chatId,ctx.userId)) ?? memberJoinDates.get(userKey(ctx.chatId,ctx.userId))
+        : memberJoinDates.get(userKey(ctx.chatId,ctx.userId));
       const muted=state(ctx.chatId).muted.has(ctx.userId);
       const special=state(ctx.chatId).special.has(ctx.userId);
       const warnings=s.warnings.get(ctx.userId)?.count??0;
@@ -288,7 +307,7 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "◈ اطلاعات کاربر",
         "",
         "⛂ - نام : "+ctx.userName,
-        "⛂ - نام کاربری : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName),
+        "⛂ - نام کاربری : "+(ctx.userUsername?"@"+ctx.userUsername.replace(/^@/,""):"ثبت نشده"),
         "⛂ - شناسه : "+ctx.userId,
         "⛂ - مقام : "+rankLabel(ctx.lang,rank),
         "⛂ - تاریخ عضویت : "+formatDate(joined,ctx.lang),
@@ -305,7 +324,7 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "◈ User information",
         "",
         "⛂ - Name : "+ctx.userName,
-        "⛂ - Username : "+(ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName),
+        "⛂ - Username : "+(ctx.userUsername?"@"+ctx.userUsername.replace(/^@/,""):"Not set"),
         "⛂ - ID : "+ctx.userId,
         "⛂ - Rank : "+rank,
         "⛂ - Join date : "+formatDate(joined,ctx.lang),
