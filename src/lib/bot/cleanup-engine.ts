@@ -25,7 +25,7 @@ function meta(msg:TgMessage){
   const content=String(msg.text??msg.caption??"").slice(0,4000);
   const media=!!(msg.photo||msg.video||msg.audio||msg.document||msg.animation||msg.sticker||msg.voice||msg.video_note);
   const type=msg.photo?"photo":msg.video?"video":msg.document?"document":msg.audio?"audio":msg.voice?"voice":msg.video_note?"video_note":msg.animation?"animation":msg.sticker?"sticker":msg.contact?"contact":msg.location?"location":msg.poll?"poll":msg.venue?"venue":msg.dice?"dice":"text";
-  const link=/(https?:\\/\\/|t\\.me\\/|www\\.)/i.test(content);
+  const link=/(https?:\/\/|t\.me\/|www\\.)/i.test(content);
   return {content,media,type,link};
 }
 export async function trackCleanupMessage(pool:Pool,msg:TgMessage){
@@ -57,7 +57,7 @@ async function isAdmin(pool:Pool,groupId:number,userId:string,cache:Map<string,b
   const v=!!r.ok&&["administrator","creator"].includes(String(r.result?.status??""));
   cache.set(userId,v);return v;
 }
-function panelText(title:string,lines:string[]){return "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Cʟᴇᴀɴᴜᴘ Cᴇɴᴛᴇʀ\\n\\n─────━━───── ◈ ─────━━─────\\n\\n★ - "+title+"\\n\\n"+lines.join("\\n")+"\\n\\n─────━━───── ◈ ─────━━─────";}
+function panelText(title:string,lines:string[]){return "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Cʟᴇᴀɴᴜᴘ Cᴇɴᴛᴇʀ\n\n─────━━───── ◈ ─────━━─────\n\n★ - "+title+"\n\n"+lines.join("\n")+"\n\n─────━━───── ◈ ─────━━─────";}
 function keyboard(rows:string[][]){return {inline_keyboard:rows.map(r=>r.map(x=>{const [text,data]=x.split("§");return {text,callback_data:data};}))};}
 export async function openCleanupCenter(pool:Pool,chatId:number,actorId:number){
   await ensureCleanupSchema(pool);
@@ -101,7 +101,7 @@ export async function handleCleanupText(pool:Pool,chatId:number,actorId:number,t
     await telegramApi("sendMessage",{chat_id:chatId,text:panelText("پیش‌نمایش کاربر",["⛂ - کاربر : "+replyUserId,"⛂ - بررسی‌شده : "+p.rawCount,"⛂ - قابل حذف : "+p.eligible,"⛂ - مستثنی‌شده : "+p.skipped]),reply_markup:keyboard([["تأیید حذف§cln:run:"+p.job.id],["لغو§cln:cancel:"+p.job.id]])});
     return true;
   }
-  const m=n.match(/^پاکسازی\\s+(لینک|رسانه|عکس|ویدیو|فایل|صوت|ویس|استیکر|ربات)(?:\\s+(\\d+)h)?$/i);
+  const m=n.match(/^پاکسازی\s+(لینک|رسانه|عکس|ویدیو|فایل|صوت|ویس|استیکر|ربات)(?:\s+(\\d+)h)?$/i);
   if(m){
     const aliases:any={لینک:"link",رسانه:"media",عکس:"photo",ویدیو:"video",فایل:"document",صوت:"audio",ویس:"voice",استیکر:"sticker",ربات:"bot"};
     const p=await createPreview(pool,chatId,actorId,{type:aliases[m[1]],hours:m[2]?Number(m[2]):48});
