@@ -1,3 +1,4 @@
+import type { Pool } from "pg";
 import { telegramApi } from "../telegram/api.ts";
 import { resolveCommand, parseDuration, normalizeToken, type Rank, type Lang } from "./registry.ts";
 import type { BotConfig } from "./defaults.ts";
@@ -10,6 +11,21 @@ export type BotContext = {
   getUserMessageStats?: (chatId:number,userId:number)=>Promise<{today:number;week:number;total:number;average:number|null;rank:number;lastActivity?:number;exact:boolean}>;
   getUserJoinStats?: (chatId:number,userId:number)=>Promise<{today:number;total:number}>;
   config:BotConfig; now:number; staff:{id:number;name:string;rank:Rank}[];
+  getGroupInfo?: (chatId:number)=>Promise<GroupInfoSnapshot>;
+};
+
+export type GroupInfoSnapshot = {
+  messagesToday:number; messagesWeek:number; messagesMonth:number; messagesTotal:number;
+  activeDays:number; averageDaily:number;
+  busiestHour:number|null; busiestDay:number|null; activeUsers:number;
+  joinsToday:number; joinsWeek:number; joinsMonth:number; joinsTotal:number;
+  leavesToday:number; leavesWeek:number; leavesMonth:number; leavesTotal:number;
+  specialCount:number; mutedCount:number;
+  warningsActive:number; warningsToday:number; warningsWeek:number; warningsTotal:number;
+  deletedToday:number; deletedWeek:number; deletedTotal:number;
+  activeLocks:number; violationsToday:number; violationsWeek:number; violationsTotal:number;
+  moderationActionsToday:number;
+  inviteUsageToday:number; inviteUsageWeek:number; inviteUsageMonth:number; inviteUsageTotal:number;
 };
 
 type GroupState = {
@@ -21,6 +37,44 @@ type GroupState = {
   joins:Map<number,number>; firstSeen:Map<number,number>;
   groupMessageTotal:number; groupDaily:{day:string;count:number};
 };
+let groupInfoSchemaPromise:Promise<void>|null=null;
+
+export async function ensureGroupInfoSchema(pool:Pool){
+  if(!groupInfoSchemaPromise){
+    groupInfoSchemaPromise=pool.query(`
+      CREATE TABLE IF NOT EXISTS bot_member_leave_events(
+        id BIGSERIAL PRIMARY KEY,
+        group_id BIGINT NOT NULL,
+        user_id BIGINT NOT NULL,
+        left_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_bot_member_leave_events_unique
+        ON bot_member_leave_events(group_id,user_id,left_at);
+      CREATE INDEX IF NOT EXISTS idx_bot_member_leave_events_group_time
+        ON bot_member_leave_events(group_id,left_at DESC);
+    `).then(()=>undefined).catch(error=>{
+      groupInfoSchemaPromise=null;
+      throw error;
+    });
+  }
+  return groupInfoSchemaPromise;
+}
+
+export async function recordMemberLeave(chatId:number,userId:number,ts:number){
+  if(!Number.isSafeInteger(chatId)||!Number.isSafeInteger(userId))return;
+  try{
+    const pool=(globalThis as typeof globalThis & { __botStudioPool__?:Pool }).__botStudioPool__;
+    if(!pool)return;
+    await ensureGroupInfoSchema(pool);
+    await pool.query(
+      "INSERT INTO bot_member_leave_events(group_id,user_id,left_at) VALUES($1,$2,TO_TIMESTAMP($3/1000.0)) ON CONFLICT DO NOTHING",
+      [chatId,userId,ts],
+    );
+  }catch(error){
+    console.error("[member-profile] leave persistence failed:",error);
+  }
+}
+
 const groups=new Map<number,GroupState>();
 let robotIndex=0;
 const chatLang=new Map<number,Lang>();
@@ -39,6 +93,9 @@ function userStats(chatId:number,userId:number){
   const key=userKey(chatId,userId);
   const daily=userMessageDailyCounts.get(key);
   return { total:userMessageCounts.get(key)??0, today:daily?.day===dayKey()?daily.count:0 };
+}
+export function setGroupInfoPool(pool:Pool|null){
+  (globalThis as typeof globalThis & { __botStudioPool__?:Pool }).__botStudioPool__=pool??undefined;
 }
 export function getGroupStats(chatId:number){
   const daily=groupMessageDailyCounts.get(chatId);
@@ -239,19 +296,58 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
     }
     case "info": {
       const chatInfo=await api<any>("getChat",{chat_id:ctx.chatId});
-      const m=await api<number>("getChatMemberCount",{chat_id:ctx.chatId});
-      const admins=await api<any[]>("getChatAdministrators",{chat_id:ctx.chatId});
+      const m=await api<number>("getChatMemberCount",{chat_id:ctx.chatId}).catch(()=>0);
+      const adminsResult=await telegramApi<any>("getChatAdministrators",{chat_id:ctx.chatId}).catch(()=>({ok:false,result:[]}));
+      const admins=adminsResult.ok&&Array.isArray(adminsResult.result)?adminsResult.result:[];
       const a=admins.length;
-      const owner=admins.find(x=>x.status==="creator")?.user;
-      const gs=getGroupStats(ctx.chatId);
-      const st=state(ctx.chatId);
-      const chatName=String(chatInfo?.title||ctx.chatTitle||"ثبت نشده").trim()||"ثبت نشده";
+      const owner=admins.find((x:any)=>x?.status==="creator")?.user;
+      const data=ctx.getGroupInfo
+        ? await ctx.getGroupInfo(ctx.chatId).catch(()=>undefined)
+        : undefined;
+
+      const chatName=String(chatInfo?.title||ctx.chatTitle||"نامشخص").trim()||"نامشخص";
       const chatUsername=chatInfo?.username?("@"+String(chatInfo.username)):"—";
       const chatType=String(chatInfo?.type||ctx.chatType||"نامشخص");
       const invite=chatInfo?.invite_link?String(chatInfo.invite_link):(chatInfo?.username?("https://t.me/"+String(chatInfo.username)):null);
-      const ownerName=owner?(owner.username?("@"+String(owner.username)):[owner.first_name,owner.last_name].filter(Boolean).join(" ")||String(owner.id)):"قابل شناسایی نیست";
+      const ownerName=owner
+        ? (owner.username?("@"+String(owner.username)):[owner.first_name,owner.last_name].filter(Boolean).join(" ").trim()||String(owner.id))
+        : "نامشخص";
       const creationDate="از Telegram Bot API قابل دریافت نیست";
       const inviteStatus=invite?(chatInfo?.invite_link?"فعال":"لینک عمومی گروه"):"لینک قابل دریافت نیست";
+
+      const n=(v:unknown)=>Number.isFinite(Number(v))?Number(v):0;
+      const s=data??{
+        messagesToday:0,messagesWeek:0,messagesMonth:0,messagesTotal:0,
+        activeDays:0,averageDaily:0,busiestHour:null,busiestDay:null,activeUsers:0,
+        joinsToday:0,joinsWeek:0,joinsMonth:0,joinsTotal:0,
+        leavesToday:0,leavesWeek:0,leavesMonth:0,leavesTotal:0,
+        specialCount:0,mutedCount:0,
+        warningsActive:0,warningsToday:0,warningsWeek:0,warningsTotal:0,
+        deletedToday:0,deletedWeek:0,deletedTotal:0,
+        activeLocks:0,violationsToday:0,violationsWeek:0,violationsTotal:0,
+        moderationActionsToday:0,
+        inviteUsageToday:0,inviteUsageWeek:0,inviteUsageMonth:0,inviteUsageTotal:0
+      };
+
+      const netGrowth=n(s.joinsToday)-n(s.leavesToday);
+      const activityScore=s.messagesToday>=30||s.activeUsers>=5?3:s.messagesToday>=10||s.activeUsers>=3?2:s.messagesToday>=1?1:0;
+      const activity=s.messagesToday>=30||s.activeUsers>=5?"زیاد":s.messagesToday>=10||s.activeUsers>=3?"متوسط":s.messagesToday>0?"کم":"بدون فعالیت";
+
+      const lockCoverage=s.activeLocks>=15?3:s.activeLocks>=5?2:s.activeLocks>0?1:0;
+      const violationRisk=s.violationsToday>=10?3:s.violationsToday>=5?2:s.violationsToday>0?1:0;
+      const securityScore=lockCoverage-violationRisk;
+      const security=securityScore>=3?"بالا":securityScore>=1?"مناسب":securityScore===0?"متوسط":"نیازمند بررسی";
+
+      const growthScore=netGrowth>0?2:netGrowth===0?1:0;
+      const growth=netGrowth>0?"رشد":netGrowth===0?"پایدار":"کاهشی";
+      const botScore=chatInfo?2:0;
+      const overallScore=activityScore+Math.max(0,securityScore)+growthScore+botScore;
+      const overall=overallScore>=8?"پایدار":overallScore>=6?"مناسب":overallScore>=4?"نیازمند توجه":"ناپایدار";
+
+      const persianDays=["یکشنبه","دوشنبه","سه‌شنبه","چهارشنبه","پنجشنبه","جمعه","شنبه"];
+      const busiestHour=s.busiestHour==null?"نامشخص":pad2(s.busiestHour)+":00";
+      const busiestDay=s.busiestDay==null?"نامشخص":(persianDays[s.busiestDay]??"نامشخص");
+
       const faText=[
         "◈ اطلاعات گروه",
         "",
@@ -259,24 +355,68 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "⛂ - شناسه گروه : "+ctx.chatId,
         "⛂ - نام کاربری گروه : "+chatUsername,
         "⛂ - نوع گروه : "+chatType,
-        "⛂ - تعداد اعضا : "+m,
-        "⛂ - تعداد مدیران : "+a,
+        "⛂ - تعداد اعضا : "+n(m),
+        "⛂ - تعداد مدیران : "+n(a),
         "⛂ - مالک گروه : "+ownerName,
         "",
         "─────━━───── ◈ ─────━━─────",
         "",
-        "⛂ - پیام‌های امروز : "+gs.messagesToday,
-        "⛂ - اعضای جدید امروز : "+gs.joinsToday,
-        "⛂ - پیام‌های کل : "+gs.messagesTotal,
-        "⛂ - اعضای فعلی : "+m,
-        "⛂ - افراد در لیست سکوت : "+st.muted.size,
-        "⛂ - افراد در لیست ویژه : "+st.special.size,
-        "⛂ - اخطارهای فعال : "+stats(ctx.chatId).warnings,
+        "⛂ - پیام‌های امروز : "+n(s.messagesToday),
+        "⛂ - پیام‌های هفته : "+n(s.messagesWeek),
+        "⛂ - پیام‌های ماه : "+n(s.messagesMonth),
+        "⛂ - پیام‌های کل : "+n(s.messagesTotal),
+        "⛂ - میانگین پیام روزانه : "+n(s.averageDaily),
+        "⛂ - کاربران فعال : "+n(s.activeUsers),
+        "⛂ - فعال‌ترین ساعت : "+busiestHour,
+        "⛂ - فعال‌ترین روز : "+busiestDay,
+        "",
+        "⛂ - اعضای جدید امروز : "+n(s.joinsToday),
+        "⛂ - اعضای جدید هفته : "+n(s.joinsWeek),
+        "⛂ - اعضای جدید ماه : "+n(s.joinsMonth),
+        "⛂ - خروجی امروز : "+n(s.leavesToday),
+        "⛂ - رشد خالص : "+netGrowth,
+        "⛂ - اعضای فعلی : "+n(m),
+        "⛂ - افراد در لیست سکوت : "+n(s.mutedCount),
+        "⛂ - افراد در لیست ویژه : "+n(s.specialCount),
+        "",
+        "─────━━───── ◈ ─────━━─────",
+        "",
+        "⛂ - قفل‌های فعال : "+n(s.activeLocks),
+        "⛂ - وضعیت امنیت : "+security,
+        "⛂ - اخطارهای فعال : "+n(s.warningsActive),
+        "⛂ - تخلفات امروز : "+n(s.violationsToday),
+        "⛂ - تخلفات هفته : "+n(s.violationsWeek),
+        "⛂ - تخلفات کل : "+n(s.violationsTotal),
+        "⛂ - پیام‌های حذف‌شده امروز : "+n(s.deletedToday),
+        "",
+        "─────━━───── ◈ ─────━━─────",
+        "",
+        "⛂ - اقدامات مدیریتی امروز : "+n(s.moderationActionsToday),
+        "⛂ - استفاده از لینک امروز : "+n(s.inviteUsageToday),
+        "⛂ - استفاده از لینک هفته : "+n(s.inviteUsageWeek),
+        "⛂ - استفاده از لینک ماه : "+n(s.inviteUsageMonth),
+        "⛂ - استفاده از لینک کل : "+n(s.inviteUsageTotal),
+        "",
+        "★ - وضعیت فعالیت : "+activity,
+        "★ - وضعیت رشد : "+growth,
+        "★ - وضعیت ربات : آنلاین",
+        "★ - وضعیت کلی گروه : "+overall,
+        "",
+        "─────━━───── ◈ ─────━━─────",
         "",
         "★ - تاریخ ساخت گروه : "+creationDate,
-        "★ - لینک دعوت : "+(invite||"در دسترس نیست"),
+        "★ - لینک دعوت : "+(invite||"لینک قابل دریافت نیست"),
         "★ - وضعیت لینک دعوت : "+inviteStatus
       ].join("\n");
+
+      const enDays=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+      const enHour=s.busiestHour==null?"Unknown":pad2(s.busiestHour)+":00";
+      const enDay=s.busiestDay==null?"Unknown":(enDays[s.busiestDay]??"Unknown");
+      const securityEn=security==="بالا"?"High":security==="مناسب"?"Good":security==="متوسط"?"Medium":"Needs review";
+      const activityEn=activity==="زیاد"?"High":activity==="متوسط"?"Medium":activity==="کم"?"Low":"No activity";
+      const growthEn=growth==="رشد"?"Growing":growth==="پایدار"?"Stable":"Declining";
+      const overallEn=overall==="پایدار"?"Stable":overall==="مناسب"?"Good":overall==="نیازمند توجه"?"Needs attention":"Unstable";
+
       const enText=[
         "◈ Group information",
         "",
@@ -284,24 +424,60 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "⛂ - ID : "+ctx.chatId,
         "⛂ - Username : "+chatUsername,
         "⛂ - Type : "+chatType,
-        "⛂ - Members : "+m,
-        "⛂ - Admins : "+a,
+        "⛂ - Members : "+n(m),
+        "⛂ - Admins : "+n(a),
         "⛂ - Owner : "+ownerName,
         "",
         "─────━━───── ◈ ─────━━─────",
         "",
-        "⛂ - Messages today : "+gs.messagesToday,
-        "⛂ - New members today : "+gs.joinsToday,
-        "⛂ - Total messages : "+gs.messagesTotal,
-        "⛂ - Current members : "+m,
-        "⛂ - Muted users : "+st.muted.size,
-        "⛂ - Special users : "+st.special.size,
-        "⛂ - Active warnings : "+stats(ctx.chatId).warnings,
+        "⛂ - Messages today : "+n(s.messagesToday),
+        "⛂ - Messages this week : "+n(s.messagesWeek),
+        "⛂ - Messages this month : "+n(s.messagesMonth),
+        "⛂ - Total messages : "+n(s.messagesTotal),
+        "⛂ - Average daily messages : "+n(s.averageDaily),
+        "⛂ - Active users : "+n(s.activeUsers),
+        "⛂ - Busiest hour : "+enHour,
+        "⛂ - Busiest day : "+enDay,
+        "",
+        "⛂ - New members today : "+n(s.joinsToday),
+        "⛂ - New members this week : "+n(s.joinsWeek),
+        "⛂ - New members this month : "+n(s.joinsMonth),
+        "⛂ - Leaves today : "+n(s.leavesToday),
+        "⛂ - Net growth : "+netGrowth,
+        "⛂ - Current members : "+n(m),
+        "⛂ - Muted users : "+n(s.mutedCount),
+        "⛂ - Special users : "+n(s.specialCount),
+        "",
+        "─────━━───── ◈ ─────━━─────",
+        "",
+        "⛂ - Active locks : "+n(s.activeLocks),
+        "⛂ - Security status : "+securityEn,
+        "⛂ - Active warnings : "+n(s.warningsActive),
+        "⛂ - Violations today : "+n(s.violationsToday),
+        "⛂ - Violations this week : "+n(s.violationsWeek),
+        "⛂ - Total violations : "+n(s.violationsTotal),
+        "⛂ - Deleted messages today : "+n(s.deletedToday),
+        "",
+        "─────━━───── ◈ ─────━━─────",
+        "",
+        "⛂ - Moderation actions today : "+n(s.moderationActionsToday),
+        "⛂ - Invite uses today : "+n(s.inviteUsageToday),
+        "⛂ - Invite uses this week : "+n(s.inviteUsageWeek),
+        "⛂ - Invite uses this month : "+n(s.inviteUsageMonth),
+        "⛂ - Total invite uses : "+n(s.inviteUsageTotal),
+        "",
+        "★ - Activity status : "+activityEn,
+        "★ - Growth status : "+growthEn,
+        "★ - Bot status : Online",
+        "★ - Overall group status : "+overallEn,
+        "",
+        "─────━━───── ◈ ─────━━─────",
         "",
         "★ - Group creation date : "+creationDate,
         "★ - Invite link : "+(invite||"Unavailable"),
-        "★ - Invite status : "+(invite?"Active":"Unavailable")
+        "★ - Invite status : "+(invite?(chatInfo?.invite_link?"Active":"Public group link"):"Unavailable")
       ].join("\n");
+
       return fa(ctx.lang,faText,enText);
     }
     case "rank": {
