@@ -7,6 +7,7 @@ import { telegramApi } from "../src/lib/telegram/api.ts";
 import { rankAtLeast } from "../src/lib/bot/registry.ts";
 import { runLiveCommand, recordMessage, recordMemberJoin, getGroupStats } from "../src/lib/bot/runtime.ts";
 import { enforceContentLocks, runContentLockCommand, sendContentLockCenter, type ContentLockMessage } from "../src/lib/bot/content-locks.ts";
+import { trackMessageAndActivity } from "../src/lib/bot/message-tools.ts";
 import { isRuntimeMaintenance, startRuntimeControlServer } from "./runtime-control.ts";
 import { ensureAutomationSchema, runAutomations, tickSchedules } from "../src/lib/bot/automation-engine.ts";
 import { dispatchPanelMessage, dispatchPanelCallback, openModerationCenterFromCommand } from "./panel-system.ts";
@@ -870,6 +871,7 @@ async function processMessage(msg: TgMessage, edited = false) {
   const lang = await getGroupLanguage(studioPool, chat.id, config.defaultLang);
 
   await recordMessage(chat.id, msg.from.id, msg.message_id);
+  try { await trackMessageAndActivity(studioPool, msg); } catch (error) { console.error("[message-tools] persistent message tracking failed", error); }
   try { await trackCleanupMessage(studioPool, msg); } catch (error) { console.error("[cleanup] message tracking failed", error); }
 
   let membersCount = 0;
@@ -882,6 +884,29 @@ async function processMessage(msg: TgMessage, edited = false) {
     }
   }
 
+  const getUserMessageStats = async (chatId:number,userId:number) => {
+    try {
+      const result = await studioPool!.query<any>(
+        'SELECT COUNT(*) FILTER (WHERE created_at >= date_trunc(\'day\', NOW()))::int AS today, COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL \'7 days\')::int AS week, COUNT(*)::int AS total, COUNT(DISTINCT ((created_at AT TIME ZONE \'Asia/Tehran\')::date))::int AS active_days, MAX(created_at) AS last_activity FROM bot_message_records WHERE chat_id=$1 AND user_id=$2',
+        [chatId,userId],
+      );
+      const row=result.rows[0] ?? {};
+      const today=Number(row.today ?? 0);
+      const week=Number(row.week ?? 0);
+      const total=Number(row.total ?? 0);
+      const activeDays=Math.max(1,Number(row.active_days ?? 0));
+      const average=Math.round(total/activeDays);
+      const rankResult = await studioPool!.query<{rank:number}>(
+        'WITH counts AS (SELECT user_id, COUNT(*)::int AS message_count FROM bot_message_records WHERE chat_id=$1 GROUP BY user_id) SELECT (COUNT(*) FILTER (WHERE message_count > $2) + 1)::int AS rank FROM counts',
+        [chatId,total],
+      );
+      return { today, week, total, average, rank:Number(rankResult.rows[0]?.rank ?? 1), lastActivity: row.last_activity ? new Date(row.last_activity).getTime() : undefined };
+    } catch (error) {
+      console.error('[message-stats] persistent stats query failed:', error);
+      return undefined;
+    }
+  };
+
   const ctx: BotContext = {
     text,
     chatType: isPrivate ? "private" : chat.type === "group" ? "group" : "supergroup",
@@ -893,6 +918,7 @@ async function processMessage(msg: TgMessage, edited = false) {
     userName: displayName(msg.from),
     userUsername: msg.from.username,
     getMemberJoinDate: memberJoinDateFromDb,
+    getUserMessageStats,
     userRank: rankOf(msg.from.id, adminIds),
     replyToUserId: msg.reply_to_message?.from?.id,
     replyToName: msg.reply_to_message?.from?.username || msg.reply_to_message?.from?.first_name,
@@ -905,9 +931,12 @@ async function processMessage(msg: TgMessage, edited = false) {
   // Core identity command is authoritative and must bypass every panel/DB response path.
   // This prevents stale response templates from ever reaching Telegram for «آیدی».
   const directCommandText = String(text || "").trim().replace(/^[\\/!.]+/, "").trim();
-  const directToken = directCommandText.split(/\\s+/)[0].toLowerCase();
-  const directArgs = directCommandText.split(/\\s+/).slice(1);
+  const directToken = directCommandText.split(/\s+/)[0].toLowerCase();
+  const directArgs = directCommandText.split(/\s+/).slice(1);
   if (["id","آیدی"].includes(directToken) && directArgs.length===0) {
+    // Identity is a manager-only command. Regular members get no response at all.
+    if (!["owner","sudo","admin"].includes(ctx.userRank)) return;
+
     try {
       const targetId=Number(ctx.replyToUserId || ctx.userId);
       let target:any=null;
@@ -918,7 +947,7 @@ async function processMessage(msg: TgMessage, edited = false) {
       const targetUser=target?.user || {
         id:targetId,
         first_name:ctx.replyToUserId ? (ctx.replyToName || String(targetId)) : ctx.userName,
-        username:ctx.replyToUserId ? undefined : ctx.userName.replace(/^@/,"")
+        username:ctx.replyToUserId ? undefined : (ctx.userUsername || "").replace(/^@/,"")
       };
       const targetRank=ctx.replyToUserId
         ? (String(target?.status||"")==="creator" ? "owner" : String(target?.status||"")==="administrator" ? "admin" : "member")
@@ -926,7 +955,8 @@ async function processMessage(msg: TgMessage, edited = false) {
       const targetCtx:any={
         ...ctx,
         userId:targetId,
-        userName:targetUser.username || targetUser.first_name || String(targetId),
+        userName:displayName(targetUser),
+        userUsername:targetUser.username,
         userRank:targetRank,
         replyToUserId:undefined,
         replyToName:undefined
