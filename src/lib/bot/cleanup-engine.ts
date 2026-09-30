@@ -137,16 +137,18 @@ async function executeJob(pool:Pool,jobId:number,groupId:number){
     await pool.query("UPDATE cleanup_jobs SET status='running',started_at=NOW() WHERE id=$1 AND status='preview'",[jobId]);
     const items=(await pool.query("SELECT message_id FROM cleanup_job_items WHERE job_id=$1 AND status='pending' ORDER BY id",[jobId])).rows;
     let ok=0,fail=0;
-    for(let i=0;i<items.length;i+=100){
-      const ids=items.slice(i,i+100).map((x:any)=>Number(x.message_id));
-      const r=await telegramApi<any>("deleteMessages",{chat_id:groupId,message_ids:ids});
+    for(const item of items){
+      const id=Number(item.message_id);
+      const r=await telegramApi<any>("deleteMessage",{chat_id:groupId,message_id:id});
       if(r.ok){
-        ok+=ids.length;await pool.query("UPDATE cleanup_job_items SET status='success' WHERE job_id=$1 AND message_id=ANY($2::bigint[])",[jobId,ids]);
+        ok++;
+        await pool.query("UPDATE cleanup_job_items SET status='success' WHERE job_id=$1 AND message_id=$2",[jobId,id]);
       }else{
-        for(const id of ids){const one=await telegramApi<any>("deleteMessage",{chat_id:groupId,message_id:id});if(one.ok){ok++;await pool.query("UPDATE cleanup_job_items SET status='success' WHERE job_id=$1 AND message_id=$2",[jobId,id]);}else{fail++;await pool.query("UPDATE cleanup_job_items SET status='failed',error_text=$3 WHERE job_id=$1 AND message_id=$2",[jobId,id,String(one.description??r.description??"Telegram error")]);}}
+        fail++;
+        await pool.query("UPDATE cleanup_job_items SET status='failed',error_code=$3,error_text=$4 WHERE job_id=$1 AND message_id=$2",[jobId,id,String(r.error_code??"TELEGRAM_ERROR"),String(r.description??"Telegram deleteMessage failed")]);
       }
     }
-    await pool.query("UPDATE cleanup_jobs SET status=$2,success_count=$3,failure_count=$4,finished_at=NOW() WHERE id=$1",[jobId,fail?"completed_with_errors":"completed",ok,fail]);
+    await pool.query("UPDATE cleanup_jobs SET status=$2,success_count=$3,failure_count=$4,finished_at=NOW(),last_error=$5 WHERE id=$1",[jobId,fail?"completed_with_errors":"completed",ok,fail,fail?"برخی پیام‌ها توسط Telegram حذف نشدند.":null]);
     await pool.query("INSERT INTO cleanup_audit_log(group_id,actor_id,action,job_id,details) SELECT group_id,actor_id,'execute',$1,jsonb_build_object('success',$2,'failure',$3) FROM cleanup_jobs WHERE id=$1",[jobId,ok,fail]);
     return {ok,fail,total:items.length};
   }finally{running.delete(groupId);}
@@ -187,7 +189,7 @@ export async function handleCleanupCallback(pool:Pool,cb:any){
     }
     if(action==="cancel"){const id=Number(parts[2]);await pool.query("UPDATE cleanup_jobs SET status='cancelled',finished_at=NOW() WHERE id=$1 AND group_id=$2 AND actor_id=$3 AND status='preview'",[id,groupId,actorId]);await telegramApi("editMessageText",{chat_id:groupId,message_id:cb.message.message_id,text:panelText("عملیات لغو شد",["⛂ - Job : CLN-"+id,"⛂ - وضعیت : ✗ لغو شده"]),reply_markup:keyboard([["مرکز پاکسازی§cln:center"]])});return true;}
     if(action==="center"){await openCleanupCenter(pool,groupId,actorId);return true;}
-    if(action==="history"){const r=await pool.query("SELECT job_key,status,total_count,eligible_count,success_count,failure_count,created_at FROM cleanup_jobs WHERE group_id=$1 ORDER BY id DESC LIMIT 10",[groupId]);const lines=r.rows.length?r.rows.map((x:any)=>"⛂ - "+x.job_key+" | "+x.status+" | "+x.success_count+"/"+x.total_count):["⛂ - هنوز عملیاتی ثبت نشده است."];await telegramApi("editMessageText",{chat_id:groupId,message_id:cb.message.message_id,text:panelText("تاریخچه",lines),reply_markup:keyboard([["‹ بازگشت§cln:center"]])});return true;}
+    if(action==="history"){const r=await pool.query("SELECT job_key,status,total_count,eligible_count,success_count,failure_count,created_at FROM cleanup_jobs WHERE group_id=$1 ORDER BY id DESC LIMIT 10",[groupId]);const lines=r.rows.length?r.rows.map((x:any)=>"⛂ - "+x.job_key+" | "+x.status+" | "+x.success_count+"/"+x.total_count):["⛂ - هنوز عملیاتی ثبت نشده است."];await telegramApi("editMessageText",{chat_id:groupId,message_id:cb.message.message_id,text:panelText("تاریخچه",lines),reply_markup:keyboard([["بازگشت§cln:center"]])});return true;}
     if(action==="jobs"){const r=await pool.query("SELECT job_key,status,eligible_count,success_count,failure_count FROM cleanup_jobs WHERE group_id=$1 ORDER BY id DESC LIMIT 8",[groupId]);const lines=r.rows.length?r.rows.map((x:any)=>"⛂ - "+x.job_key+" | "+x.status+" | "+x.success_count+"/"+x.eligible_count):["⛂ - Job فعالی وجود ندارد."];await telegramApi("editMessageText",{chat_id:groupId,message_id:cb.message.message_id,text:panelText("Jobهای پاکسازی",lines),reply_markup:keyboard([["‹ بازگشت§cln:center"]])});return true;}
     if(action==="protected"){const r=await pool.query("SELECT message_id,reason FROM cleanup_protected_messages WHERE group_id=$1 ORDER BY created_at DESC LIMIT 30",[groupId]);const lines=r.rows.length?r.rows.map((x:any)=>"⛂ - پیام "+x.message_id+" | "+(x.reason??"—")):["⛂ - پیام محافظت‌شده‌ای ثبت نشده است."];await telegramApi("editMessageText",{chat_id:groupId,message_id:cb.message.message_id,text:panelText("استثناها و پیام‌های محافظت‌شده",lines),reply_markup:keyboard([["‹ بازگشت§cln:center"]])});return true;}
     if(action==="user"){await telegramApi("editMessageText",{chat_id:groupId,message_id:cb.message.message_id,text:panelText("پاکسازی کاربر",["⛂ - این بخش برای Reply به پیام کاربر طراحی شده است.","⛂ - در نسخه فعلی، پیام‌های کاربر از طریق فیلتر Job قابل اجرا هستند."]),reply_markup:keyboard([["‹ بازگشت§cln:center"]])});return true;}
