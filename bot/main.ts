@@ -887,7 +887,25 @@ async function processMessage(msg: TgMessage, edited = false) {
   const getUserMessageStats = async (chatId:number,userId:number) => {
     try {
       const result = await studioPool!.query<any>(
-        'SELECT COUNT(*) FILTER (WHERE created_at >= date_trunc(\'day\', NOW()))::int AS today, COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL \'7 days\')::int AS week, COUNT(*)::int AS total, COUNT(DISTINCT ((created_at AT TIME ZONE \'Asia/Tehran\')::date))::int AS active_days, MAX(created_at) AS last_activity FROM bot_message_records WHERE chat_id=$1 AND user_id=$2',
+        `WITH bounds AS (
+           SELECT
+             date_trunc('day', NOW() AT TIME ZONE 'Asia/Tehran') AS today_start,
+             date_trunc('day', NOW() AT TIME ZONE 'Asia/Tehran')
+               - (((EXTRACT(DOW FROM (NOW() AT TIME ZONE 'Asia/Tehran'))::int + 1) % 7) * INTERVAL '1 day') AS week_start
+         )
+         SELECT
+           COUNT(*) FILTER (
+             WHERE (r.created_at AT TIME ZONE 'Asia/Tehran') >= b.today_start
+           )::int AS today,
+           COUNT(*) FILTER (
+             WHERE (r.created_at AT TIME ZONE 'Asia/Tehran') >= b.week_start
+           )::int AS week,
+           COUNT(*)::int AS total,
+           COUNT(DISTINCT ((r.created_at AT TIME ZONE 'Asia/Tehran')::date))::int AS active_days,
+           MAX(r.created_at) AS last_activity
+         FROM bot_message_records r
+         CROSS JOIN bounds b
+         WHERE r.chat_id=$1 AND r.user_id=$2`,
         [chatId,userId],
       );
       const row=result.rows[0] ?? {};
