@@ -732,7 +732,7 @@ const adminCache = new Map<number, { at: number; ids: Set<number> }>();
 type TgUser = { id: number; first_name?: string; last_name?: string; username?: string; is_bot?: boolean };
 type TgChat = { id: number; type: string; title?: string; username?: string };
 type TgMessage = ContentLockMessage & { chat: TgChat; from?: TgUser; reply_to_message?: { from?: TgUser }; new_chat_members?: TgUser[]; left_chat_member?: TgUser };
-type TgChatMemberUpdate = { chat: TgChat; from?: TgUser; old_chat_member?: { status?: string; user?: TgUser }; new_chat_member?: { status?: string; user?: TgUser; invite_link?: any } };
+type TgChatMemberUpdate = { chat: TgChat; from?: TgUser; date?: number; old_chat_member?: { status?: string; user?: TgUser }; new_chat_member?: { status?: string; user?: TgUser; invite_link?: any } };
 type TgUpdate = { update_id: number; message?: TgMessage; edited_message?: TgMessage; callback_query?: {id:string;from?:TgUser;message?:TgMessage;data?:string}; my_chat_member?: TgChatMemberUpdate; chat_member?: TgChatMemberUpdate; chat_join_request?: { chat?: TgChat; from?: TgUser; user_chat_id?: number; date?: number; invite_link?: any } };
 
 function splitIds(raw: string | undefined): string[] {
@@ -764,8 +764,17 @@ async function memberJoinDateFromDb(chatId:number,userId:number){
   }
 }
 async function persistMemberJoin(chatId:number,user:TgUser,ts:number){
-  if(!studioPool)return;
+  if(!studioPool||user.is_bot)return;
   try{
+    const event=await studioPool.query(
+      `INSERT INTO bot_member_join_events(group_id,user_id,username,first_name,last_name,joined_at)
+       VALUES($1,$2,$3,$4,$5,TO_TIMESTAMP($6/1000.0))
+       ON CONFLICT(group_id,user_id,joined_at) DO NOTHING
+       RETURNING id`,
+      [chatId,user.id,user.username??null,user.first_name??null,user.last_name??null,ts],
+    );
+    if(!event.rowCount)return;
+
     await studioPool.query(
       `INSERT INTO bot_member_profiles(group_id,user_id,username,first_name,last_name,joined_at,last_seen_at,updated_at,join_count)
        VALUES($1,$2,$3,$4,$5,TO_TIMESTAMP($6/1000.0),NOW(),NOW(),1)
@@ -779,16 +788,10 @@ async function persistMemberJoin(chatId:number,user:TgUser,ts:number){
          join_count=bot_member_profiles.join_count+1`,
       [chatId,user.id,user.username??null,user.first_name??null,user.last_name??null,ts],
     );
-    await studioPool.query(
-      `INSERT INTO bot_member_join_events(group_id,user_id,username,first_name,last_name,joined_at)
-       VALUES($1,$2,$3,$4,$5,TO_TIMESTAMP($6/1000.0))`,
-      [chatId,user.id,user.username??null,user.first_name??null,user.last_name??null,ts],
-    );
   }catch(error){
     console.error("[member-profile] join persistence failed:",error);
   }
 }
-
 async function chatAdmins(chatId: number): Promise<Set<number>> {
   const hit = adminCache.get(chatId);
   if (hit && Date.now() - hit.at < 45_000) return hit.ids;
@@ -875,6 +878,12 @@ async function processMessage(msg: TgMessage, edited = false) {
   }
   const lang = await getGroupLanguage(studioPool, chat.id, config.defaultLang);
 
+  if (Array.isArray(msg.new_chat_members) && msg.new_chat_members.length) {
+    const joinedAt=((msg.date ?? Math.floor(Date.now()/1000)) * 1000);
+    for (const joinedUser of msg.new_chat_members) {
+      if (!joinedUser.is_bot) await persistMemberJoin(chat.id,joinedUser,joinedAt);
+    }
+  }
   if (!msg.from.is_bot) {
     await recordMessage(chat.id, msg.from.id, msg.message_id);
     try { await trackMessageAndActivity(studioPool, msg); } catch (error) { console.error("[message-tools] persistent message tracking failed", error); }
@@ -895,37 +904,41 @@ async function processMessage(msg: TgMessage, edited = false) {
     try {
       const result = await studioPool!.query<any>(
         `SELECT
+           COUNT(*)::int AS total,
            COUNT(*) FILTER (
-             WHERE (created_at AT TIME ZONE 'Asia/Tehran')::date =
+             WHERE telegram_date IS NOT NULL
+               AND (TO_TIMESTAMP(telegram_date) AT TIME ZONE 'Asia/Tehran')::date =
                    (NOW() AT TIME ZONE 'Asia/Tehran')::date
            )::int AS today,
-           COUNT(*)::int AS total,
-           COUNT(DISTINCT ((created_at AT TIME ZONE 'Asia/Tehran')::date))::int AS active_days,
-           MIN(created_at) AS first_activity,
-           MAX(created_at) AS last_activity
+           COUNT(*) FILTER (WHERE telegram_date IS NULL)::int AS legacy_count,
+           COUNT(*) FILTER (WHERE telegram_date IS NOT NULL)::int AS exact_count,
+           MIN(telegram_date) FILTER (WHERE telegram_date IS NOT NULL) AS first_activity,
+           MAX(telegram_date) FILTER (WHERE telegram_date IS NOT NULL) AS last_activity
          FROM bot_message_records
          WHERE chat_id=$1 AND user_id=$2`,
         [chatId,userId],
       );
       const row=result.rows[0] ?? {};
-      const today=Number(row.today ?? 0);
       const total=Number(row.total ?? 0);
-      const firstActivity=row.first_activity ? new Date(row.first_activity).getTime() : undefined;
-      const lastActivity=row.last_activity ? new Date(row.last_activity).getTime() : undefined;
+      const legacyCount=Number(row.legacy_count ?? 0);
+      const exactCount=Number(row.exact_count ?? 0);
+      const today=Number(row.today ?? 0);
+      const firstActivity=row.first_activity ? Number(row.first_activity)*1000 : undefined;
+      const lastActivity=row.last_activity ? Number(row.last_activity)*1000 : undefined;
 
-      let elapsedDays=0;
-      if(firstActivity){
-        const dateFormatter=new Intl.DateTimeFormat("en-CA",{year:"numeric",month:"2-digit",day:"2-digit",timeZone:"Asia/Tehran"});
-        const firstDay=dateFormatter.format(new Date(firstActivity));
-        const currentDay=dateFormatter.format(new Date());
+      let average:number|null=null;
+      if(exactCount>0 && legacyCount===0 && firstActivity){
+        const formatter=new Intl.DateTimeFormat("en-CA",{year:"numeric",month:"2-digit",day:"2-digit",timeZone:"Asia/Tehran"});
+        const firstDay=formatter.format(new Date(firstActivity));
+        const currentDay=formatter.format(new Date());
         const firstUtc=Date.parse(firstDay+"T00:00:00Z");
         const currentUtc=Date.parse(currentDay+"T00:00:00Z");
-        elapsedDays=Math.max(1,Math.floor((currentUtc-firstUtc)/86400000)+1);
+        const elapsedDays=Math.max(1,Math.floor((currentUtc-firstUtc)/86400000)+1);
+        average=Math.round((total/elapsedDays)*10)/10;
       }
-      const average=total>0 ? Math.round((total/Math.max(1,elapsedDays))*10)/10 : 0;
 
       if(total<=0){
-        return { today, total, average, rank:0, lastActivity };
+        return { today:0, total:0, average:0, rank:0, lastActivity:undefined, exact:true };
       }
 
       const rankResult = await studioPool!.query<{rank:number}>(
@@ -939,36 +952,17 @@ async function processMessage(msg: TgMessage, edited = false) {
          FROM counts`,
         [chatId,total],
       );
+
       return {
-        today,
+        today:legacyCount>0 ? -1 : today,
         total,
         average,
         rank:Number(rankResult.rows[0]?.rank ?? 1),
         lastActivity,
+        exact:legacyCount===0,
       };
     } catch (error) {
       console.error('[message-stats] persistent stats query failed:', error);
-      return undefined;
-    }
-  };
-
-  const getUserJoinStats = async (chatId:number,userId:number) => {
-    try {
-      const result = await studioPool!.query<any>(
-        `SELECT
-           COUNT(*) FILTER (
-             WHERE (joined_at AT TIME ZONE 'Asia/Tehran')::date =
-                   (NOW() AT TIME ZONE 'Asia/Tehran')::date
-           )::int AS today,
-           COUNT(*)::int AS total
-         FROM bot_member_join_events
-         WHERE group_id=$1 AND user_id=$2`,
-        [chatId,userId],
-      );
-      const row=result.rows[0] ?? {};
-      return { today:Number(row.today ?? 0), total:Number(row.total ?? 0) };
-    } catch (error) {
-      console.error('[join-stats] persistent join stats query failed:', error);
       return undefined;
     }
   };
@@ -1385,7 +1379,7 @@ async function poll() {
           }
           if(isJoin){
             const joinedUser=upd.chat_member.new_chat_member.user;
-            const joinedAt=Date.now();
+            const joinedAt=(upd.chat_member.date ?? Math.floor(Date.now()/1000))*1000;
             void Promise.all([
               persistMemberJoin(upd.chat_member.chat.id,joinedUser,joinedAt),
               recordMemberJoin(upd.chat_member.chat.id,joinedUser.id,joinedAt),
