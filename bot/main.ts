@@ -978,7 +978,9 @@ async function processMessage(msg: TgMessage, edited = false) {
       );
 
       return {
-        today:legacyCount>0 ? -1 : today,
+        // Today's count is exact for messages that Telegram timestamp tracking has captured.
+        // Legacy rows from before timestamp tracking must not make today's count unknown.
+        today,
         total,
         average,
         rank:Number(rankResult.rows[0]?.rank ?? 1),
