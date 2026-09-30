@@ -55,6 +55,16 @@ export function getGroupStats(chatId:number){
     activeUsers
   };
 }
+function relativeTime(ts:number,l:Lang){
+  const diff=Math.max(0,Date.now()-ts);
+  const minutes=Math.floor(diff/60000);
+  if(minutes<1)return l==="fa"?"همین الان":"Just now";
+  if(minutes<60)return l==="fa"?minutes+" دقیقه پیش":minutes+" minutes ago";
+  const hours=Math.floor(minutes/60);
+  if(hours<24)return l==="fa"?hours+" ساعت پیش":hours+" hours ago";
+  const days=Math.floor(hours/24);
+  return l==="fa"?days+" روز پیش":days+" days ago";
+}
 function formatDate(ts:number|undefined,l:Lang){
   if(!ts)return "ثبت نشده";
   return new Intl.DateTimeFormat(l==="fa"?"fa-IR":"en-GB",{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",timeZone:"Asia/Tehran"}).format(new Date(ts));
