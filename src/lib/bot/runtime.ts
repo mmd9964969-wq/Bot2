@@ -290,7 +290,7 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
       return fa(ctx.lang,faText,enText);
     }
     case "info": {
-      const chatInfo=await api<any>("getChat",{chat_id:ctx.chatId});
+      const chatInfo=await api<any>("getChat",{chat_id:ctx.chatId}).catch(()=>null);
       const m=await api<number>("getChatMemberCount",{chat_id:ctx.chatId}).catch(()=>0);
       const adminsResult=await telegramApi<any>("getChatAdministrators",{chat_id:ctx.chatId}).catch(()=>({ok:false,result:[]}));
       const admins=adminsResult.ok&&Array.isArray(adminsResult.result)?adminsResult.result:[];
@@ -335,7 +335,9 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
 
       const growthScore=netGrowth>0?2:netGrowth===0?1:0;
       const growth=netGrowth>0?"رشد":netGrowth===0?"پایدار":"کاهشی";
-      const botScore=chatInfo?2:0;
+      const botHealth=await telegramApi<any>("getMe",{}).catch(()=>({ok:false}));
+      const botOnline=botHealth.ok===true;
+      const botScore=botOnline?2:0;
       const overallScore=activityScore+Math.max(0,securityScore)+growthScore+botScore;
       const overall=overallScore>=8?"پایدار":overallScore>=6?"مناسب":overallScore>=4?"نیازمند توجه":"ناپایدار";
 
@@ -394,7 +396,7 @@ export async function runLiveCommand(ctx:LiveContext,token:string,args:string[])
         "",
         "★ - وضعیت فعالیت : "+activity,
         "★ - وضعیت رشد : "+growth,
-        "★ - وضعیت ربات : آنلاین",
+        "★ - وضعیت ربات : "+(botOnline?"آنلاین":"نامشخص"),
         "★ - وضعیت کلی گروه : "+overall,
         "",
         "─────━━───── ◈ ─────━━─────",
