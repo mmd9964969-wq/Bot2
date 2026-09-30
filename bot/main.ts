@@ -5,7 +5,7 @@ import { cloneStudioDefaults, type StudioDocument } from "../src/lib/bot/studio.
 import { type Lang, type Rank } from "../src/lib/bot/registry.ts";
 import { telegramApi } from "../src/lib/telegram/api.ts";
 import { rankAtLeast } from "../src/lib/bot/registry.ts";
-import { runLiveCommand, recordMessage, getGroupStats } from "../src/lib/bot/runtime.ts";
+import { runLiveCommand, recordMessage, recordMemberJoin, getGroupStats } from "../src/lib/bot/runtime.ts";
 import { enforceContentLocks, runContentLockCommand, sendContentLockCenter, type ContentLockMessage } from "../src/lib/bot/content-locks.ts";
 import { isRuntimeMaintenance, startRuntimeControlServer } from "./runtime-control.ts";
 import { ensureAutomationSchema, runAutomations, tickSchedules } from "../src/lib/bot/automation-engine.ts";
@@ -468,7 +468,7 @@ async function logCommandAccess(ctx:BotContext,key:string,eventType:"command_exe
 async function studioReplyLive(ctx: BotContext): Promise<string | null> {
   const raw=ctx.text.trim();
   if(!raw)return null;
-  const gameResult=await handleGameText({pool:studioPool!,chatId:ctx.chatId,userId:ctx.userId,user:{id:ctx.userId,username:ctx.userName.startsWith("@")?ctx.userName.slice(1):ctx.userName},isAdmin:["owner","sudo","admin"].includes(ctx.userRank),replyToUserId:ctx.replyToUserId,replyToName:ctx.replyToName},raw);
+  const gameResult=await handleGameText({pool:studioPool!,chatId:ctx.chatId,userId:ctx.userId,user:{id:ctx.userId,username:ctx.userUsername,first_name:ctx.userName},isAdmin:["owner","sudo","admin"].includes(ctx.userRank),replyToUserId:ctx.replyToUserId,replyToName:ctx.replyToName},raw);
   if(gameResult!==null)return gameResult;
   const commandText=raw.replace(/^[\\/!.]+/,"").trim();
   if(!commandText)return null;
@@ -576,11 +576,11 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
           const member=await telegramApi<any>("getChatMember",{chat_id:ctx.chatId,user_id:targetId});
           if(member.ok) target=member.result;
         }
-        const targetUser=target?.user||{id:targetId,first_name:ctx.replyToUserId?(ctx.replyToName||String(targetId)):ctx.userName,username:ctx.replyToUserId?undefined:ctx.userName.replace(/^@/,"")};
+        const targetUser=target?.user||{id:targetId,first_name:ctx.replyToUserId?(ctx.replyToName||String(targetId)):ctx.userName,username:ctx.replyToUserId?undefined:ctx.userUsername};
         const targetRank=ctx.replyToUserId
           ? (String(target?.status||"")==="creator"?"owner":String(target?.status||"")==="administrator"?"admin":"member")
           : ctx.userRank;
-        const targetCtx:any={...ctx,userId:targetId,userName:targetUser.username||targetUser.first_name||String(targetId),userRank:targetRank,replyToUserId:undefined,replyToName:undefined};
+        const targetCtx:any={...ctx,userId:targetId,userName:displayName(targetUser),userUsername:targetUser.username,userRank:targetRank,replyToUserId:undefined,replyToName:undefined};
         const liveCard=await runLiveCommand({...targetCtx,messageId:0},"id",[]);
         const photos=await telegramApi<any>("getUserProfilePhotos",{user_id:targetId,offset:0,max:1});
         if(photos.ok&&Number(photos.result?.total_count||0)>0){
@@ -602,7 +602,7 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
       await logCommandAccess(ctx,studioCommand.id,"command_executed","allowed",auth.role);
       const values:Record<string,string>={
         user_name:ctx.userName,
-        username:ctx.userName.startsWith("@")?ctx.userName:"@"+ctx.userName,
+        username:ctx.userUsername?"@"+ctx.userUsername.replace(/^@/,""):"ثبت نشده",
         user_id:String(ctx.userId),
         rank:ctx.lang==="fa" ? (ctx.userRank==="owner" ? "مالک" : ctx.userRank==="member" ? "کاربر" : "مدیر") : (ctx.userRank==="owner" ? "owner" : ctx.userRank==="member" ? "member" : "manager"),
         chat_title:ctx.chatTitle,
@@ -728,10 +728,10 @@ function render(template: string, ctx: BotContext) {
 
 const adminCache = new Map<number, { at: number; ids: Set<number> }>();
 
-type TgUser = { id: number; first_name?: string; username?: string };
+type TgUser = { id: number; first_name?: string; last_name?: string; username?: string };
 type TgChat = { id: number; type: string; title?: string; username?: string };
 type TgMessage = ContentLockMessage & { chat: TgChat; from?: TgUser; reply_to_message?: { from?: TgUser }; new_chat_members?: TgUser[]; left_chat_member?: TgUser };
-type TgChatMemberUpdate = { chat: TgChat; from?: TgUser; new_chat_member?: { status?: string; user?: TgUser; invite_link?: any } };
+type TgChatMemberUpdate = { chat: TgChat; from?: TgUser; old_chat_member?: { status?: string; user?: TgUser }; new_chat_member?: { status?: string; user?: TgUser; invite_link?: any } };
 type TgUpdate = { update_id: number; message?: TgMessage; edited_message?: TgMessage; callback_query?: {id:string;from?:TgUser;message?:TgMessage;data?:string}; my_chat_member?: TgChatMemberUpdate; chat_member?: TgChatMemberUpdate; chat_join_request?: { chat?: TgChat; from?: TgUser; user_chat_id?: number; date?: number; invite_link?: any } };
 
 function splitIds(raw: string | undefined): string[] {
@@ -744,6 +744,43 @@ function rankOf(userId: number, adminIds: Set<number>): Rank {
   if (config.sudoIds.includes(id)) return "sudo";
   if (adminIds.has(userId)) return "admin";
   return "member";
+}
+
+function displayName(user:TgUser){
+  return [user.first_name,user.last_name].filter(Boolean).join(" ").trim() || (user.username ? "@"+user.username : String(user.id));
+}
+async function memberJoinDateFromDb(chatId:number,userId:number){
+  if(!studioPool)return undefined;
+  try{
+    const r=await studioPool.query("SELECT joined_at FROM bot_member_profiles WHERE group_id=$1 AND user_id=$2 LIMIT 1",[chatId,userId]);
+    const value=r.rows[0]?.joined_at;
+    if(!value)return undefined;
+    const ts=new Date(value).getTime();
+    return Number.isFinite(ts)?ts:undefined;
+  }catch(error){
+    console.error("[member-profile] join date lookup failed:",error);
+    return undefined;
+  }
+}
+async function persistMemberJoin(chatId:number,user:TgUser,ts:number){
+  if(!studioPool)return;
+  try{
+    await studioPool.query(
+      `INSERT INTO bot_member_profiles(group_id,user_id,username,first_name,last_name,joined_at,last_seen_at,updated_at,join_count)
+       VALUES($1,$2,$3,$4,$5,TO_TIMESTAMP($6/1000.0),NOW(),NOW(),1)
+       ON CONFLICT(group_id,user_id) DO UPDATE SET
+         username=EXCLUDED.username,
+         first_name=EXCLUDED.first_name,
+         last_name=EXCLUDED.last_name,
+         joined_at=EXCLUDED.joined_at,
+         last_seen_at=NOW(),
+         updated_at=NOW(),
+         join_count=bot_member_profiles.join_count+1`,
+      [chatId,user.id,user.username??null,user.first_name??null,user.last_name??null,ts],
+    );
+  }catch(error){
+    console.error("[member-profile] join persistence failed:",error);
+  }
 }
 
 async function chatAdmins(chatId: number): Promise<Set<number>> {
@@ -853,7 +890,9 @@ async function processMessage(msg: TgMessage, edited = false) {
     chatUsername: chat.username ? "@"+chat.username : undefined,
     membersCount,
     userId: msg.from.id,
-    userName: msg.from.username || msg.from.first_name || String(msg.from.id),
+    userName: displayName(msg.from),
+    userUsername: msg.from.username,
+    getMemberJoinDate: memberJoinDateFromDb,
     userRank: rankOf(msg.from.id, adminIds),
     replyToUserId: msg.reply_to_message?.from?.id,
     replyToName: msg.reply_to_message?.from?.username || msg.reply_to_message?.from?.first_name,
@@ -1234,12 +1273,22 @@ async function poll() {
           });
         }
         if (upd.chat_member?.new_chat_member?.user && ["member","administrator","creator"].includes(upd.chat_member.new_chat_member.status ?? "")) {
+          const oldStatus=String(upd.chat_member.old_chat_member?.status||"");
+          const isJoin=!oldStatus || ["left","kicked"].includes(oldStatus);
           if (studioPool) {
             void handleInviteLinkUsage(studioPool, upd.chat_member).catch((error) => {
               console.error("[invite-links] usage tracking failed", error);
             });
           }
-          console.log("[member] join observed:", upd.chat_member.chat.id, upd.chat_member.new_chat_member.user.id);
+          if(isJoin){
+            const joinedUser=upd.chat_member.new_chat_member.user;
+            const joinedAt=Date.now();
+            void Promise.all([
+              persistMemberJoin(upd.chat_member.chat.id,joinedUser,joinedAt),
+              recordMemberJoin(upd.chat_member.chat.id,joinedUser.id,joinedAt),
+            ]).catch((error)=>console.error("[member-profile] join tracking failed:",error));
+          }
+          console.log("[member] join observed:", upd.chat_member.chat.id, upd.chat_member.new_chat_member.user.id, isJoin?"(joined)":"(membership update)");
         }
       }
     } catch (err) {
