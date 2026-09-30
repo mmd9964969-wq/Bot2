@@ -1522,6 +1522,23 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   const groupId=Number(s?.data?.chatId||msg.chat.id);
   const privileged=await isOwner(pool,uid,ownerIds);
 
+  // Manager-center callbacks must be available to actual Telegram group managers
+  // independently of the customer-panel license gate.
+  const managerCallback = data==="c:managers" || data==="c:manager:refresh" ||
+    data==="c:manager:performance" || data==="c:manager:actions" ||
+    data==="c:manager:permissions" || data==="c:manager:activity" ||
+    data==="c:manager:changes" || data==="c:manager:status";
+  if(managerCallback){
+    const member=await telegramApi<any>("getChatMember",{chat_id:groupId,user_id:uid}).catch(()=>({ok:false}));
+    const status=String(member?.result?.status||"");
+    if(!["creator","administrator"].includes(status)){
+      return edit(msg.chat.id,msg.message_id,
+        panelTitle("دسترسی مدیران","⛂ - وضعیت : فقط مالک یا مدیر گروه می‌تواند این بخش را مشاهده کند."),
+        menu([[["‹ بازگشت","c:home"]]])
+      );
+    }
+  }
+
   if(["c:exit","c:support","c:renew"].includes(data)){
     if(data==="c:exit"){
       clearSession(uid);
