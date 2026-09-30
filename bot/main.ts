@@ -729,7 +729,7 @@ function render(template: string, ctx: BotContext) {
 
 const adminCache = new Map<number, { at: number; ids: Set<number> }>();
 
-type TgUser = { id: number; first_name?: string; last_name?: string; username?: string };
+type TgUser = { id: number; first_name?: string; last_name?: string; username?: string; is_bot?: boolean };
 type TgChat = { id: number; type: string; title?: string; username?: string };
 type TgMessage = ContentLockMessage & { chat: TgChat; from?: TgUser; reply_to_message?: { from?: TgUser }; new_chat_members?: TgUser[]; left_chat_member?: TgUser };
 type TgChatMemberUpdate = { chat: TgChat; from?: TgUser; old_chat_member?: { status?: string; user?: TgUser }; new_chat_member?: { status?: string; user?: TgUser; invite_link?: any } };
@@ -777,6 +777,11 @@ async function persistMemberJoin(chatId:number,user:TgUser,ts:number){
          last_seen_at=NOW(),
          updated_at=NOW(),
          join_count=bot_member_profiles.join_count+1`,
+      [chatId,user.id,user.username??null,user.first_name??null,user.last_name??null,ts],
+    );
+    await studioPool.query(
+      `INSERT INTO bot_member_join_events(group_id,user_id,username,first_name,last_name,joined_at)
+       VALUES($1,$2,$3,$4,$5,TO_TIMESTAMP($6/1000.0))`,
       [chatId,user.id,user.username??null,user.first_name??null,user.last_name??null,ts],
     );
   }catch(error){
@@ -870,8 +875,10 @@ async function processMessage(msg: TgMessage, edited = false) {
   }
   const lang = await getGroupLanguage(studioPool, chat.id, config.defaultLang);
 
-  await recordMessage(chat.id, msg.from.id, msg.message_id);
-  try { await trackMessageAndActivity(studioPool, msg); } catch (error) { console.error("[message-tools] persistent message tracking failed", error); }
+  if (!msg.from.is_bot) {
+    await recordMessage(chat.id, msg.from.id, msg.message_id);
+    try { await trackMessageAndActivity(studioPool, msg); } catch (error) { console.error("[message-tools] persistent message tracking failed", error); }
+  }
   try { await trackCleanupMessage(studioPool, msg); } catch (error) { console.error("[cleanup] message tracking failed", error); }
 
   let membersCount = 0;
@@ -887,38 +894,58 @@ async function processMessage(msg: TgMessage, edited = false) {
   const getUserMessageStats = async (chatId:number,userId:number) => {
     try {
       const result = await studioPool!.query<any>(
-        `WITH bounds AS (
-           SELECT
-             date_trunc('day', NOW() AT TIME ZONE 'Asia/Tehran') AS today_start,
-             date_trunc('day', NOW() AT TIME ZONE 'Asia/Tehran')
-               - (((EXTRACT(DOW FROM (NOW() AT TIME ZONE 'Asia/Tehran'))::int + 1) % 7) * INTERVAL '1 day') AS week_start
-         )
-         SELECT
+        `SELECT
            COUNT(*) FILTER (
-             WHERE (r.created_at AT TIME ZONE 'Asia/Tehran') >= b.today_start
+             WHERE (created_at AT TIME ZONE 'Asia/Tehran')::date =
+                   (NOW() AT TIME ZONE 'Asia/Tehran')::date
            )::int AS today,
-           COUNT(*) FILTER (
-             WHERE (r.created_at AT TIME ZONE 'Asia/Tehran') >= b.week_start
-           )::int AS week,
            COUNT(*)::int AS total,
-           COUNT(DISTINCT ((r.created_at AT TIME ZONE 'Asia/Tehran')::date))::int AS active_days,
-           MAX(r.created_at) AS last_activity
-         FROM bot_message_records r
-         CROSS JOIN bounds b
-         WHERE r.chat_id=$1 AND r.user_id=$2`,
+           COUNT(DISTINCT ((created_at AT TIME ZONE 'Asia/Tehran')::date))::int AS active_days,
+           MIN(created_at) AS first_activity,
+           MAX(created_at) AS last_activity
+         FROM bot_message_records
+         WHERE chat_id=$1 AND user_id=$2`,
         [chatId,userId],
       );
       const row=result.rows[0] ?? {};
       const today=Number(row.today ?? 0);
-      const week=Number(row.week ?? 0);
       const total=Number(row.total ?? 0);
-      const activeDays=Math.max(1,Number(row.active_days ?? 0));
-      const average=Math.round(total/activeDays);
+      const firstActivity=row.first_activity ? new Date(row.first_activity).getTime() : undefined;
+      const lastActivity=row.last_activity ? new Date(row.last_activity).getTime() : undefined;
+
+      let elapsedDays=0;
+      if(firstActivity){
+        const dateFormatter=new Intl.DateTimeFormat("en-CA",{year:"numeric",month:"2-digit",day:"2-digit",timeZone:"Asia/Tehran"});
+        const firstDay=dateFormatter.format(new Date(firstActivity));
+        const currentDay=dateFormatter.format(new Date());
+        const firstUtc=Date.parse(firstDay+"T00:00:00Z");
+        const currentUtc=Date.parse(currentDay+"T00:00:00Z");
+        elapsedDays=Math.max(1,Math.floor((currentUtc-firstUtc)/86400000)+1);
+      }
+      const average=total>0 ? Math.round((total/Math.max(1,elapsedDays))*10)/10 : 0;
+
+      if(total<=0){
+        return { today, total, average, rank:0, lastActivity };
+      }
+
       const rankResult = await studioPool!.query<{rank:number}>(
-        'WITH counts AS (SELECT user_id, COUNT(*)::int AS message_count FROM bot_message_records WHERE chat_id=$1 GROUP BY user_id) SELECT (COUNT(*) FILTER (WHERE message_count > $2) + 1)::int AS rank FROM counts',
+        `WITH counts AS (
+           SELECT user_id, COUNT(*)::int AS message_count
+           FROM bot_message_records
+           WHERE chat_id=$1
+           GROUP BY user_id
+         )
+         SELECT (COUNT(*) FILTER (WHERE message_count > $2) + 1)::int AS rank
+         FROM counts`,
         [chatId,total],
       );
-      return { today, week, total, average, rank:Number(rankResult.rows[0]?.rank ?? 1), lastActivity: row.last_activity ? new Date(row.last_activity).getTime() : undefined };
+      return {
+        today,
+        total,
+        average,
+        rank:Number(rankResult.rows[0]?.rank ?? 1),
+        lastActivity,
+      };
     } catch (error) {
       console.error('[message-stats] persistent stats query failed:', error);
       return undefined;
