@@ -1144,6 +1144,7 @@ function moreButtons(targetUserId?: number) {
     [["‹ آمار ادمین","sx:scope:admins"],["‹ آمار اعضا","sx:scope:members"]],
     [["‹ آمار کاربر","sx:scope:user"+(targetUserId ? id : "")],["‹ آمار کلی","sx:scope:group"]],
     [["‹ مقایسه بازه‌ها","sx:compare:group"],["‹ گزارش آماری","sx:report:group"]],
+    [["‹ رشد گروه","sx:growth:group"],["‹ شاخص وضعیت","sx:status:group"]],
     [["‹ بازگشت","sx:home"]],
   ];
 }
@@ -1463,28 +1464,106 @@ async function renderUserQuick(pool: Pool, chatId: number, messageId: number, us
   ]);
 }
 
-async function renderRanking(pool: Pool, chatId: number, messageId: number, scope: StatsScope, period: StatsPeriod, targetUserId?: number) {
-  if (scope === "admins") {
-    const admins=await auditAdminDirectory(pool,chatId);
-    const text=[
-      renderHeader("رتبه‌بندی مدیران · "+periodLabel(period)),
-      "★ - رتبه‌بندی اقدامات مدیریتی",
-      "",
-      ...(admins.length?admins.map((u:any,i:number)=>rankNumber(i+1)+" · "+userTag(u.userId,u.username,u.firstName)+" · "+u.actions+" اقدام"):["■ داده‌ای ثبت نشده است."]),
-    ].join("\n");
-    return editPanel(chatId,messageId,text,[[
-      ["‹ بازگشت","sx:period:admins:"+period],
-    ]]);
+async function advancedRanking(pool:Pool,chatId:number,period:StatsPeriod,dimension:"messages"|"media"|"links"|"replies"|"growth"){
+  let condition="TRUE";
+  if(period==="today") condition=rawDayExpression("m")+"=(NOW() AT TIME ZONE '"+TZ+"')::date";
+  else if(period==="7d") condition=rawDayExpression("m")+">=((NOW() AT TIME ZONE '"+TZ+"')::date-INTERVAL '6 days')::date";
+  else if(period==="30d") condition=rawDayExpression("m")+">=((NOW() AT TIME ZONE '"+TZ+"')::date-INTERVAL '29 days')::date";
+  else if(period==="month") condition=rawDayExpression("m")+">=date_trunc('month',NOW() AT TIME ZONE '"+TZ+"')::date";
+  else if(period==="prevmonth") condition=rawDayExpression("m")+">=date_trunc('month',NOW() AT TIME ZONE '"+TZ+"')::date-INTERVAL '1 month' AND "+rawDayExpression("m")+"<date_trunc('month',NOW() AT TIME ZONE '"+TZ+"')::date";
+
+  if(dimension!=="growth"){
+    const metric=dimension==="media"
+      ? "COUNT(*) FILTER(WHERE m.kind IN('photo','video','audio','document','animation','sticker','voice','video_note'))"
+      : dimension==="links"
+        ? "COUNT(*) FILTER(WHERE m.has_link)"
+        : dimension==="replies"
+          ? "COUNT(*) FILTER(WHERE m.reply_to_user_id IS NOT NULL)"
+          : "COUNT(*)";
+    const r=await pool.query<any>(
+      "SELECT m.user_id,MAX(m.username) username,MAX(m.first_name) first_name,"+metric+"::int n "+
+      "FROM bot_message_records m WHERE m.chat_id=$1 AND m.user_id IS NOT NULL AND "+condition+
+      " GROUP BY m.user_id HAVING "+metric+">0 ORDER BY n DESC,m.user_id LIMIT 10",
+      [chatId],
+    );
+    return r.rows.map((x:any)=>({userId:number(x.user_id),username:x.username,firstName:x.first_name,count:number(x.n)}));
   }
-  const top=await topUsers(pool,chatId,"messages",period,10);
-  const text=[
-    renderHeader("رتبه‌بندی فعالیت · "+periodLabel(period)),
-    "★ - برترین کاربران",
-    "",
-    ...(top.length?top.map((u:any,i:number)=>rankNumber(i+1)+" · "+userTag(u.userId,u.username,u.firstName)+" · "+u.count+" پیام"):["■ داده‌ای ثبت نشده است."]),
-  ].join("\n");
-  return editPanel(chatId,messageId,text,[[["‹ بازگشت","sx:period:"+scope+":"+period+(targetUserId?":"+targetUserId:"")]]]);
+
+  const current=await pool.query<any>(
+    "WITH u AS (SELECT m.user_id,MAX(m.username) username,MAX(m.first_name) first_name,"+
+    "COUNT(*) FILTER(WHERE "+rawDayExpression("m")+" >= ((NOW() AT TIME ZONE '"+TZ+"')::date-INTERVAL '6 days')::date)::int current_n,"+
+    "COUNT(*) FILTER(WHERE "+rawDayExpression("m")+" >= ((NOW() AT TIME ZONE '"+TZ+"')::date-INTERVAL '13 days')::date AND "+
+    rawDayExpression("m")+" < ((NOW() AT TIME ZONE '"+TZ+"')::date-INTERVAL '6 days')::date)::int previous_n "+
+    "FROM bot_message_records m WHERE m.chat_id=$1 AND m.user_id IS NOT NULL GROUP BY m.user_id) "+
+    "SELECT user_id,username,first_name,current_n,previous_n,current_n-previous_n delta "+
+    "FROM u WHERE current_n>0 ORDER BY delta DESC,current_n DESC LIMIT 10",
+    [chatId],
+  );
+  return current.rows.map((x:any)=>({userId:number(x.user_id),username:x.username,firstName:x.first_name,count:number(x.current_n),previous:number(x.previous_n),delta:number(x.delta)}));
 }
+
+async function growthStats(pool:Pool,chatId:number){
+  const r=await pool.query<any>(
+    "SELECT "+
+    "(SELECT COUNT(*)::int FROM bot_member_join_events WHERE group_id=$1 AND joined_at>=NOW()-INTERVAL '7 days') joins7,"+
+    "(SELECT COUNT(*)::int FROM bot_member_leave_events WHERE group_id=$1 AND left_at>=NOW()-INTERVAL '7 days') leaves7,"+
+    "(SELECT COUNT(*)::int FROM bot_member_join_events WHERE group_id=$1 AND joined_at>=NOW()-INTERVAL '14 days' AND joined_at<NOW()-INTERVAL '7 days') joinsPrev7,"+
+    "(SELECT COUNT(*)::int FROM bot_member_leave_events WHERE group_id=$1 AND left_at>=NOW()-INTERVAL '14 days' AND left_at<NOW()-INTERVAL '7 days') leavesPrev7",
+    [chatId],
+  );
+  const x=r.rows[0]||{};
+  const net7=number(x.joins7)-number(x.leaves7);
+  const prevNet=number(x.joinsPrev7)-number(x.leavesPrev7);
+  return {joins7:number(x.joins7),leaves7:number(x.leaves7),net7,prevNet,trend:trend(net7,prevNet)};
+}
+
+async function groupStatusIndex(pool:Pool,chatId:number){
+  const d=await groupOverviewData(pool,chatId);
+  const activeRatio=d.memberCount>0?Math.min(1,d.active24h/d.memberCount):0;
+  const messageMomentum=d.messagesWeek>0?Math.min(1,d.messagesToday/(d.messagesWeek/7)):0;
+  const safetyPenalty=Math.min(1,(d.securityViolationsWeek+d.warnings30d)/(Math.max(1,d.messagesWeek))*20);
+  const growthBonus=d.netToday>0?Math.min(.2,d.netToday/Math.max(1,d.memberCount)):0;
+  const raw=Math.round(Math.max(0,Math.min(100,(activeRatio*.4+messageMomentum*.4+growthBonus*.2)*100*(1-safetyPenalty))));
+  return {index:raw,activeRatio,messageMomentum,safetyPenalty};
+}
+
+async function renderRanking(pool: Pool, chatId: number, messageId: number, scope: StatsScope, period: StatsPeriod, targetUserId?: number, dimension:"messages"|"media"|"links"|"replies"|"growth"="messages") {
+  if(scope==="admins"){
+    const admins=await auditAdminDirectory(pool,chatId);
+    const text=[renderHeader("رتبه‌بندی مدیران · "+periodLabel(period)),"★ - رتبه‌بندی اقدامات مدیریتی","",
+      ...(admins.length?admins.map((u:any,i:number)=>rankNumber(i+1)+" · "+userTag(u.userId,u.username,u.firstName)+" · "+u.actions+" اقدام"):["■ داده‌ای ثبت نشده است."])
+    ].join("\n");
+    return editPanel(chatId,messageId,text,[
+      [["‹ اقدامات","sx:ranking:admins:"+period],["‹ بازگشت","sx:period:admins:"+period]],
+    ]);
+  }
+
+  if(scope==="user"&&targetUserId){
+    return renderUserPeriod(pool,chatId,messageId,targetUserId,period);
+  }
+
+  const rows:any[]=await advancedRanking(pool,chatId,period,dimension);
+  const title=dimension==="growth"?"رشد فعالیت":dimension==="media"?"محتوای رسانه‌ای":dimension==="links"?"اشتراک لینک":dimension==="replies"?"تعامل / پاسخ":"پیام";
+  const text=[
+    renderHeader("رتبه‌بندی · "+periodLabel(period)),
+    "★ - معیار : "+title,
+    "",
+    ...(rows.length?rows.map((u:any,i:number)=>{
+      const suffix=dimension==="growth"
+        ? " · "+(u.delta>=0?"↗ ":"↘ ")+Math.abs(number(u.delta))+" نسبت به ۷ روز قبل"
+        : " · "+number(u.count);
+      return rankNumber(i+1)+" · "+userTag(u.userId,u.username,u.firstName)+suffix;
+    }):["■ داده‌ای ثبت نشده است."]),
+  ].join("\n");
+
+  return editPanel(chatId,messageId,text,[
+    [["‹ پیام","sx:ranking:group:"+period],["‹ رسانه","sx:rankdim:group:"+period+":media"]],
+    [["‹ لینک","sx:rankdim:group:"+period+":links"],["‹ پاسخ","sx:rankdim:group:"+period+":replies"]],
+    [["‹ رشد فعالیت","sx:rankdim:group:"+period+":growth"],["‹ بازگشت","sx:period:group:"+period]],
+  ]);
+}
+
+
 
 async function renderHours(pool: Pool, chatId: number, messageId: number, scope: StatsScope, periodOrDay: StatsPeriod|string, targetUserId?: number) {
   const isDay = /^\d{4}-\d{2}-\d{2}$/.test(String(periodOrDay));
@@ -1935,6 +2014,47 @@ export async function handleStatsCallback(pool: Pool, cb: StatsCallback, ownerId
     const period=maybe as StatsPeriod;
     const day=toDateInput(new Date());
     return renderHours(pool,chatId,mid,scope,period,p[4]?Number(p[4]):undefined);
+  }
+
+  if(p[1]==="rankdim"){
+    const scope=p[2] as StatsScope;
+    const period=(p[3]||"7d") as StatsPeriod;
+    const dimension=(p[4]||"messages") as "messages"|"media"|"links"|"replies"|"growth";
+    return renderRanking(pool,chatId,mid,scope,period,undefined,dimension);
+  }
+
+  if(p[1]==="growth"){
+    const g=await growthStats(pool,chatId);
+    const text=[
+      renderHeader("رشد گروه"),
+      statusLine("ورود ۷ روز اخیر","【 "+g.joins7+" 】"),
+      statusLine("خروج ۷ روز اخیر","【 "+g.leaves7+" 】"),
+      statusLine("رشد خالص ۷ روزه","【 "+signed(g.net7)+" 】"),
+      statusLine("رشد خالص ۷ روز قبل","【 "+signed(g.prevNet)+" 】"),
+      statusLine("روند",g.trend),
+      "",
+      "★ - رشد فعالیت کاربران",
+      ...(await advancedRanking(pool,chatId,"7d","growth")).slice(0,5).map((u:any,i:number)=>rankNumber(i+1)+" · "+userTag(u.userId,u.username,u.firstName)+" · "+(u.delta>=0?"↗ ":"↘ ")+Math.abs(number(u.delta))),
+    ].join("\n");
+    return editPanel(chatId,mid,text,[[
+      ["‹ رتبه‌بندی رشد","sx:rankdim:group:7d:growth"],["‹ بازگشت","sx:more"]
+    ]]);
+  }
+
+  if(p[1]==="status"){
+    const st=await groupStatusIndex(pool,chatId);
+    const state=st.index>=70?"● پویا":st.index>=40?"○ عادی":"■ کم‌تحرک";
+    const text=[
+      renderHeader("شاخص وضعیت گروه"),
+      statusLine("شاخص وضعیت","【 "+st.index+" / 100 】"),
+      statusLine("سطح فعالیت اعضا","【 "+Math.round(st.activeRatio*100)+"% 】"),
+      statusLine("شتاب پیام","【 "+Math.round(st.messageMomentum*100)+"% 】"),
+      statusLine("اثر رویدادهای امنیتی","【 "+Math.round(st.safetyPenalty*100)+"% 】"),
+      statusLine("وضعیت",state),
+      "",
+      "⛂ - این شاخص یک خلاصه تحلیلی داخلی از فعالیت، شتاب پیام و رویدادهای امنیتی است.",
+    ].join("\n");
+    return editPanel(chatId,mid,text,[[["‹ رشد گروه","sx:growth:group"],["‹ بازگشت","sx:more"]]]);
   }
 
   if(p[1]==="content"){
