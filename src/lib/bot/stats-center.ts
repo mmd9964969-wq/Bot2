@@ -1078,60 +1078,28 @@ async function returningData(pool: Pool, chatId: number) {
 async function adminStats(pool: Pool, chatId: number, period: StatsPeriod) {
   const condition = period === "all"
     ? "TRUE"
-    : `created_at>=${period === "today"
-      ? "CURRENT_DATE"
+    : period === "today"
+      ? "created_at>=CURRENT_DATE"
       : period === "7d"
-        ? "NOW()-INTERVAL '6 days'"
+        ? "created_at>=NOW()-INTERVAL '6 days'"
         : period === "30d"
-          ? "NOW()-INTERVAL '29 days'"
+          ? "created_at>=NOW()-INTERVAL '29 days'"
           : period === "month"
-            ? "date_trunc('month',NOW())"
-            : "date_trunc('month',NOW())-INTERVAL '1 month'"}`;
-  const [
-    actions,
-    warnings,
-    penalties,
-    top,
-    failed,
-  ] = await Promise.all([
-    pool.query<any>(
-      `SELECT COUNT(*)::int n FROM moderation_actions WHERE group_id=$1 AND ${condition}`,
-      [chatId],
-    ).catch(() => ({ rows: [] })),
-    pool.query<any>(
-      `SELECT COUNT(*)::int n FROM warning_events WHERE group_id=$1 AND action_type='warning' AND ${condition}`,
-      [chatId],
-    ).catch(() => ({ rows: [] })),
-    pool.query<any>(
-      `SELECT COUNT(*)::int n FROM warning_penalties WHERE group_id=$1 AND ${condition}`,
-      [chatId],
-    ).catch(() => ({ rows: [] })),
-    pool.query<any>(
-      `SELECT actor_id::text actor_id,COUNT(*)::int n
-       FROM moderation_actions
-       WHERE group_id=$1 AND actor_id IS NOT NULL AND ${condition}
-       GROUP BY actor_id
-       ORDER BY n DESC,actor_id
-       LIMIT 5`,
-      [chatId],
-    ).catch(() => ({ rows: [] })),
-    pool.query<any>(
-      `SELECT COUNT(*)::int n
-       FROM supervision_events
-       WHERE group_id=$1 AND severity IN('error','critical') AND ${condition}`,
-      [chatId],
-    ).catch(() => ({ rows: [] })),
+            ? "created_at>=date_trunc('month',NOW())"
+            : "created_at>=date_trunc('month',NOW())-INTERVAL '1 month' AND created_at<date_trunc('month',NOW())";
+  const [actions,warnings,penalties,top,failed]=await Promise.all([
+    pool.query<any>("SELECT COUNT(*)::int n FROM moderation_actions WHERE group_id=$1 AND "+condition,[chatId]).catch(()=>({rows:[]})),
+    pool.query<any>("SELECT COUNT(*)::int n FROM warning_events WHERE group_id=$1 AND action_type='warning' AND "+condition,[chatId]).catch(()=>({rows:[]})),
+    pool.query<any>("SELECT COUNT(*)::int n FROM warning_penalties WHERE group_id=$1 AND "+condition,[chatId]).catch(()=>({rows:[]})),
+    pool.query<any>("SELECT actor_id::text actor_id,COUNT(*)::int n FROM moderation_actions WHERE group_id=$1 AND actor_id IS NOT NULL AND "+condition+" GROUP BY actor_id ORDER BY n DESC,actor_id LIMIT 5",[chatId]).catch(()=>({rows:[]})),
+    pool.query<any>("SELECT COUNT(*)::int n FROM supervision_events WHERE group_id=$1 AND severity IN('error','critical') AND "+condition,[chatId]).catch(()=>({rows:[]})),
   ]);
-
   return {
-    actions: number(actions.rows[0]?.n),
-    warnings: number(warnings.rows[0]?.n),
-    penalties: number(penalties.rows[0]?.n),
-    failed: number(failed.rows[0]?.n),
-    topAdmins: top.rows.map((x: any) => ({
-      userId: number(x.actor_id),
-      count: number(x.n),
-    })),
+    actions:number(actions.rows[0]?.n),
+    warnings:number(warnings.rows[0]?.n),
+    penalties:number(penalties.rows[0]?.n),
+    failed:number(failed.rows[0]?.n),
+    topAdmins:top.rows.map((x:any)=>({userId:number(x.actor_id),count:number(x.n)})),
   };
 }
 
