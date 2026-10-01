@@ -2,6 +2,7 @@ import type { Pool } from "pg";
 import { telegramApi } from "../telegram/api.ts";
 import { bindPanelMessage } from "./panel-session.ts";
 import { glassKeyboard } from "./panel-design.ts";
+import { ensureStatsCenterSchema, recordStatsMessage } from "./stats-center.ts";
 
 type TgUser={id:number;first_name?:string;username?:string;is_bot?:boolean};
 type TgChat={id:number;type:string;title?:string};
@@ -90,6 +91,8 @@ export async function ensureMessageToolsSchema(pool:Pool){
         kind TEXT NOT NULL DEFAULT 'text',
         has_link BOOLEAN NOT NULL DEFAULT FALSE,
         telegram_date BIGINT,
+        reply_to_user_id BIGINT,
+        reply_to_message_id BIGINT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         PRIMARY KEY(chat_id,message_id)
       );
@@ -181,10 +184,10 @@ export async function trackMessageAndActivity(pool:Pool,msg:TgMessage){
     await ensureMessageToolsSchema(pool);
     const raw=String(msg.text||msg.caption||"");
     await pool.query(
-      `INSERT INTO bot_message_records(chat_id,message_id,user_id,username,first_name,kind,has_link,telegram_date)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+      `INSERT INTO bot_message_records(chat_id,message_id,user_id,username,first_name,kind,has_link,telegram_date,reply_to_user_id,reply_to_message_id)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        ON CONFLICT(chat_id,message_id) DO NOTHING`,
-      [msg.chat.id,msg.message_id,msg.from.id,msg.from.username??null,msg.from.first_name??null,messageKind(msg),isLink(raw),msg.date??null],
+      [msg.chat.id,msg.message_id,msg.from.id,msg.from.username??null,msg.from.first_name??null,messageKind(msg),isLink(raw),msg.date??null,msg.reply_to_message?.from?.id??null,msg.reply_to_message?.message_id??null],
     );
     await pool.query(
       `INSERT INTO member_tag_activity(group_id,user_id,username,first_name,last_message_at,last_message_id)
@@ -196,6 +199,8 @@ export async function trackMessageAndActivity(pool:Pool,msg:TgMessage){
          last_message_id=EXCLUDED.last_message_id`,
       [msg.chat.id,msg.from.id,msg.from.username??null,msg.from.first_name??null,msg.message_id],
     );
+    await ensureStatsCenterSchema(pool);
+    await recordStatsMessage(pool,msg);
     await runAutoTagRules(pool,msg);
   }catch(e){console.error("[message-tools] tracking failed",e);}
 }
