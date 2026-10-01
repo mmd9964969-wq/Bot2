@@ -91,7 +91,9 @@ export const Route=createFileRoute("/api/owner/groups")({
           await ensureOwnerGroupSchema(sql);
           const body=await request.json() as Record<string,unknown>;
           const action=String(body.action||"");
-          const ownerId=Number(process.env.OWNER_WEB_TELEGRAM_ID||guard.user?.id||0);
+          const ownerIdRaw=String(process.env.OWNER_WEB_TELEGRAM_ID||"");
+          const ownerIdNumber=Number(ownerIdRaw);
+          const ownerId=Number.isSafeInteger(ownerIdNumber)&&ownerIdNumber>0?ownerIdNumber:0;
           if(action==="sync"){
             return Response.json({ok:true,result:await syncAllOwnerGroups(sql,200)});
           }
