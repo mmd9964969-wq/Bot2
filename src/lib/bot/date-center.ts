@@ -357,22 +357,16 @@ function buildDateRichMessage(text: string): any {
 
   const flushRows = () => {
     if (!rows.length) return;
-    blocks.push({
-      type: "table",
-      is_bordered: true,
-      is_striped: true,
-      is_compact: true,
-      cells: [
-        [
-          { text: lang === "fa" ? "عنوان" : "Field", is_header: true, align: "right", valign: "middle" },
-          { text: lang === "fa" ? "مقدار" : "Value", is_header: true, align: "right", valign: "middle" },
+    for (const row of rows) {
+      blocks.push({
+        type: "paragraph",
+        text: [
+          { type: "bold", text: row.label },
+          " : ",
+          row.value,
         ],
-        ...rows.map(row => [
-          { text: row.label, align: "right", valign: "middle" },
-          { text: row.value, align: "right", valign: "middle" },
-        ]),
-      ],
-    });
+      });
+    }
     rows.length = 0;
   };
 
@@ -388,7 +382,7 @@ function buildDateRichMessage(text: string): any {
       blocks.push({
         type: "heading",
         text: lang === "fa" ? "Pᴇʀsɪᴀɴ ᴮᵒᵗ · مرکز تاریخ" : "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Date Center",
-        size: 3,
+        size: 1,
       });
       continue;
     }
@@ -398,7 +392,7 @@ function buildDateRichMessage(text: string): any {
       blocks.push({
         type: "heading",
         text: raw.slice(4).trim(),
-        size: 2,
+        size: 1,
       });
       continue;
     }
