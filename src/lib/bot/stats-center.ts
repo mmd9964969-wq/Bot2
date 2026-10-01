@@ -2543,6 +2543,136 @@ async function sendUserCommandCard(pool:Pool,chatId:number,userId:number,user?:T
   ]);
 }
 
+async function dailyBroadcastBlocks(pool: Pool, chatId: number, day: string) {
+  const d=await chatDayData(pool,chatId,day);
+  const top=await dailyUsers(pool,chatId,day,10);
+  const content=await chatDayContent(pool,chatId,day);
+  const peak=await hourlyGroup(pool,chatId,day);
+  const peakRow=peak.reduce((best:any,row:any)=>number(row.message_count)>number(best?.message_count)?row:best,null);
+
+  return [
+    richHeading("Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴛᴀᴛs Cᴇɴᴛᴇʀ",1),
+    richHeading("گزارش روزانه گروه",2),
+    richParagraph("گزارش خودکار روز " + faDate(day) + " · ساعت ارسال ۰۰:۰۰"),
+    richTable(["شاخص","مقدار"],[
+      ["کل پیام‌ها",number(d.total)],
+      ["کاربران فعال",number(d.active_users)],
+      ["ورود",number(d.joins)],
+      ["خروج",number(d.leaves)],
+      ["رشد خالص",signed(number(d.joins)-number(d.leaves))],
+      ["رسانه",number(d.media)],
+      ["لینک",number(d.links)],
+      ["پاسخ",number(d.replies)],
+      ["اخطار",number(d.warnings)],
+      ["جریمه",number(d.penalties)],
+      ["تخلف",number(d.violations)],
+      ["ساعت اوج",peakRow?String(number(peakRow.hour)).padStart(2,"0")+":00 · "+number(peakRow.message_count):"ثبت نشده"],
+    ]),
+    richDivider(),
+    richHeading("رتبه‌بندی اصلی",3),
+    top.length
+      ? richTable(["رتبه","کاربر","پیام"],top.map((u:any,i:number)=>[
+          String(i+1).padStart(3,"0"),
+          richInlineUser(u.userId,u.username,u.firstName),
+          number(u.count),
+        ]))
+      : richParagraph("در این روز پیام قابل رتبه‌بندی ثبت نشده است."),
+    richDetails("تفکیک محتوا",[
+      content.length
+        ? richTable(["نوع","تعداد"],content.map(x=>[x.kind,number(x.count)]))
+        : richParagraph("داده‌ای ثبت نشده است."),
+    ]),
+    richFooter("ارسال خودکار روزانه · " + faDateTime(new Date())),
+  ] as RichInputBlock[];
+}
+
+export async function runDailyStatsBroadcast(pool: Pool) {
+  const now=new Date();
+  const parts=new Intl.DateTimeFormat("en-US",{
+    timeZone:TZ,
+    year:"numeric",
+    month:"2-digit",
+    day:"2-digit",
+    hour:"2-digit",
+    minute:"2-digit",
+    hourCycle:"h23",
+  }).formatToParts(now);
+  const hour=Number(parts.find(x=>x.type==="hour")?.value||"-1");
+  const minute=Number(parts.find(x=>x.type==="minute")?.value||"-1");
+  if(hour!==0 || minute!==0) return false;
+
+  const day=toDateInput(now);
+  const previousDay=shiftDateKey(day,-1);
+  const lock=await pool.connect();
+  try{
+    const lockKey="stats-daily-broadcast:" + day;
+    const acquired=await lock.query("SELECT pg_try_advisory_lock(hashtext($1)) AS locked",[lockKey]);
+    if(!acquired.rows[0]?.locked)return false;
+
+    try{
+      const groups=await lock.query<any>(
+        "SELECT id,title FROM bot_groups WHERE is_active=TRUE AND type IN ('group','supergroup') ORDER BY id"
+      );
+      for(const group of groups.rows){
+        const chatId=Number(group.id);
+        if(!Number.isSafeInteger(chatId) || chatId>=0)continue;
+
+        const claimed=await lock.query<any>(
+          "INSERT INTO stats_daily_broadcast_log(group_id,report_day,sent_at) VALUES($1,$2,NULL) ON CONFLICT(group_id,report_day) DO NOTHING RETURNING group_id",
+          [chatId,previousDay],
+        );
+        if(!claimed.rowCount)continue;
+
+        try{
+          const blocks=await dailyBroadcastBlocks(pool,chatId,previousDay);
+          const result=await telegramApi<any>("sendRichMessage",{
+            chat_id:chatId,
+            rich_message:{
+              blocks:[
+                ...blocks,
+                ...richButtons([
+                  [["رتبه‌بندی اصلی","sx:chat:rank:"+previousDay]],
+                  [["۲۴ ساعت","sx:chat:hours:"+previousDay],["آمار تکمیلی","sx:chat:details:"+previousDay]],
+                  [["آمار چت","sx:chat:home"]],
+                ]),
+              ],
+              is_rtl:true,
+            },
+          }).catch(()=>null);
+
+          if(!result?.ok){
+            await telegramApi("sendMessage",{
+              chat_id:chatId,
+              text:"گزارش روزانه گروه\n"+faDate(previousDay)+"\n\nپیام‌ها: "+number((await chatDayData(pool,chatId,previousDay)).total),
+              reply_markup:kb([
+                [["رتبه‌بندی اصلی","sx:chat:rank:"+previousDay]],
+                [["۲۴ ساعت","sx:chat:hours:"+previousDay],["آمار تکمیلی","sx:chat:details:"+previousDay]],
+                [["آمار چت","sx:chat:home"]],
+              ]),
+            }).catch(()=>{});
+          }
+
+          await lock.query(
+            "UPDATE stats_daily_broadcast_log SET sent_at=NOW(),status='sent',last_error=NULL WHERE group_id=$1 AND report_day=$2",
+            [chatId,previousDay],
+          );
+        }catch(error){
+          await lock.query(
+            "UPDATE stats_daily_broadcast_log SET status='failed',last_error=$3 WHERE group_id=$1 AND report_day=$2",
+            [chatId,previousDay,String((error as any)?.message??error).slice(0,500)],
+          ).catch(()=>{});
+          console.error("[stats-daily] broadcast failed:",chatId,error);
+        }
+      }
+    }finally{
+      await lock.query("SELECT pg_advisory_unlock(hashtext($1))",[lockKey]).catch(()=>{});
+    }
+  }finally{
+    lock.release();
+  }
+  return true;
+}
+
 export async function handleStatsTextInput(pool: Pool, msg: StatsMessage) {
   if (!msg.from || msg.chat.type === "private") return false;
   const s=getSession(msg.from.id);
