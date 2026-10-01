@@ -1509,7 +1509,7 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
       [["› ریست اخطارها","og:reset:"+gid+":warnings"],["› ریست پیام‌ها","og:reset:"+gid+":messages"]],
       [["› ریست مدیریت","og:reset:"+gid+":management"]],
       [["› ریست کامل","og:reset:"+gid+":full"]],
-      [["‹ بازگشت","og:view:"+gid"]]
+      [["‹ بازگشت","og:view:"+gid]]
     ]));
   }
 
