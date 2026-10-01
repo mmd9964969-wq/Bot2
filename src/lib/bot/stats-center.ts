@@ -802,108 +802,44 @@ async function topInteractionTargets(pool: Pool, chatId: number, userId: number,
 }
 
 async function userDailySummary(pool: Pool, chatId: number, userId: number, period: StatsPeriod) {
-  const condition = periodCondition(period, "d");
-  const result = await pool.query<any>(
-    `SELECT
-      COALESCE(SUM(d.messages),0)::int messages,
-      COALESCE(SUM(d.links),0)::int links,
-      COALESCE(SUM(d.text_count),0)::int text_count,
-      COALESCE(SUM(d.photo_count),0)::int photo_count,
-      COALESCE(SUM(d.video_count),0)::int video_count,
-      COALESCE(SUM(d.audio_count),0)::int audio_count,
-      COALESCE(SUM(d.document_count),0)::int document_count,
-      COALESCE(SUM(d.animation_count),0)::int animation_count,
-      COALESCE(SUM(d.sticker_count),0)::int sticker_count,
-      COALESCE(SUM(d.voice_count),0)::int voice_count,
-      COALESCE(SUM(d.video_note_count),0)::int video_note_count,
-      COALESCE(SUM(d.other_count),0)::int other_count,
-      COALESCE(SUM(d.reply_sent_count),0)::int replies,
-      COUNT(*)::int active_days
-     FROM stats_user_daily d
-     WHERE d.group_id=$1 AND d.user_id=$2 AND ${condition}`,
-    [chatId, userId],
-  ).catch(() => ({ rows: [] }));
-
-  const aggregate = result.rows[0] || {};
-  if (number(aggregate.messages) > 0 || period !== "all") {
-    if (period !== "all" || number(aggregate.messages) > 0) return aggregate;
-  }
-
-  const raw = await pool.query<any>(
-    `SELECT
-      COUNT(*)::int messages,
-      COUNT(*) FILTER(WHERE (${rawTsExpression("m")} AT TIME ZONE '${TZ}')::date >= ((NOW() AT TIME ZONE '${TZ}')::date - INTERVAL '29 days')::date)::int recent_messages,
-      COUNT(*) FILTER(WHERE POSITION('http' IN LOWER(COALESCE(m.text,'')))>0)::int links,
-      COUNT(*) FILTER(WHERE m.telegram_date IS NOT NULL)::int exact_messages,
-      COUNT(DISTINCT ${rawDayExpression("m")})::int active_days,
-      MAX(${rawTsExpression("m")}) AS last_activity,
-      MIN(${rawTsExpression("m")}) AS first_activity
-     FROM bot_message_records m
-     WHERE m.chat_id=$1 AND m.user_id=$2`,
-    [chatId, userId],
+  let condition="TRUE";
+  if(period==="today") condition=rawDayExpression("m")+"=(NOW() AT TIME ZONE '"+TZ+"')::date";
+  else if(period==="7d") condition=rawDayExpression("m")+">=((NOW() AT TIME ZONE '"+TZ+"')::date-INTERVAL '6 days')::date";
+  else if(period==="30d") condition=rawDayExpression("m")+">=((NOW() AT TIME ZONE '"+TZ+"')::date-INTERVAL '29 days')::date";
+  else if(period==="month") condition=rawDayExpression("m")+">=date_trunc('month',NOW() AT TIME ZONE '"+TZ+"')::date";
+  else if(period==="prevmonth") condition=rawDayExpression("m")+">=date_trunc('month',NOW() AT TIME ZONE '"+TZ+"')::date-INTERVAL '1 month' AND "+rawDayExpression("m")+"<date_trunc('month',NOW() AT TIME ZONE '"+TZ+"')::date";
+  const raw=await pool.query<any>(
+    "SELECT COUNT(*)::int messages,COUNT(*) FILTER(WHERE m.has_link)::int links,"+
+    "COUNT(DISTINCT "+rawDayExpression("m")+")::int active_days,MAX("+rawTsExpression("m")+") last_activity,MIN("+rawTsExpression("m")+") first_activity,"+
+    "COUNT(*) FILTER(WHERE m.reply_to_user_id IS NOT NULL AND m.reply_to_user_id<>m.user_id)::int replies,"+
+    "COUNT(*) FILTER(WHERE m.kind='text')::int text_count,COUNT(*) FILTER(WHERE m.kind='photo')::int photo_count,"+
+    "COUNT(*) FILTER(WHERE m.kind='video')::int video_count,COUNT(*) FILTER(WHERE m.kind='audio')::int audio_count,"+
+    "COUNT(*) FILTER(WHERE m.kind='document')::int document_count,COUNT(*) FILTER(WHERE m.kind='animation')::int animation_count,"+
+    "COUNT(*) FILTER(WHERE m.kind='sticker')::int sticker_count,COUNT(*) FILTER(WHERE m.kind='voice')::int voice_count,"+
+    "COUNT(*) FILTER(WHERE m.kind='video_note')::int video_note_count,"+
+    "COUNT(*) FILTER(WHERE m.kind NOT IN('text','photo','video','audio','document','animation','sticker','voice','video_note'))::int other_count"+
+    " FROM bot_message_records m WHERE m.chat_id=$1 AND m.user_id=$2 AND "+condition,
+    [chatId,userId],
   );
-  const r = raw.rows[0] || {};
-  return {
-    messages: number(r.messages),
-    links: number(r.links),
-    text_count: 0,
-    photo_count: 0,
-    video_count: 0,
-    audio_count: 0,
-    document_count: 0,
-    animation_count: 0,
-    sticker_count: 0,
-    voice_count: 0,
-    video_note_count: 0,
-    other_count: 0,
-    replies: 0,
-    active_days: number(r.active_days),
-    last_activity: r.last_activity,
-    first_activity: r.first_activity,
-  };
+  return raw.rows[0]||{};
 }
 
 async function userRank(pool: Pool, chatId: number, userId: number, period: StatsPeriod) {
-  const condition = periodCondition(period, "d");
-  const result = await pool.query<any>(
-    `WITH ranked AS (
-      SELECT user_id,SUM(messages)::int n
-      FROM stats_user_daily d
-      WHERE d.group_id=$1 AND ${condition}
-      GROUP BY user_id
-    )
-    SELECT
-      COALESCE((SELECT n FROM ranked WHERE user_id=$2),0)::int own,
-      COALESCE(1+(SELECT COUNT(*) FROM ranked r WHERE r.n>(SELECT n FROM ranked WHERE user_id=$2)),0)::int rank,
-      (SELECT COUNT(*) FROM ranked)::int members
-    `,
-    [chatId, userId],
-  ).catch(() => ({ rows: [] }));
-
-  const row = result.rows[0] || {};
-  if (number(row.own) > 0 || period !== "all") {
-    return {
-      rank: number(row.rank),
-      own: number(row.own),
-      population: number(row.members),
-    };
-  }
-
-  const raw = await pool.query<any>(
-    `WITH ranked AS (
-      SELECT user_id,COUNT(*)::int n
-      FROM bot_message_records m
-      WHERE m.chat_id=$1 AND m.user_id IS NOT NULL
-      GROUP BY user_id
-    )
-    SELECT
-      COALESCE((SELECT n FROM ranked WHERE user_id=$2),0)::int own,
-      COALESCE(1+(SELECT COUNT(*) FROM ranked r WHERE r.n>(SELECT n FROM ranked WHERE user_id=$2)),0)::int rank,
-      (SELECT COUNT(*) FROM ranked)::int members`,
-    [chatId, userId],
+  let condition="TRUE";
+  if(period==="today") condition=rawDayExpression("m")+"=(NOW() AT TIME ZONE '"+TZ+"')::date";
+  else if(period==="7d") condition=rawDayExpression("m")+">=((NOW() AT TIME ZONE '"+TZ+"')::date-INTERVAL '6 days')::date";
+  else if(period==="30d") condition=rawDayExpression("m")+">=((NOW() AT TIME ZONE '"+TZ+"')::date-INTERVAL '29 days')::date";
+  else if(period==="month") condition=rawDayExpression("m")+">=date_trunc('month',NOW() AT TIME ZONE '"+TZ+"')::date";
+  else if(period==="prevmonth") condition=rawDayExpression("m")+">=date_trunc('month',NOW() AT TIME ZONE '"+TZ+"')::date-INTERVAL '1 month' AND "+rawDayExpression("m")+"<date_trunc('month',NOW() AT TIME ZONE '"+TZ+"')::date";
+  const r=await pool.query<any>(
+    "WITH ranked AS (SELECT user_id,COUNT(*)::int n FROM bot_message_records m WHERE m.chat_id=$1 AND m.user_id IS NOT NULL AND "+condition+" GROUP BY user_id) "+
+    "SELECT COALESCE((SELECT n FROM ranked WHERE user_id=$2),0)::int own,"+
+    "COALESCE(1+(SELECT COUNT(*) FROM ranked x WHERE x.n>(SELECT n FROM ranked WHERE user_id=$2)),1)::int rank,"+
+    "(SELECT COUNT(*) FROM ranked)::int members",
+    [chatId,userId],
   );
-  const r = raw.rows[0] || {};
-  return { rank: number(r.rank), own: number(r.own), population: number(r.members) };
+  const row=r.rows[0]||{};
+  return {rank:number(row.rank),own:number(row.own),population:number(row.members)};
 }
 
 async function userContentFromRaw(pool: Pool, chatId: number, userId: number, period: StatsPeriod) {
