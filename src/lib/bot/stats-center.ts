@@ -558,7 +558,7 @@ async function groupOverviewData(pool: Pool, chatId: number) {
       `SELECT
          COUNT(*) FILTER(WHERE (joined_at AT TIME ZONE '${TZ}')::date=(NOW() AT TIME ZONE '${TZ}')::date)::int today,
          COUNT(*) FILTER(WHERE joined_at>=NOW()-INTERVAL '7 days')::int week,
-         COUNT(*) FILTER(WHERE joined_at>=NOW()-INTERVAL '30 days')::int month,
+         COUNT(*) FILTER(WHERE joined_at>=NOW()-INTERVAL '30 days')::int AS month_count,
          COUNT(*)::int total
        FROM bot_member_join_events WHERE group_id=$1`,
       [chatId],
@@ -567,7 +567,7 @@ async function groupOverviewData(pool: Pool, chatId: number) {
       `SELECT
          COUNT(*) FILTER(WHERE (left_at AT TIME ZONE '${TZ}')::date=(NOW() AT TIME ZONE '${TZ}')::date)::int today,
          COUNT(*) FILTER(WHERE left_at>=NOW()-INTERVAL '7 days')::int week,
-         COUNT(*) FILTER(WHERE left_at>=NOW()-INTERVAL '30 days')::int month,
+         COUNT(*) FILTER(WHERE left_at>=NOW()-INTERVAL '30 days')::int AS month_count,
          COUNT(*)::int total
        FROM bot_member_leave_events WHERE group_id=$1`,
       [chatId],
@@ -636,11 +636,11 @@ async function groupOverviewData(pool: Pool, chatId: number) {
     active7d: number(u.active_7d),
     joinsToday: number(j.today),
     joinsWeek: number(j.week),
-    joinsMonth: number(j.month),
+    joinsMonth: number(j.month_count),
     joinsTotal: number(j.total),
     leavesToday: number(l.today),
     leavesWeek: number(l.week),
-    leavesMonth: number(l.month),
+    leavesMonth: number(l.month_count),
     leavesTotal: number(l.total),
     netToday,
     busiestHour: p.hour == null ? null : number(p.hour),
@@ -1212,17 +1212,11 @@ async function renderGroupOverview(pool: Pool, chatId: number, messageId?: numbe
 async function renderMore(pool: Pool, chatId: number, messageId: number, targetUserId?: number) {
   const text=[
     renderHeader("مراکز آماری"),
-    "★ - مراکز آماری",
+    "★ - دسترسی به مراکز آماری",
+    "⛂ - هر مرکز با بازه و جزئیات مستقل قابل بررسی است.",
     "",
-    "‹ آمار ادمین",
-    "‹ آمار اعضا",
-    "‹ آمار کاربر",
-    "",
-    "★ - ابزار تحلیل",
-    "",
-    "‹ آمار کلی",
-    "‹ مقایسه بازه‌ها",
-    "‹ گزارش آماری",
+    "★ - تحلیل پیشرفته",
+    "⛂ - رتبه‌بندی · ساعتی · محتوا · مقایسه · گزارش",
   ].join("\n");
   return editPanel(chatId,messageId,text,moreButtons(targetUserId));
 }
@@ -1387,7 +1381,7 @@ async function renderUserPeriod(pool: Pool, chatId: number, messageId: number, u
   const text=[
     renderHeader("آمار کاربر"),
     "★ - کاربر",
-    userTag(userId,u.username,u.first_name),
+    statusLine("کاربر",userTag(userId,u.username,u.first_name)),
     "",
     statusLine("بازه",periodLabel(period)),
     statusLine("تعداد پیام","【 "+number(summary.messages)+" 】"),
@@ -1440,7 +1434,7 @@ async function renderUserQuick(pool: Pool, chatId: number, messageId: number, us
   const rank=await userRank(pool,chatId,userId,"all");
   const text=[
     renderHeader("آمار فعالیت کاربر"),
-    userTag(userId,u.username,u.first_name),
+    statusLine("کاربر",userTag(userId,u.username,u.first_name)),
     "",
     "★ - امروز",
     statusLine("تعداد پیام","【 "+number(today.messages)+" 】"),
@@ -1826,7 +1820,7 @@ async function sendUserCommandCard(pool:Pool,chatId:number,userId:number,user?:T
   const rank=await userRank(pool,chatId,userId,"all");
   const text=[
     renderHeader("آمار فعالیت کاربر"),
-    userTag(userId,resolved.username||row.username,resolved.first_name||row.first_name),
+    statusLine("کاربر",userTag(userId,resolved.username||row.username,resolved.first_name||row.first_name)),
     "",
     statusLine("امروز","【 "+number(today.messages)+" پیام 】"),
     statusLine("کل پیام‌ها","【 "+number(data.messages)+" 】"),
@@ -1838,13 +1832,8 @@ async function sendUserCommandCard(pool:Pool,chatId:number,userId:number,user?:T
     "",
     "─────━━───── ◈ ─────━━─────",
     "",
-    "★ - قابلیت‌های Stats Center",
-    "⛂ - رتبه‌بندی چندبعدی",
-    "⛂ - آمار ساعتی",
-    "⛂ - تحلیل محتوا",
-    "⛂ - شبکه تعامل / فرند",
-    "⛂ - مقایسه عملکرد",
-    "⛂ - گزارش آماری",
+    "★ - دسترسی سریع",
+    "⛂ - جزئیات این کاربر از مسیر گزینه‌های پایین در دسترس است.",
   ].join("\n");
   return sendPanel(chatId,text,[
     [["‹ اطلاعات بیشتر","sx:scope:user:"+userId]],
@@ -1953,12 +1942,12 @@ export async function handleStatsCallback(pool: Pool, cb: StatsCallback, ownerId
   if(data==="sx:scope:members")return renderMemberPeriod(pool,chatId,mid,"today");
   if(data==="sx:scope:group")return renderGroupPeriod(pool,chatId,mid,"today");
   if(data==="sx:scope:user"){
-    return renderUserPeriod(pool,chatId,mid,"user","today",Number(cb.from.id));
+    return renderUserPeriod(pool,chatId,mid,Number(cb.from.id),"today");
   }
   if(data.startsWith("sx:scope:user:")){
     const userId=Number(data.split(":")[3]);
     if(!Number.isSafeInteger(userId)||userId<=0)return true;
-    return renderUserPeriod(pool,chatId,mid,"user","today",userId);
+    return renderUserPeriod(pool,chatId,mid,userId,"today");
   }
 
   const p=data.split(":");
