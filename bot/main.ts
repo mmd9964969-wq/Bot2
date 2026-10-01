@@ -29,6 +29,108 @@ import { ensureOwnerGroupSchema, upsertOwnerGroupFromChat, touchOwnerGroupActivi
 import { ensureDateSchema, handleDateTextInput, handleDateCallback, openDateCenterFromCommand, runDateReminders } from "../src/lib/bot/date-center.ts";
 import { decodeRichDocument, prepareRichDocument, richDocumentToPlainText, renderStudioTemplate, validateRichDocument } from "../src/lib/bot/rich-message.ts";
 
+function buildIdRichMessage(liveCard:string,lang:"fa"|"en",photoFileId?:string){
+  const cleanLines=String(liveCard??"")
+    .split("\n")
+    .map((line)=>line.trim())
+    .filter((line)=>line && !line.includes("─────━━─────"));
+
+  const fieldLines=cleanLines
+    .filter((line)=>line.startsWith("⛂ - "))
+    .map((line)=>{
+      const raw=line.slice("⛂ - ".length);
+      const cut=raw.indexOf(" : ");
+      return cut>=0
+        ? {label:raw.slice(0,cut),value:raw.slice(cut+3)}
+        : {label:raw,value:"—"};
+    });
+
+  const identity=fieldLines.slice(0,7);
+  const activity=fieldLines.slice(7,12);
+  const moderation=fieldLines.slice(12,16);
+
+  const table=(title:string,rows:any[])=>({
+    type:"table",
+    caption:title,
+    is_bordered:true,
+    is_striped:true,
+    is_compact:true,
+    cells:[
+      [
+        {text:lang==="fa"?"عنوان":"Field",is_header:true,align:"right",valign:"middle"},
+        {text:lang==="fa"?"مقدار":"Value",is_header:true,align:"right",valign:"middle"},
+      ],
+      ...rows.map((row:any)=>[
+        {text:row.label,align:"right",valign:"middle"},
+        {text:row.value,align:"right",valign:"middle"},
+      ]),
+    ],
+  });
+
+  const blocks:any[]=[];
+  if(photoFileId){
+    blocks.push({
+      type:"photo",
+      photo:{type:"photo",media:photoFileId},
+    });
+  }
+
+  blocks.push(
+    {type:"heading",text:lang==="fa"?"اطلاعات کاربر":"User Information",size:1},
+    {
+      type:"paragraph",
+      text:lang==="fa"
+        ? "پروفایل و وضعیت این عضو با قالب‌بندی Rich Message"
+        : "Profile and member status in Rich Message format",
+    },
+    {type:"divider"},
+    {
+      type:"paragraph",
+      text:lang==="fa"
+        ? [{type:"bold",text:"شناسه عددی"}," : ",{type:"code",text:fieldLines[1]?.value??"—"}]
+        : [{type:"bold",text:"Numeric ID"}," : ",{type:"code",text:fieldLines[1]?.value??"—"}],
+    },
+    table(lang==="fa"?"مشخصات حساب":"Account Details",identity),
+    {type:"divider"},
+    table(lang==="fa"?"فعالیت در گروه":"Group Activity",activity),
+    {type:"divider"},
+    {
+      type:"heading",
+      text:lang==="fa"?"وضعیت مدیریتی":"Moderation Status",
+      size:3,
+    },
+    {
+      type:"list",
+      items:moderation.map((row:any)=>({
+        blocks:[{type:"paragraph",text:[
+          {type:"bold",text:row.label},
+          " : ",
+          row.value,
+        ]}],
+      })),
+    },
+    {type:"divider"},
+    {
+      type:"details",
+      summary:lang==="fa"?"جزئیات":"Details",
+      is_open:false,
+      blocks:[{
+        type:"list",
+        items:[
+          {blocks:[{type:"paragraph",text:lang==="fa"?"اطلاعات بدون نمادهای اضافی و با ساختار قابل توسعه نمایش داده می‌شود.":"The information is rendered in a structured, extensible format."}]},
+          {blocks:[{type:"paragraph",text:lang==="fa"?"این کارت برای اضافه‌کردن بخش‌های بیشتر مانند تگ، رسانه و آمار تکمیلی آماده است.":"This card is ready for additional sections such as tags, media and extended statistics."}]},
+        ],
+      }],
+    },
+    {
+      type:"footer",
+      text:lang==="fa"?"Pᴇʀsɪᴀɴ ᴮᵒᵗ · User Profile":"Pᴇʀsɪᴀɴ ᴮᵒᵗ · User Profile",
+    },
+  );
+
+  return {version:1,is_rtl:lang==="fa",blocks:prepareRichDocument({version:1,is_rtl:lang==="fa",blocks}).blocks};
+}
+
 const TOKEN = process.env.BOT_TOKEN ?? "";
 if (!TOKEN) { console.error("BOT_TOKEN is missing"); process.exit(1); }
 if (process.env.LEGACY_DISABLED === "true") { console.log("[legacy] Telegram Bot service disabled; Bot Core owns the runtime"); await new Promise(() => {}); }
@@ -609,18 +711,28 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
           : ctx.userRank;
         const targetCtx:any={...ctx,userId:targetId,userName:displayName(targetUser),userUsername:targetUser.username,userRank:targetRank,replyToUserId:undefined,replyToName:undefined};
         const liveCard=await runLiveCommand({...targetCtx,messageId:0},"id",[]);
+
+        let photo:string|undefined;
         const photos=await telegramApi<any>("getUserProfilePhotos",{user_id:targetId,offset:0,max:1});
         if(photos.ok&&Number(photos.result?.total_count||0)>0){
           const sizes=photos.result?.photos?.[0];
-          const photo=sizes?.[sizes.length-1]?.file_id;
-          if(photo){
-            await telegramApi("sendPhoto",{chat_id:ctx.chatId,photo,caption:liveCard,reply_to_message_id:ctx.replyToUserId?undefined:undefined});
-            await logCommandAccess(ctx,"id","command_executed","allowed",auth.role);
-            return null;
-          }
+          photo=sizes?.[sizes.length-1]?.file_id;
         }
-        await telegramApi("sendMessage",{chat_id:ctx.chatId,text:liveCard,reply_to_message_id:undefined});
-        await logCommandAccess(ctx,"id","command_executed","allowed",auth.role);
+
+        const rich_message=buildIdRichMessage(liveCard,ctx.lang,photo);
+        const rich=await telegramApi("sendRichMessage",{chat_id:ctx.chatId,rich_message});
+        if(rich.ok){
+          await logCommandAccess(ctx,"id","command_executed","allowed",auth.role);
+          return null;
+        }
+
+        console.warn("[id-command] Rich Message failed; falling back to legacy output:",rich.description);
+        if(photo){
+          await telegramApi("sendPhoto",{chat_id:ctx.chatId,photo,caption:liveCard,reply_to_message_id:ctx.replyToMessageId});
+        }else{
+          await telegramApi("sendMessage",{chat_id:ctx.chatId,text:liveCard,reply_to_message_id:ctx.replyToMessageId});
+        }
+        await logCommandAccess(ctx,"id","command_executed","allowed_rich_fallback",auth.role);
         return null;
       }
       const liveCard=(["lock","unlock","lockall","unlockall"].includes(studioCommand.id) && studioPool)
