@@ -27,7 +27,7 @@ function block(type: string): RichBlock {
   if (type === "video") return { type: "video", video: { type: "video", media: "" }, caption: "" };
   if (type === "document") return { type: "document", document: { type: "document", media: "" }, caption: "" };
   if (type === "audio") return { type: "audio", audio: { type: "audio", media: "" }, caption: "" };
-  if (type === "buttons") return { type: "buttons", align: "center", buttons: [{ text: "دکمه", callback_data: "sx:home", style: "primary" }] };
+  if (type === "buttons") return { type: "buttons", align: "center", buttons: [{ text: "بازگشت", callback_data: "c:home", style: "primary" }] };
   if (type === "math") return { type: "mathematical_expression", expression: "x^2 + y^2 = r^2" };
   if (type === "anchor") return { type: "anchor", name: "section" };
   if (type === "map") return { type: "map", location: { latitude: 35.6892, longitude: 51.3890 }, zoom: 10, caption: "موقعیت" };
@@ -161,7 +161,7 @@ export function RichEditor({
     const next = clone(doc);
     const buttons = [...(next.blocks[index].buttons || [])];
     if (buttons.length >= 8) return;
-    buttons.push({ text: "دکمه جدید", callback_data: "sx:home", style: "link" });
+    buttons.push({ text: "دکمه جدید", callback_data: "c:home", style: "link" });
     next.blocks[index].buttons = buttons;
     emit(next);
   }
@@ -211,7 +211,7 @@ export function RichEditor({
           value={encodeRichDocument(doc)}
           onChange={(e) => {
             const parsed = decodeRichDocument(e.target.value);
-            if (parsed) setDoc(parsed);
+            if (parsed) emit(parsed);
           }}
           className="min-h-72 w-full rounded-xl bg-bg p-3 font-mono text-[11px] leading-5 ring-1 ring-line outline-none focus:ring-accent/40"
         />
