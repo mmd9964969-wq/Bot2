@@ -9,7 +9,6 @@ import { glassKeyboard, styledGlassButton } from "../src/lib/bot/panel-design.ts
 import { getGroupLanguage, setGroupLanguage, ensureGroupLanguageSchema, normalizeBotLang, languageNative, languageButtonLabel, SUPPORTED_LANGUAGES, type BotLang } from "../src/lib/bot/i18n.ts";
 import { prepareRichDocument, validateRichDocument } from "../src/lib/bot/rich-message.ts";
 import { ensureOwnerSudoSchema, ownerSudoCallback, handleOwnerSudoTextInput, sendOwnerSudoCenter } from "../src/lib/bot/owner-sudo.ts";
-import { ensureOwnerSudoSchema, ownerSudoCallback, handleOwnerSudoTextInput } from "../src/lib/bot/owner-sudo.ts";
 import { AUTOMATION_ACTIONS } from "../src/lib/bot/automation-engine.ts";
 import { getGroupStats } from "../src/lib/bot/runtime.ts";
 import { ensureOwnerGroupSchema, listOwnerGroups, ownerGroupOverview, getOwnerGroup, getOwnerGroupLogs, setOwnerGroupEnabled, leaveOwnerGroup, resetOwnerGroup, sendMessageToOwnerGroup, syncAllOwnerGroups } from "../src/lib/bot/owner-groups.ts";
