@@ -35,6 +35,15 @@ type PanelContext={pool:Pool;msg:TgMessage;userRank:Rank;isPrivate:boolean;owner
 
 const BUILTIN_OWNER_IDS=["8247710529"];
 const sessions=new Map<number,{flow:string;data:Record<string,any>;expires:number}>();
+const ownerGroupAuth=new Map<number,number>();
+const OWNER_GROUP_AUTH_TTL=30*60*1000;
+function ownerGroupAuthenticated(userId:number){
+  const expires=ownerGroupAuth.get(userId)??0;
+  if(expires<=Date.now()){ownerGroupAuth.delete(userId);return false;}
+  return true;
+}
+function authenticateOwnerGroup(userId:number){ownerGroupAuth.set(userId,Date.now()+OWNER_GROUP_AUTH_TTL);}
+function revokeOwnerGroupAuth(userId:number){ownerGroupAuth.delete(userId);}
 const throttles=new Map<number,number>();
 function allowed(userId:number):boolean{
   const now=Date.now();
@@ -1238,6 +1247,22 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     return edit(msg.chat.id,msg.message_id,panelTitle("زبان گروه","⛂ - شناسه گروه : "+gid+"\n⛂ - زبان جدید : "+languageNative(lang)+"\n⛂ - وضعیت : فعال"),menu([[["زبان گروه","og:lang:"+gid],["‹ بازگشت","o:languages"]]]));
   }
   if(data==="o:groups"){
+    if(!ownerGroupAuthenticated(uid)){
+      return edit(msg.chat.id,msg.message_id,panelTitle("احراز هویت مدیریت گروه‌ها",[
+        "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Oᴡɴᴇʀ Gʀᴏᴜᴘ Aᴄᴄᴇss",
+        "",
+        "⛂ - هویت تلگرام : "+uid,
+        "⛂ - وضعیت مالک : ✓ تأییدشده",
+        "",
+        PANEL_SEPARATOR,
+        "",
+        "برای ورود به مرکز مدیریت گروه‌ها، احراز هویت این مرکز را تأیید کنید.",
+        "دسترسی پس از تأیید برای ۳۰ دقیقه فعال می‌ماند."
+      ].join("\n")),menu([
+        [["› احراز هویت و ورود","og:auth"]],
+        [["‹ بازگشت به پنل مالک","o:home"]]
+      ]));
+    }
     await ensureOwnerGroupSchema(pool);
     const overview=await ownerGroupOverview(pool);
     const body=[
@@ -1268,7 +1293,49 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     ]));
   }
 
-  if(data.startsWith("og:list:")){
+  if(data==="og:auth"){
+    authenticateOwnerGroup(uid);
+    await audit(pool,String(uid),"owner_group_authenticated","owner-group-center",{ttlMs:OWNER_GROUP_AUTH_TTL});
+    await ensureOwnerGroupSchema(pool);
+    const overview=await ownerGroupOverview(pool);
+    return edit(msg.chat.id,msg.message_id,panelTitle("مدیریت گروه‌ها",[
+      "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Gʀᴏᴜᴘ Cᴇɴᴛᴇʀ",
+      "",
+      "⛂ - احراز هویت : ✓ فعال",
+      "⛂ - اعتبار جلسه : ۳۰ دقیقه",
+      "⛂ - گروه‌های ثبت‌شده : "+Number(overview.total||0),
+      "",
+      PANEL_SEPARATOR,
+      "",
+      "مرکز کامل کنترل و مدیریت گروه‌های ربات."
+    ].join("\n")),menu([
+      [["› لیست تمام گروه‌ها","og:list:1"]],
+      [["› جستجوی گروه","o:group_search"]],
+      [["› گروه‌های فعال","og:list:1:ACTIVE"],["› گروه‌های غیرفعال","og:list:1:DISABLED"]],
+      [["› گروه‌های پرمصرف","og:heavy"],["› گروه‌های دارای خطا","og:list:1:ERROR"]],
+      [["› عملیات گروهی","og:bulk:1"],["› آمار کلی گروه‌ها","og:stats"]],
+      [["› همگام‌سازی","og:sync"]],
+      [["› خروج از احراز هویت","og:auth:logout"]],
+      [["‹ بازگشت به پنل مالک","o:home"]]
+    ]));
+  }
+  if(data==="og:auth:logout"){
+    revokeOwnerGroupAuth(uid);
+    clearSession(uid);
+    await audit(pool,String(uid),"owner_group_auth_revoked","owner-group-center");
+    return edit(msg.chat.id,msg.message_id,panelTitle("خروج از مدیریت گروه‌ها","⛂ - وضعیت : احراز هویت این مرکز بسته شد.\n⛂ - برای ورود دوباره، احراز هویت مالک را تأیید کنید."),menu([
+      [["› ورود دوباره","o:groups"]],
+      [["‹ بازگشت","o:home"]]
+    ]));
+  }
+  if(data.startsWith("og:") && !ownerGroupAuthenticated(uid)){
+    return edit(msg.chat.id,msg.message_id,panelTitle("احراز هویت لازم است","⛂ - وضعیت : جلسه احراز هویت مرکز مدیریت گروه‌ها منقضی شده است."),menu([
+      [["› احراز هویت و ورود","og:auth"]],
+      [["‹ بازگشت به پنل مالک","o:home"]]
+    ]));
+  }
+
+  if(data.startsWith("og:list:"){
     const parts=data.split(":");const page=Math.max(1,Number(parts[2]||1));const filter=parts[3]||undefined;
     if(!Number.isInteger(page))return;
     const result=await listOwnerGroups(pool,{status:filter,limit:8,offset:(page-1)*8});
@@ -1461,7 +1528,31 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
 
   if(data.startsWith("og:settings:")){
     const gid=Number(data.slice(11));if(!Number.isSafeInteger(gid))return;
-    return edit(msg.chat.id,msg.message_id,panelTitle("تنظیمات گروه","⛂ - شناسه گروه : "+gid+"\n\nاین بخش برای تنظیمات اختصاصی گروه در ماژول‌های موجود آماده است."),menu([[["مرکز تنظیمات","c:status"],["‹ بازگشت","og:view:"+gid]]]));
+    const x=await getOwnerGroup(pool,gid,true).catch(()=>getOwnerGroup(pool,gid,false));
+    if(!x)return edit(msg.chat.id,msg.message_id,"✗ گروه پیدا نشد.",menu([[["‹ بازگشت","o:groups"]]]));
+    session(uid,"customer",{chatId:gid,ownerGroupContext:true,ownerGroupReturn:"og:view:"+gid});
+    return edit(msg.chat.id,msg.message_id,panelTitle("مدیریت کامل گروه",[
+      "◈ "+valueOrDash(x.title),
+      "",
+      "⛂ - شناسه گروه : "+gid,
+      "⛂ - وضعیت ربات : "+(x.bot_status==="ACTIVE"?"● فعال":x.bot_status==="DISABLED"?"○ غیرفعال":"✗ "+x.bot_status),
+      "⛂ - اعضا : "+Number(x.member_count||0),
+      "",
+      PANEL_SEPARATOR,
+      "",
+      "★ - ماژول‌های مدیریتی",
+      "هر ماژول روی همین گروه اجرا می‌شود."
+    ].join("\n")),menu([
+      [["› وضعیت و نمای کلی","c:status"],["› قفل و فیلتر","c:locks"]],
+      [["› امنیت","c:security"],["› اخطار و جریمه","c:warnings"]],
+      [["› مدیریت اعضا","c:members"],["› اتوماسیون","c:automation"]],
+      [["› استودیو دستورات","c:commands"],["› استودیو محتوا","c:content"]],
+      [["› زمان‌بندی","c:schedule"],["› تحلیل و آمار","c:analytics"]],
+      [["› دسترسی‌ها","c:permissions"],["› مرکز مدیران","c:managers"]],
+      [["› استثناها","c:exceptions"],["› ممیزی گروه","c:audit"]],
+      [["› سلامت ربات","c:health"],["› خروج از ماژول‌ها","c:exit"]],
+      [["‹ بازگشت به کنترل گروه","og:view:"+gid]]
+    ]));
   }
 
   if(data.startsWith("og:enable:")){
@@ -1997,7 +2088,38 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     }
   }
 
-  if(data==="c:home")return edit(msg.chat.id,msg.message_id,mainCustomerMessage(),menu(K.customerMain));
+  if(data==="c:home"){
+    if(s?.data?.ownerGroupContext===true){
+      const gid=Number(s.data.chatId);
+      if(Number.isSafeInteger(gid)){
+        const x=await getOwnerGroup(pool,gid,false).catch(()=>null);
+        if(x){
+          return edit(msg.chat.id,msg.message_id,panelTitle("مدیریت کامل گروه",[
+            "◈ "+valueOrDash(x.title),
+            "",
+            "⛂ - شناسه گروه : "+gid,
+            "⛂ - وضعیت ربات : "+(x.bot_status==="ACTIVE"?"● فعال":x.bot_status==="DISABLED"?"○ غیرفعال":"✗ "+x.bot_status),
+            "⛂ - اعضا : "+Number(x.member_count||0),
+            "",
+            PANEL_SEPARATOR,
+            "",
+            "★ - ماژول‌های مدیریتی"
+          ].join("\n")),menu([
+            [["› وضعیت و نمای کلی","c:status"],["› قفل و فیلتر","c:locks"]],
+            [["› امنیت","c:security"],["› اخطار و جریمه","c:warnings"]],
+            [["› مدیریت اعضا","c:members"],["› اتوماسیون","c:automation"]],
+            [["› استودیو دستورات","c:commands"],["› استودیو محتوا","c:content"]],
+            [["› زمان‌بندی","c:schedule"],["› تحلیل و آمار","c:analytics"]],
+            [["› دسترسی‌ها","c:permissions"],["› مرکز مدیران","c:managers"]],
+            [["› استثناها","c:exceptions"],["› ممیزی گروه","c:audit"]],
+            [["› سلامت ربات","c:health"],["› خروج از ماژول‌ها","c:exit"]],
+            [["‹ بازگشت به کنترل گروه","og:view:"+gid]]
+          ]));
+        }
+      }
+    }
+    return edit(msg.chat.id,msg.message_id,mainCustomerMessage(),menu(K.customerMain));
+  }
 
 
   if(data==="c:managers"||data==="c:manager:refresh"){
@@ -3273,7 +3395,7 @@ export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:str
     const data=String(cb.data||"");
     // Route panel callbacks before secondary feature handlers so every main
     // customer/owner navigation callback reaches its dedicated controller.
-    if(data.startsWith("o:")) return ownerCallback(pool,cb,ownerIds);
+    if(data.startsWith("o:") || data.startsWith("og:")) return ownerCallback(pool,cb,ownerIds);
     if(data.startsWith("c:")) return customerCallback(pool,cb,ownerIds);
     if(data.startsWith("link:")) return handleInviteLinkCallback(pool,cb as any);
     if(data.startsWith("cfg:")) return handleGroupConfigCallback(pool,cb as any);
