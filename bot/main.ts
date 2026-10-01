@@ -28,7 +28,7 @@ import { ensureCleanupSchema, trackCleanupMessage, handleCleanupText, handleClea
 import { ensureOwnerGroupSchema, upsertOwnerGroupFromChat, touchOwnerGroupActivity } from "../src/lib/bot/owner-groups.ts";
 import { ensureDateSchema, handleDateTextInput, handleDateCallback, openDateCenterFromCommand, runDateReminders } from "../src/lib/bot/date-center.ts";
 import { decodeRichDocument, prepareRichDocument, richDocumentToPlainText, renderStudioTemplate, validateRichDocument } from "../src/lib/bot/rich-message.ts";
-import { ensureSudoSchema, loadSudoCache, isManagedSudo, getSudo, sudoAllowsCommand } from "../src/lib/bot/sudo-center.ts";
+import { ensureOwnerSudoSchema, loadOwnerSudoCache, isManagedOwnerSudo, getOwnerSudo, ownerSudoAllowsCommand } from "../src/lib/bot/owner-sudo.ts";
 
 function buildIdRichMessage(liveCard:string,lang:"fa"|"en",photoFileId?:string){
   const cleanLines=String(liveCard??"")
@@ -539,8 +539,8 @@ async function hasPanelPermission(ctx:BotContext,role:PanelRole,permission:strin
 async function authorizeStudioCommand(ctx:BotContext,command:typeof studio.commands[number]){
   const role=await resolvePanelRole(ctx);
   if(ctx.userRank==="sudo"){
-    const sudo=await getSudo(studioPool!,ctx.userId).catch(()=>null);
-    if(sudo && !sudoAllowsCommand(sudo.level,command.id)){
+    const sudo=await getOwnerSudo(studioPool!,ctx.userId).catch(()=>null);
+    if(sudo && !ownerSudoAllowsCommand(sudo.level,command.id)){
       await logCommandAccess(ctx,command.id,"permission_denied","sudo_level_restricted",role);
       return {allowed:false,role,reason:"sudo_level_restricted"};
     }
@@ -877,7 +877,7 @@ function splitIds(raw: string | undefined): string[] {
 function rankOf(userId: number, adminIds: Set<number>): Rank {
   const id = String(userId);
   if (config.ownerIds.includes(id)) return "owner";
-  if (isManagedSudo(userId)) return "sudo";
+  if (isManagedOwnerSudo(userId)) return "sudo";
   if (config.sudoIds.includes(id)) return "sudo";
   if (adminIds.has(userId)) return "admin";
   return "member";
@@ -1675,8 +1675,8 @@ async function poll() {
     await ensureStatsCenterSchema(studioPool);
     await ensureOwnerGroupSchema(studioPool);
     await ensureDateSchema(studioPool);
-    await ensureSudoSchema(studioPool);
-    await loadSudoCache(studioPool);
+    await ensureOwnerSudoSchema(studioPool);
+    await loadOwnerSudoCache(studioPool);
   }
   setInterval(() => void refreshStudio(), 5000);
   setInterval(() => { if (studioPool) void tickSchedules(studioPool).catch(error => console.error("[scheduler]", error)); }, 5000);
