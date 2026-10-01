@@ -2640,8 +2640,9 @@ export async function runDailyStatsBroadcast(pool: Pool) {
             },
           }).catch(()=>null);
 
-          if(!result?.ok){
-            await telegramApi("sendMessage",{
+          let sentOk=!!result?.ok;
+          if(!sentOk){
+            const fallback=await telegramApi<any>("sendMessage",{
               chat_id:chatId,
               text:"گزارش روزانه گروه\n"+faDate(previousDay)+"\n\nپیام‌ها: "+number((await chatDayData(pool,chatId,previousDay)).total),
               reply_markup:kb([
@@ -2649,7 +2650,12 @@ export async function runDailyStatsBroadcast(pool: Pool) {
                 [["۲۴ ساعت","sx:chat:hours:"+previousDay],["آمار تکمیلی","sx:chat:details:"+previousDay]],
                 [["آمار چت","sx:chat:home"]],
               ]),
-            }).catch(()=>{});
+            }).catch(()=>null);
+            sentOk=!!fallback?.ok;
+          }
+
+          if(!sentOk){
+            throw new Error("Telegram daily stats send failed");
           }
 
           await lock.query(
