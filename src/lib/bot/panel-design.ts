@@ -3,6 +3,7 @@ export type TelegramButtonStyle = "primary" | "success" | "danger";
 export type DesignedButton = {
   text: string;
   callback_data: string;
+  style?: TelegramButtonStyle;
 };
 
 function rawButtonText(value:string){
@@ -34,14 +35,18 @@ function visualButtonLabel(label:string,style:TelegramButtonStyle|undefined){
 
 export function styledGlassButton(label:string,callbackData:string,style:TelegramButtonStyle):DesignedButton{
   const clean=cleanButtonLabel(label);
-  return {text:style==="primary"?"‹ "+clean:clean,callback_data:callbackData};
+  return {
+    text:style==="primary"?"‹ "+clean:clean,
+    callback_data:callbackData,
+    style,
+  };
 }
 
 export function glassButton(label:string,callbackData:string):DesignedButton{
   const style=semanticStyle(label,callbackData);
-  // Telegram InlineKeyboardButton does not accept a custom "style" field.
-  // Keep styling purely in the visible label so Telegram accepts every keyboard.
-  return {text:visualButtonLabel(label,style),callback_data:callbackData};
+  // Telegram Bot API supports button styles: primary=blue, success=green,
+  // danger=red. Keep the label compact and let Telegram render the color.
+  return {text:visualButtonLabel(label,style),callback_data:callbackData,...(style?{style}: {})};
 }
 
 export function glassKeyboard(rows:string[][][]){
