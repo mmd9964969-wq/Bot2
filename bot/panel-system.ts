@@ -7,6 +7,7 @@ import { ensureContentLocks, editRichLockCenter } from "../src/lib/bot/content-l
 import { SUBSCRIPTION_PLANS, createGroupSubscription, renewGroupSubscription, cancelGroupSubscription, getActiveGroupSubscription, getCurrentGroupSubscription, resolveCustomer, resolveGroup, validateGroup, planLabel, type SubscriptionPlan } from "../src/lib/bot/group-subscriptions.ts";
 import { glassKeyboard, styledGlassButton } from "../src/lib/bot/panel-design.ts";
 import { getGroupLanguage, setGroupLanguage, ensureGroupLanguageSchema, normalizeBotLang, languageNative, languageButtonLabel, SUPPORTED_LANGUAGES, type BotLang } from "../src/lib/bot/i18n.ts";
+import { prepareRichDocument, validateRichDocument } from "../src/lib/bot/rich-message.ts";
 import { AUTOMATION_ACTIONS } from "../src/lib/bot/automation-engine.ts";
 import { getGroupStats } from "../src/lib/bot/runtime.ts";
 import { ensureOwnerGroupSchema, listOwnerGroups, ownerGroupOverview, getOwnerGroup, getOwnerGroupLogs, setOwnerGroupEnabled, leaveOwnerGroup, resetOwnerGroup, sendMessageToOwnerGroup, syncAllOwnerGroups } from "../src/lib/bot/owner-groups.ts";
@@ -27,6 +28,7 @@ import {
   touchPanelMessage,
   panelMessageOwnedBy,
   unbindPanelMessage,
+  setCurrentPanelKind,
 } from "../src/lib/bot/panel-session.ts";
 
 type TgUser={id:number;first_name?:string;username?:string};
@@ -246,6 +248,144 @@ function buildPanelRichMessage(title:string,body:string,lang:BotLang):{blocks:Ri
   return {blocks,is_rtl:lang==="fa"||lang==="ar"};
 }
 
+type RichBlock =
+  | {type:"heading";text:any;size?:number}
+  | {type:"paragraph";text:any}
+  | {type:"divider"}
+  | {type:"table";caption?:any;is_bordered?:boolean;is_striped?:boolean;is_compact?:boolean;cells:any[][]}
+  | {type:"list";items:any[];style?:string}
+  | {type:"details";summary:any;is_open?:boolean;blocks:RichBlock[]}
+  | {type:"footer";text:any};
+
+function ownerPanelTable(lang:BotLang,title:string,rows:Array<{label:string;value:string}>):RichBlock{
+  return {
+    type:"table",
+    caption:lang==="fa"?title:(PANEL_TITLES[title]?.[lang]??title),
+    is_bordered:true,
+    is_striped:true,
+    is_compact:true,
+    cells:[
+      [
+        {text:lang==="fa"?"شاخص":"Field",is_header:true,align:"right",valign:"middle"},
+        {text:lang==="fa"?"مقدار":"Value",is_header:true,align:"right",valign:"middle"},
+      ],
+      ...rows.map(row=>[
+        {text:row.label,align:"right",valign:"middle"},
+        {text:row.value,align:"right",valign:"middle"},
+      ]),
+    ],
+  };
+}
+
+function ownerPanelRichBlocks(title:string,body:string,lang:BotLang):RichBlock[]{
+  const localized=localizePanelBody(String(body??""),lang);
+  const groups=normalizeGroups(localized);
+  const blocks:RichBlock[]=[
+    {
+      type:"heading",
+      text:"◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · "+localizePanelTitle(title,lang),
+      size:1,
+    },
+  ];
+
+  let addedContent=false;
+  for(const group of groups){
+    const lines=group.split("\n").map(x=>x.trim()).filter(Boolean);
+    if(!lines.length)continue;
+
+    // A duplicated title from the legacy body is absorbed into the Rich heading.
+    if(lines[0].startsWith("◈ ")){
+      lines.shift();
+      if(!lines.length)continue;
+    }
+
+    let sectionTitle="";
+    if(lines[0].startsWith("● ")){
+      sectionTitle=lines.shift()!.slice(2).trim();
+    }else if(lines[0].startsWith("★ ")){
+      sectionTitle=lines.shift()!.slice(2).trim();
+    }
+
+    const rows:Array<{label:string;value:string}>=[];
+    const prose:string[]=[];
+    const bullets:string[]=[];
+
+    for(const line of lines){
+      const field=line.match(/^⛂\s*-?\s*([^:]+)\s*:\s*(.*)$/u);
+      if(field){
+        rows.push({
+          label:field[1].trim(),
+          value:field[2].trim()||"—",
+        });
+        continue;
+      }
+      if(line.startsWith("• ")){
+        bullets.push(line.slice(2).trim());
+        continue;
+      }
+      if(line.startsWith("⊘ ")){
+        bullets.push(line);
+        continue;
+      }
+      prose.push(line);
+    }
+
+    if(rows.length){
+      const caption=sectionTitle||title;
+      blocks.push(ownerPanelTable(lang,caption,rows));
+      addedContent=true;
+    }
+
+    if(bullets.length){
+      if(addedContent)blocks.push({type:"paragraph",text:" "});
+      blocks.push({
+        type:"list",
+        items:bullets.map(text=>({blocks:[{type:"paragraph",text}]})),
+      });
+      addedContent=true;
+    }
+
+    if(prose.length){
+      const meaningful=prose.join("\n").trim();
+      if(meaningful){
+        if(addedContent)blocks.push({type:"paragraph",text:" "});
+        blocks.push({type:"paragraph",text:meaningful});
+        addedContent=true;
+      }
+    }
+
+    blocks.push({type:"divider"});
+  }
+
+  while(blocks.length&&blocks[blocks.length-1].type==="divider")blocks.pop();
+
+  if(!addedContent){
+    blocks.push({
+      type:"paragraph",
+      text:lang==="fa"?"این بخش در حال حاضر داده‌ای برای نمایش ندارد.":"This section currently has no data to display.",
+    });
+  }
+
+  blocks.push({
+    type:"footer",
+    text:lang==="fa"?"Pᴇʀsɪᴀɴ ᴮᵒᵗ · Oᴡɴᴇʀ Cᴏɴᴛʀᴏʟ":"Pᴇʀsɪᴀɴ ᴮᵒᵗ · Oᴡɴᴇʀ Cᴏɴᴛʀᴏʟ",
+  });
+
+  return blocks;
+}
+
+function buildOwnerRichMessage(panel:PanelMessage,lang:BotLang){
+  const blocks=ownerPanelRichBlocks(panel.title,panel.body,lang);
+  const prepared=prepareRichDocument({
+    version:1,
+    is_rtl:lang==="fa"||lang==="ar",
+    blocks,
+  });
+  const validation=validateRichDocument(prepared);
+  if(!validation.ok)console.error("[owner-rich] validation failed:",validation.errors);
+  return {blocks:prepared.blocks,is_rtl:prepared.is_rtl};
+}
+
 function normalizePanelDigits(value:string):string {
   return String(value??"").replace(/[۰-۹]/g,ch=>String(ch.charCodeAt(0)-1776)).replace(/[٠-٩]/g,ch=>String(ch.charCodeAt(0)-1632));
 }
@@ -298,12 +438,36 @@ async function send(chatId:number,message:string|PanelMessage,markup:any=null){
   const lang=await panelLanguageForChat(chatId);
   const panel=typeof message==="string"?panelFromString(message):message;
   const keyboard=localizeMarkup(markup,lang);
+  const scope=currentPanelScope();
+
+  if(scope?.kind==="owner"){
+    const rich=buildOwnerRichMessage(panel,lang);
+    const result=await telegramApi("sendRichMessage",{
+      chat_id:chatId,
+      rich_message:{
+        blocks:rich.blocks,
+        is_rtl:rich.is_rtl,
+      },
+      reply_markup:keyboard||undefined,
+    }).catch(error=>{
+      console.error("[owner-rich] sendRichMessage failed:",error);
+      return null;
+    });
+    if(result?.ok&&keyboard?.inline_keyboard){
+      const messageId=Number((result.result as any)?.message_id);
+      if(Number.isSafeInteger(messageId)&&messageId>0){
+        await bindPanelMessage(scope!.pool,chatId,messageId,scope!.userId);
+      }
+    }
+    if(result?.ok)return result;
+    console.warn("[owner-rich] falling back to legacy sendMessage");
+  }
+
   const result=await telegramApi("sendMessage",{
     chat_id:chatId,
     text:buildPanelText(panel.title,panel.body,lang),
     reply_markup:keyboard||undefined
   });
-  const scope=currentPanelScope();
   if(result.ok&&scope&&keyboard?.inline_keyboard){
     const messageId=Number((result.result as any)?.message_id);
     if(Number.isSafeInteger(messageId)&&messageId>0){
@@ -318,13 +482,36 @@ async function edit(chatId:number,messageId:number,message:string|PanelMessage,m
   const lang=await panelLanguageForChat(chatId);
   const panel=typeof message==="string"?panelFromString(message):message;
   const keyboard=localizeMarkup(markup,lang);
-  const result=await telegramApi("editMessageText",{
+  const scope=currentPanelScope();
+
+  if(scope?.kind==="owner"){
+    const rich=buildOwnerRichMessage(panel,lang);
+    const result=await telegramApi("editMessageText",{
+      chat_id:chatId,
+      message_id:messageId,
+      rich_message:{
+        blocks:rich.blocks,
+        is_rtl:rich.is_rtl,
+      },
+      reply_markup:keyboard||undefined,
+    }).catch(error=>{
+      console.error("[owner-rich] edit Rich Message failed:",error);
+      return null;
+    });
+    if(result?.ok){
+      if(keyboard?.inline_keyboard)await touchPanelMessage(scope!.pool,chatId,messageId,scope!.userId);
+      else await unbindPanelMessage(scope!.pool,chatId,messageId,scope!.userId);
+      return result;
+    }
+    console.warn("[owner-rich] falling back to legacy editMessageText");
+  }
+
+  const result=await telegramApi("editMessageText", {
     chat_id:chatId,
     message_id:messageId,
     text:buildPanelText(panel.title,panel.body,lang),
     reply_markup:keyboard||undefined
   });
-  const scope=currentPanelScope();
   if(result.ok&&scope){
     if(keyboard?.inline_keyboard)await touchPanelMessage(scope.pool,chatId,messageId,scope.userId);
     else await unbindPanelMessage(scope.pool,chatId,messageId,scope.userId);
@@ -633,6 +820,7 @@ function customerUsernameForDisplay(username:unknown,id:number){const value=Stri
 
 async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
   const uid=msg.from!.id;
+  setCurrentPanelKind("owner");
   const raw=(msg.text||"").trim().replace(/^[/!]/,"").toLowerCase();
   if(["owner","مالک"].includes(raw)&&!await isOwner(pool,uid,ownerIds)){
     await send(msg.chat.id,"شما دسترسی به پنل مالک را ندارید.");
@@ -955,6 +1143,7 @@ async function sendCustomer(pool:Pool,ownerId:number,chatId:number,row:any){
 
 
 async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
+  setCurrentPanelKind("owner");
   const uid=cb.from.id;if(!await isOwner(pool,uid,ownerIds))return;
   // CallbackQuery is acknowledged once by dispatchPanelCallback().
   const data=String(cb.data||"");const msg=cb.message;if(!msg)return;
@@ -1911,6 +2100,7 @@ async function handleCustomer(pool:Pool,msg:TgMessage,ownerIds:string[]){
   await customerEnsure(pool,uid,msg.from);
   if(["panel","پنل"].includes(raw)){
     if(await isOwner(pool,uid,ownerIds)){
+      setCurrentPanelKind("owner");
       if(!isPrivate && msg.reply_to_message?.from?.id){
         return renderMemberControl(pool,msg.chat.id,uid,msg.reply_to_message.from.id);
       }
