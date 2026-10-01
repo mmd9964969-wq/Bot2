@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronUp, Copy, Eye, FilePlus2, Image, List, Plus, Quote, Rows3, Trash2, Video } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Bold, ChevronDown, ChevronUp, Code2, Copy, Eye, FilePlus2, Highlighter, Image, Italic, Link2, List, Plus, Quote, Rows3, Strikethrough, Trash2, Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Panel } from "./panel";
 import {
   decodeRichDocument,
   encodeRichDocument,
+  markdownToRichText,
   getRichDocumentStats,
   type RichBlock,
   type RichDocument,
@@ -284,7 +285,7 @@ function BlockEditor({
               </label>
             ) : null}
             {type === "pre" ? <input value={item.language || "text"} onChange={(e) => onUpdate({ language: e.target.value })} className="h-9 rounded-lg bg-bg px-3 text-xs ring-1 ring-line" placeholder="language" /> : null}
-            <textarea value={String(item.text || "")} onChange={(e) => onUpdate({ text: e.target.value })} className="min-h-24 w-full rounded-xl bg-bg p-3 text-sm leading-6 ring-1 ring-line outline-none focus:ring-accent/40" />
+            <RichTextInput value={String(item.text || "")} rtl onChange={(text) => onUpdate({ text })} />
             {type === "pullquote" ? <input value={item.credit || ""} onChange={(e) => onUpdate({ credit: e.target.value })} className="h-9 rounded-lg bg-bg px-3 text-xs ring-1 ring-line" placeholder="credit" /> : null}
           </div>
         ) : null}
@@ -292,7 +293,7 @@ function BlockEditor({
         {type === "details" ? (
           <div className="grid gap-2">
             <input value={item.summary || ""} onChange={(e) => onUpdate({ summary: e.target.value })} className="h-9 rounded-lg bg-bg px-3 text-xs ring-1 ring-line" placeholder="خلاصه جزئیات" />
-            <textarea value={String(item.blocks?.[0]?.text || "")} onChange={(e) => onUpdate({ blocks: [{ type: "paragraph", text: e.target.value }] })} className="min-h-24 rounded-xl bg-bg p-3 text-sm leading-6 ring-1 ring-line outline-none focus:ring-accent/40" placeholder="محتوا" />
+            <RichTextInput value={String(item.blocks?.[0]?.text || "")} rtl onChange={(text) => onUpdate({ blocks: [{ type: "paragraph", text }] })} placeholder="محتوا" />
             <label className="flex items-center gap-2 text-[11px] text-muted"><input type="checkbox" checked={item.is_open === true} onChange={(e) => onUpdate({ is_open: e.target.checked })} /> باز به‌صورت پیش‌فرض</label>
           </div>
         ) : null}
@@ -383,6 +384,83 @@ function BlockEditor({
   );
 }
 
+
+function RichTextInput({
+  value,
+  onChange,
+  rtl = true,
+  placeholder = "",
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  rtl?: boolean;
+  placeholder?: string;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  function wrap(open: string, close: string) {
+    const el = ref.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const selected = value.slice(start, end);
+    const body = selected || "متن";
+    const next = value.slice(0, start) + open + body + close + value.slice(end);
+    onChange(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      const caretStart = start + open.length;
+      el.setSelectionRange(caretStart, caretStart + body.length);
+    });
+  }
+
+  return (
+    <div className="overflow-hidden rounded-xl bg-bg ring-1 ring-line focus-within:ring-accent/40">
+      <div className="flex flex-wrap gap-1 border-b border-line p-1.5">
+        <ToolButton title="Bold" onClick={() => wrap("**", "**")}><Bold className="size-3.5" /></ToolButton>
+        <ToolButton title="Italic" onClick={() => wrap("*", "*")}><Italic className="size-3.5" /></ToolButton>
+        <ToolButton title="Strikethrough" onClick={() => wrap("~~", "~~")}><Strikethrough className="size-3.5" /></ToolButton>
+        <ToolButton title="Spoiler" onClick={() => wrap("||", "||")}>S</ToolButton>
+        <ToolButton title="Marked" onClick={() => wrap("==", "==")}><Highlighter className="size-3.5" /></ToolButton>
+        <ToolButton title="Code" onClick={() => wrap("\`", "\`")}><Code2 className="size-3.5" /></ToolButton>
+        <ToolButton title="Link" onClick={() => wrap("[", "](https://example.com)")}><Link2 className="size-3.5" /></ToolButton>
+      </div>
+      <textarea
+        ref={ref}
+        dir={rtl ? "rtl" : "ltr"}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="min-h-24 w-full resize-y bg-transparent p-3 text-sm leading-6 outline-none"
+      />
+    </div>
+  );
+}
+
+function ToolButton({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
+  return <Button type="button" size="sm" variant="ghost" title={title} onClick={onClick} className="px-2">{children}</Button>;
+}
+
+function InlinePreview({ value }: { value: string }) {
+  const nodes: any = markdownToRichText(value);
+  const list = Array.isArray(nodes) ? nodes : [nodes];
+  return <>{list.map((node:any,i:number) => <InlineNode key={i} node={node} />)}</>;
+}
+
+function InlineNode({ node }: { node: any }) {
+  if (typeof node === "string" || typeof node === "number") return <span>{String(node)}</span>;
+  if (Array.isArray(node)) return <>{node.map((x:any,i:number)=><InlineNode key={i} node={x}/>)}</>;
+  const inner = <InlinePreview value={typeof node?.text === "string" ? node.text : ""} />;
+  if (node?.type === "bold") return <strong>{inner}</strong>;
+  if (node?.type === "italic") return <em>{inner}</em>;
+  if (node?.type === "strikethrough") return <s>{inner}</s>;
+  if (node?.type === "spoiler") return <span className="rounded bg-fg/80 px-1 text-transparent hover:text-fg">{inner}</span>;
+  if (node?.type === "marked") return <mark className="rounded px-0.5">{inner}</mark>;
+  if (node?.type === "code") return <code className="rounded bg-surface-2 px-1 font-mono text-xs">{node.text || ""}</code>;
+  if (node?.type === "url") return <a href={node.url} target="_blank" rel="noreferrer" className="underline decoration-accent/60 underline-offset-2">{inner}</a>;
+  return inner;
+}
+
 function Preview({ doc }: { doc: RichDocument }) {
   return (
     <Panel className="h-fit lg:sticky lg:top-28">
@@ -405,14 +483,14 @@ function PreviewBlock({ block: b }: { block: RichBlock }) {
   if (type === "divider") return <hr className="my-3 border-line" />;
   if (type === "heading") {
     const Tag = b.size === 1 ? "h2" : b.size <= 3 ? "h3" : "h4";
-    return <Tag className="mb-2 mt-2 font-semibold leading-tight">{b.text || "عنوان"}</Tag>;
+    return <Tag className="mb-2 mt-2 font-semibold leading-tight"><InlinePreview value={String(b.text || "عنوان")} /></Tag>;
   }
-  if (type === "paragraph" || type === "footer") return <p className="my-2 text-sm leading-6 whitespace-pre-wrap">{b.text || ""}</p>;
+  if (type === "paragraph" || type === "footer") return <p className="my-2 text-sm leading-6 whitespace-pre-wrap"><InlinePreview value={String(b.text || "")} /></p>;
   if (type === "pre") return <pre dir="ltr" className="my-2 overflow-auto rounded-xl bg-surface-2 p-3 text-xs">{b.text || ""}</pre>;
-  if (["blockquote","expandable_blockquote","pullquote"].includes(type)) return <blockquote className="my-2 rounded-xl border-s-2 border-accent bg-surface-2 p-3 text-sm leading-6">{b.text || ""}{b.credit ? <footer className="mt-1 text-[10px] text-muted">{b.credit}</footer> : null}</blockquote>;
+  if (["blockquote","expandable_blockquote","pullquote"].includes(type)) return <blockquote className="my-2 rounded-xl border-s-2 border-accent bg-surface-2 p-3 text-sm leading-6"><InlinePreview value={String(b.text || "")} />{b.blocks ? b.blocks.map((x:any,i:number)=><PreviewBlock key={i} block={x}/>) : null}{b.credit ? <footer className="mt-1 text-[10px] text-muted"><InlinePreview value={String(b.credit)} /></footer> : null}</blockquote>;
   if (type === "details") return <details open={b.is_open === true} className="my-2 rounded-xl bg-surface-2 p-3"><summary className="cursor-pointer font-medium">{b.summary || "جزئیات"}</summary><div className="mt-2 text-sm leading-6">{b.blocks?.map((x:any,i:number)=><PreviewBlock key={i} block={x}/>)}</div></details>;
   if (type === "list") return <ul className={"my-2 space-y-1 ps-5 " + (b.style === "ordered" ? "list-decimal" : "list-disc")}>{(b.items || []).map((x:any,i:number)=><li key={i} className="text-sm">{x.is_checked ? "☑ " : b.style === "checklist" ? "☐ " : ""}{x.blocks?.[0]?.text || ""}</li>)}</ul>;
-  if (type === "table") return <div className="my-3 overflow-x-auto"><table className="w-full border-collapse text-xs"><tbody>{(b.cells || []).map((row:any[],r:number)=><tr key={r}>{row.map((cell:any,c:number)=>{const Cell=r===0?"th":"td";return <Cell key={c} className={"border border-line p-2 " + (r===0?"font-semibold bg-surface-2":"")}>{cell?.text || ""}</Cell>})}</tr>)}</tbody></table></div>;
+  if (type === "table") return <div className="my-3 overflow-x-auto"><table className="w-full border-collapse text-xs"><tbody>{(b.cells || []).map((row:any[],r:number)=><tr key={r}>{row.map((cell:any,c:number)=>{const Cell=r===0?"th":"td";return <Cell key={c} className={"border border-line p-2 " + (r===0?"font-semibold bg-surface-2":"")}><InlinePreview value={String(cell?.text || "")} /></Cell>})}</tr>)}</tbody></table></div>;
   if (type === "buttons") return <div className="my-2 flex flex-wrap gap-1.5 justify-center">{(b.buttons || []).map((x:any,i:number)=><span key={i} className={"rounded-lg px-3 py-1.5 text-[11px] ring-1 ring-line " + (x.style === "primary" ? "bg-fg text-bg" : "bg-surface-2")}>{x.text || "دکمه"}</span>)}</div>;
   if (type === "photo") return <div className="my-2 overflow-hidden rounded-xl bg-surface-2">{b.photo?.media ? <img src={b.photo.media} alt="" className="max-h-64 w-full object-cover" /> : <div className="p-5 text-center text-xs text-muted">URL تصویر</div>}{b.caption ? <div className="p-2 text-xs">{b.caption}</div> : null}</div>;
   if (type === "video") return <div className="my-2 rounded-xl bg-surface-2 p-4 text-center text-xs text-muted">ویدئو: {b.video?.media || "URL ویدئو"}{b.caption ? <div className="mt-1 text-fg">{b.caption}</div> : null}</div>;
