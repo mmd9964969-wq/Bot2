@@ -1211,7 +1211,7 @@ async function auditAdminDirectory(pool: Pool, chatId: number) {
 
 function renderHeader(subtitle = "مرکز تحلیل گروه") {
   return [
-    "◈ Pᴇʀsɪᴀɴ ᴮᵒᵛ · Sᴛᴀᴛs Cᴇɴᴛᴇʀ",
+    "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴛᴀᴛs Cᴇɴᴛᴇʀ",
     "",
     "★ - " + subtitle,
     "",
@@ -1243,30 +1243,30 @@ function scopeLabel(scope: StatsScope) {
 function periodButtons(scope: StatsScope, targetUserId?: number) {
   const id = targetUserId ? ":" + targetUserId : "";
   return [
-    [["‹ امروز","s:period:"+scope+":today"+id],["‹ ۷ روز اخیر","s:period:"+scope+":7d"+id]],
-    [["‹ ۳۰ روز اخیر","s:period:"+scope+":30d"+id],["‹ این ماه","s:period:"+scope+":month"+id]],
-    [["‹ ماه قبل","s:period:"+scope+":prevmonth"+id],["‹ کل","s:period:"+scope+":all"+id]],
-    [["‹ انتخاب تاریخ","s:date:"+scope+(id?":"+targetUserId:"")],["‹ انتخاب بازه","s:range:"+scope+(id?":"+targetUserId:"")]],
+    [["‹ امروز","sx:period:"+scope+":today"+id],["‹ ۷ روز اخیر","sx:period:"+scope+":7d"+id]],
+    [["‹ ۳۰ روز اخیر","sx:period:"+scope+":30d"+id],["‹ این ماه","sx:period:"+scope+":month"+id]],
+    [["‹ ماه قبل","sx:period:"+scope+":prevmonth"+id],["‹ کل","sx:period:"+scope+":all"+id]],
+    [["‹ انتخاب تاریخ","sx:date:"+scope+(id?":"+targetUserId:"")],["‹ انتخاب بازه","sx:range:"+scope+(id?":"+targetUserId:"")]],
   ];
 }
 
 function moreButtons(targetUserId?: number) {
   const id = targetUserId ? ":" + targetUserId : "";
   return [
-    [["‹ آمار ادمین","s:scope:admins"],["‹ آمار اعضا","s:scope:members"]],
-    [["‹ آمار کاربر","s:scope:user"+(targetUserId ? id : "")],["‹ آمار کلی","s:scope:group"]],
-    [["‹ مقایسه بازه‌ها","s:compare:group"],["‹ گزارش آماری","s:report:group"]],
-    [["‹ بازگشت","s:home"]],
+    [["‹ آمار ادمین","sx:scope:admins"],["‹ آمار اعضا","sx:scope:members"]],
+    [["‹ آمار کاربر","sx:scope:user"+(targetUserId ? id : "")],["‹ آمار کلی","sx:scope:group"]],
+    [["‹ مقایسه بازه‌ها","sx:compare:group"],["‹ گزارش آماری","sx:report:group"]],
+    [["‹ بازگشت","sx:home"]],
   ];
 }
 
 function summaryNav(scope: StatsScope, targetUserId?: number) {
   const id = targetUserId ? ":" + targetUserId : "";
   return [
-    [["‹ بازه‌های آماری","s:periods:"+scope+id],["‹ جزئیات ساعتی","s:hours:"+scope+id]],
-    [["‹ رتبه‌بندی","s:ranking:"+scope+id],["‹ محتوا","s:content:"+scope+id]],
-    [["‹ مقایسه","s:compare:"+scope+id],["‹ گزارش","s:report:"+scope+id]],
-    [["‹ بازگشت","s:more"]],
+    [["‹ بازه‌های آماری","sx:periods:"+scope+id],["‹ جزئیات ساعتی","sx:hours:"+scope+id]],
+    [["‹ رتبه‌بندی","sx:ranking:"+scope+id],["‹ محتوا","sx:content:"+scope+id]],
+    [["‹ مقایسه","sx:compare:"+scope+id],["‹ گزارش","sx:report:"+scope+id]],
+    [["‹ بازگشت","sx:more"]],
   ];
 }
 
@@ -1313,8 +1313,8 @@ async function renderGroupOverview(pool: Pool, chatId: number, messageId?: numbe
     "★ - آخرین بروزرسانی : "+faDateTime(new Date()),
   ];
   const rows=[
-    [["‹ اطلاعات بیشتر","s:more"]],
-    [["‹ بروزرسانی","s:home"] ,["‹ گزارش آماری","s:report:group"]],
+    [["‹ اطلاعات بیشتر","sx:more"]],
+    [["‹ بروزرسانی","sx:home"] ,["‹ گزارش آماری","sx:report:group"]],
   ];
   if(messageId)return editPanel(chatId,messageId,lines.join("\n"),rows);
   return sendPanel(chatId,lines.join("\n"),rows);
@@ -1394,8 +1394,8 @@ async function renderGroupPeriod(pool: Pool, chatId: number, messageId: number, 
   ];
   return editPanel(chatId,messageId,rows.join("\n"),[
     ...periodButtons("group"),
-    [["‹ جزئیات ساعتی","s:hours:group:"+period],["‹ رتبه‌بندی کامل","s:ranking:group:"+period]],
-    [["‹ بازگشت","s:more"]],
+    [["‹ جزئیات ساعتی","sx:hours:group:"+period],["‹ رتبه‌بندی کامل","sx:ranking:group:"+period]],
+    [["‹ بازگشت","sx:more"]],
   ]);
 }
 
@@ -1422,8 +1422,8 @@ async function renderAdminPeriod(pool: Pool, chatId: number, messageId: number, 
   ].join("\n");
   return editPanel(chatId,messageId,text,[
     ...periodButtons("admins"),
-    [["‹ رتبه‌بندی مدیران","s:ranking:admins:"+period],["‹ سوابق ممیزی","s:audit:admins:"+period]],
-    [["‹ بازگشت","s:more"]],
+    [["‹ رتبه‌بندی مدیران","sx:ranking:admins:"+period],["‹ سوابق ممیزی","sx:audit:admins:"+period]],
+    [["‹ بازگشت","sx:more"]],
   ]);
 }
 
@@ -1458,9 +1458,9 @@ async function renderMemberPeriod(pool: Pool, chatId: number, messageId: number,
   ].join("\n");
   return editPanel(chatId,messageId,text,[
     ...periodButtons("members"),
-    [["‹ کاربران جدید","s:new:members"],["‹ کاربران غیرفعال","s:inactive:members"]],
-    [["‹ کاربران بازگشتی","s:returning:members"],["‹ تقویم فعالیت","s:calendar:members"]],
-    [["‹ بازگشت","s:more"]],
+    [["‹ کاربران جدید","sx:new:members"],["‹ کاربران غیرفعال","sx:inactive:members"]],
+    [["‹ کاربران بازگشتی","sx:returning:members"],["‹ تقویم فعالیت","sx:calendar:members"]],
+    [["‹ بازگشت","sx:more"]],
   ]);
 }
 
@@ -1530,8 +1530,8 @@ async function renderUserPeriod(pool: Pool, chatId: number, messageId: number, u
   ].join("\n");
   return editPanel(chatId,messageId,text,[
     ...periodButtons("user",userId),
-    [["‹ آمار ساعتی","s:uhours:user:"+userId+":"+period],["‹ مقایسه عملکرد","s:ucompare:"+userId+":"+period]],
-    [["‹ گزارش کاربر","s:ureport:"+userId+":"+period],["‹ بازگشت","s:more"]],
+    [["‹ آمار ساعتی","sx:uhours:user:"+userId+":"+period],["‹ مقایسه عملکرد","sx:ucompare:"+userId+":"+period]],
+    [["‹ گزارش کاربر","sx:ureport:"+userId+":"+period],["‹ بازگشت","sx:more"]],
   ]);
 }
 
@@ -1561,8 +1561,8 @@ async function renderUserQuick(pool: Pool, chatId: number, messageId: number, us
     "★ - بازه‌های دقیق، رتبه‌بندی، ساعتی، محتوا، تعاملات و مقایسه در «اطلاعات بیشتر» در دسترس است.",
   ].join("\n");
   return editPanel(chatId,messageId,text,[
-    [["‹ اطلاعات بیشتر","s:scope:user:"+userId]],
-    [["‹ بازگشت","s:more"]],
+    [["‹ اطلاعات بیشتر","sx:scope:user:"+userId]],
+    [["‹ بازگشت","sx:more"]],
   ]);
 }
 
@@ -1576,7 +1576,7 @@ async function renderRanking(pool: Pool, chatId: number, messageId: number, scop
       ...(admins.length?admins.map((u:any,i:number)=>rankNumber(i+1)+" · "+userTag(u.userId,u.username,u.firstName)+" · "+u.actions+" اقدام"):["■ داده‌ای ثبت نشده است."]),
     ].join("\n");
     return editPanel(chatId,messageId,text,[[
-      ["‹ بازگشت","s:period:admins:"+period],
+      ["‹ بازگشت","sx:period:admins:"+period],
     ]]);
   }
   const top=await topUsers(pool,chatId,"messages",period,10);
@@ -1586,7 +1586,7 @@ async function renderRanking(pool: Pool, chatId: number, messageId: number, scop
     "",
     ...(top.length?top.map((u:any,i:number)=>rankNumber(i+1)+" · "+userTag(u.userId,u.username,u.firstName)+" · "+u.count+" پیام"):["■ داده‌ای ثبت نشده است."]),
   ].join("\n");
-  return editPanel(chatId,messageId,text,[[["‹ بازگشت","s:period:"+scope+":"+period+(targetUserId?":"+targetUserId:"")]]]);
+  return editPanel(chatId,messageId,text,[[["‹ بازگشت","sx:period:"+scope+":"+period+(targetUserId?":"+targetUserId:"")]]]);
 }
 
 async function renderHours(pool: Pool, chatId: number, messageId: number, scope: StatsScope, periodOrDay: StatsPeriod|string, targetUserId?: number) {
@@ -1610,7 +1610,7 @@ async function renderHours(pool: Pool, chatId: number, messageId: number, scope:
     ...(top.length?top.map(([h,n],i)=>rankNumber(i+1)+" · "+String(h).padStart(2,"0")+":00 · "+n+" پیام"):["■ داده‌ای ثبت نشده است."]),
   ].join("\n");
   return editPanel(chatId,messageId,lines,[
-    [["‹ رتبه‌بندی","s:ranking:"+scope+(targetUserId?":"+targetUserId:"")],["‹ بازگشت","s:periods:"+scope+(targetUserId?":"+targetUserId:"")]],
+    [["‹ رتبه‌بندی","sx:ranking:"+scope+(targetUserId?":"+targetUserId:"")],["‹ بازگشت","sx:periods:"+scope+(targetUserId?":"+targetUserId:"")]],
   ]);
 }
 
@@ -1637,8 +1637,8 @@ async function renderDay(pool: Pool, chatId: number, messageId: number, scope: S
     "⛂ - محتوای روزانه از رکوردهای پیام محاسبه می‌شود.",
   ].join("\n");
   return editPanel(chatId,messageId,text,[
-    [["‹ تحلیل ساعتی","s:hours:group:"+day],["‹ رتبه‌بندی","s:ranking:group:today"]],
-    [["‹ بازه‌های آماری","s:periods:"+scope+(targetUserId?":"+targetUserId:"")],["‹ بازگشت","s:more"]],
+    [["‹ تحلیل ساعتی","sx:hours:group:"+day],["‹ رتبه‌بندی","sx:ranking:group:today"]],
+    [["‹ بازه‌های آماری","sx:periods:"+scope+(targetUserId?":"+targetUserId:"")],["‹ بازگشت","sx:more"]],
   ]);
 }
 
@@ -1656,7 +1656,7 @@ async function renderCompare(pool: Pool, chatId: number, messageId: number, scop
       statusLine("تعامل امروز","【 "+number(today.replies)+" 】"),
       statusLine("لینک امروز","【 "+number(today.links)+" 】"),
     ].join("\n");
-    return editPanel(chatId,messageId,text,[[["‹ آمار کاربر","s:period:user:today:"+targetUserId],["‹ بازگشت","s:more"]]]);
+    return editPanel(chatId,messageId,text,[[["‹ آمار کاربر","sx:period:user:today:"+targetUserId],["‹ بازگشت","sx:more"]]]);
   }
   const d=await groupOverviewData(pool,chatId);
   const prev=await pool.query<any>(
@@ -1676,7 +1676,7 @@ async function renderCompare(pool: Pool, chatId: number, messageId: number, scop
     statusLine("رشد خالص امروز","【 "+signed(d.netToday)+" 】"),
     statusLine("فعال ۲۴ ساعت","【 "+d.active24h+" 】"),
   ].join("\n");
-  return editPanel(chatId,messageId,text,[[["‹ بازه‌های آماری","s:periods:group"],["‹ بازگشت","s:more"]]]);
+  return editPanel(chatId,messageId,text,[[["‹ بازه‌های آماری","sx:periods:group"],["‹ بازگشت","sx:more"]]]);
 }
 
 async function previousPeriodUser(pool: Pool,chatId:number,userId:number){
@@ -1710,7 +1710,7 @@ async function renderContent(pool: Pool, chatId: number, messageId: number, scop
       "⛂ - ویدیو نوت : "+number(c.video_note),
       "⛂ - سایر : "+number(c.other),
     ].join("\n");
-    return editPanel(chatId,messageId,text,[[["‹ بازگشت","s:period:user:"+period+":"+targetUserId]]]);
+    return editPanel(chatId,messageId,text,[[["‹ بازگشت","sx:period:user:"+period+":"+targetUserId]]]);
   }
 
   const r=await pool.query<any>(
@@ -1726,7 +1726,7 @@ async function renderContent(pool: Pool, chatId: number, messageId: number, scop
     "",
     "★ - لینک‌ها",
     statusLine("پیام‌های دارای لینک","【 "+number((await pool.query<any>(`SELECT COUNT(*)::int n FROM bot_message_records m WHERE m.chat_id=$1 AND m.has_link=TRUE AND ${period==="all"?"TRUE":rawDayExpression("m")+">=((NOW() AT TIME ZONE '"+TZ+"')::date-INTERVAL '29 days')::date"}`,[chatId])).rows[0]?.n)+" 】"),
-  ].join("\n"),[[["‹ بازگشت","s:period:group:"+period]]]);
+  ].join("\n"),[[["‹ بازگشت","sx:period:group:"+period]]]);
 }
 
 async function renderReport(pool: Pool, chatId: number, messageId: number, scope: StatsScope, targetUserId?: number, period: StatsPeriod="today") {
@@ -1781,12 +1781,14 @@ async function renderReport(pool: Pool, chatId: number, messageId: number, scope
       statusLine("کاربران بازگشتی","【 "+await returningData(pool,chatId)+" 】"),
     ].join("\n");
   }
-  return editPanel(chatId,messageId,body,[[["‹ بازگشت","s:more"]]]);
+  return editPanel(chatId,messageId,body,[[["‹ بازگشت","sx:more"]]]);
 }
 
-export async function isStatsCommand(text: string) {
-  const token = String(text || "").trim().replace(/^[\\/!.]+/, "").split(/\s+/)[0]?.toLowerCase();
-  return ["آمار","امار","stats","stat","analytics","تحلیل","تحلیل و آمار"].includes(token);
+export function isStatsCommand(text: string) {
+  const value=String(text||"").trim().replace(/^[\\/!.]+/,"").trim();
+  const parts=value.split(/\s+/).filter(Boolean);
+  const token=parts[0]?.toLowerCase()||"";
+  return parts.length===1 && ["آمار","امار","stats","stat","analytics","تحلیل","تحلیل و آمار"].includes(token);
 }
 
 export async function openStatsCenterFromCommand(pool: Pool, msg: StatsMessage, ownerIds: string[]) {
@@ -1837,8 +1839,8 @@ async function sendUserCommandCard(pool:Pool,chatId:number,userId:number,user?:T
     "⛂ - گزارش آماری",
   ].join("\n");
   return sendPanel(chatId,text,[
-    [["‹ اطلاعات بیشتر","s:scope:user:"+userId]],
-    [["‹ بازگشت","s:home"]],
+    [["‹ اطلاعات بیشتر","sx:scope:user:"+userId]],
+    [["‹ بازگشت","sx:home"]],
   ]);
 }
 
@@ -1924,7 +1926,7 @@ async function sendStatsRangeResult(pool:Pool,chatId:number,actorId:number,scope
     "★ - مقایسه",
     "⛂ - بازه انتخابی با موفقیت محاسبه شد.",
   ].join("\n");
-  await sendPanel(chatId,text,[[["‹ بازه‌های آماری","s:periods:"+scope+(targetUserId?":"+targetUserId:"")],["‹ بازگشت","s:more"]]]);
+  await sendPanel(chatId,text,[[["‹ بازه‌های آماری","sx:periods:"+scope+(targetUserId?":"+targetUserId:"")],["‹ بازگشت","sx:more"]]]);
   return true;
 }
 
@@ -1940,16 +1942,18 @@ export async function handleStatsCallback(pool: Pool, cb: StatsCallback, ownerId
   const chatId=cb.message.chat.id;
   const mid=cb.message.message_id;
 
-  if(data==="s:home")return renderGroupOverview(pool,chatId,mid);
-  if(data==="s:more")return renderMore(pool,chatId,mid);
-  if(data==="s:scope:admins")return renderAdminPeriod(pool,chatId,mid,"today");
-  if(data==="s:scope:members")return renderMemberPeriod(pool,chatId,mid,"today");
-  if(data==="s:scope:group")return renderGroupPeriod(pool,chatId,mid,"today");
-  if(data==="s:scope:user"){
-    return renderUserPeriod(pool,chatId,mid,Number(cb.from.id),"today");
+  if(data==="sx:home")return renderGroupOverview(pool,chatId,mid);
+  if(data==="sx:more")return renderMore(pool,chatId,mid);
+  if(data==="sx:scope:admins")return renderAdminPeriod(pool,chatId,mid,"today");
+  if(data==="sx:scope:members")return renderMemberPeriod(pool,chatId,mid,"today");
+  if(data==="sx:scope:group")return renderGroupPeriod(pool,chatId,mid,"today");
+  if(data==="sx:scope:user"){
+    return renderUserPeriod(pool,chatId,mid,"user","today",Number(cb.from.id));
   }
-  if(data.startsWith("s:scope:user:")){
-    return renderUserPeriod(pool,chatId,mid, "user" as never, "today" as never);
+  if(data.startsWith("sx:scope:user:")){
+    const userId=Number(data.split(":")[3]);
+    if(!Number.isSafeInteger(userId)||userId<=0)return true;
+    return renderUserPeriod(pool,chatId,mid,"user","today",userId);
   }
 
   const p=data.split(":");
@@ -1985,7 +1989,7 @@ export async function handleStatsCallback(pool: Pool, cb: StatsCallback, ownerId
     });
     return editPanel(chatId,mid,
       renderHeader("انتخاب تاریخ")+"\n\n⛂ - تاریخ را ارسال کنید.\n⛂ - قالب : YYYY-MM-DD\n⛂ - نمونه : 2026-10-01",
-      [[["‹ لغو","s:cancel"],["‹ بازگشت","s:periods:"+scope+(targetUserId?":"+targetUserId:"")]]]);
+      [[["‹ لغو","sx:cancel"],["‹ بازگشت","sx:periods:"+scope+(targetUserId?":"+targetUserId:"")]]]);
   }
 
   if(p[1]==="range"){
@@ -2000,7 +2004,7 @@ export async function handleStatsCallback(pool: Pool, cb: StatsCallback, ownerId
     });
     return editPanel(chatId,mid,
       renderHeader("انتخاب بازه")+"\n\n⛂ - تاریخ شروع را ارسال کنید.\n⛂ - قالب : YYYY-MM-DD",
-      [[["‹ لغو","s:cancel"],["‹ بازگشت","s:periods:"+scope+(targetUserId?":"+targetUserId:"")]]]);
+      [[["‹ لغو","sx:cancel"],["‹ بازگشت","sx:periods:"+scope+(targetUserId?":"+targetUserId:"")]]]);
   }
 
   if(p[1]==="cancel"){
@@ -2059,7 +2063,7 @@ export async function handleStatsCallback(pool: Pool, cb: StatsCallback, ownerId
       renderHeader("سوابق مدیریتی"),
       ...(admins.length?admins.map((u:any,i:number)=>rankNumber(i+1)+" · "+userTag(u.userId,u.username,u.firstName)+" · "+u.actions+" اقدام"):["■ داده‌ای ثبت نشده است."]),
     ].join("\n");
-    return editPanel(chatId,mid,text,[[["‹ بازگشت","s:scope:admins"]]]);
+    return editPanel(chatId,mid,text,[[["‹ بازگشت","sx:scope:admins"]]]);
   }
 
   if(p[1]==="new"||p[1]==="inactive"||p[1]==="returning"||p[1]==="calendar"){
@@ -2070,15 +2074,15 @@ export async function handleStatsCallback(pool: Pool, cb: StatsCallback, ownerId
         [chatId],
       ).catch(()=>({rows:[]}));
       const text=[renderHeader("اعضای جدید"),...(r.rows.length?r.rows.map((u:any,i:number)=>rankNumber(i+1)+" · "+userTag(number(u.user_id),u.username,u.first_name)+" · "+faDateTime(u.joined_at)):["■ داده‌ای ثبت نشده است."])].join("\n");
-      return editPanel(chatId,mid,text,[[["‹ بازگشت","s:scope:members"]]]);
+      return editPanel(chatId,mid,text,[[["‹ بازگشت","sx:scope:members"]]]);
     }
     if(kind==="inactive"){
       const r=await inactivityData(pool,chatId);
-      return editPanel(chatId,mid,[renderHeader("اعضای غیرفعال"),statusLine("۷ تا ۳۰ روز","【 "+number(r.inactive7_30)+" 】"),statusLine("بیش از ۳۰ روز","【 "+number(r.inactive30)+" 】")].join("\n"),[[["‹ بازگشت","s:scope:members"]]]);
+      return editPanel(chatId,mid,[renderHeader("اعضای غیرفعال"),statusLine("۷ تا ۳۰ روز","【 "+number(r.inactive7_30)+" 】"),statusLine("بیش از ۳۰ روز","【 "+number(r.inactive30)+" 】")].join("\n"),[[["‹ بازگشت","sx:scope:members"]]]);
     }
     if(kind==="returning"){
       const n=await returningData(pool,chatId);
-      return editPanel(chatId,mid,[renderHeader("اعضای بازگشتی"),statusLine("کاربران بازگشتی","【 "+n+" 】"),"","⛂ - بازگشتی یعنی کاربری که سابقه قدیمی داشته و دوباره در بازه اخیر فعال شده است."].join("\n"),[[["‹ بازگشت","s:scope:members"]]]);
+      return editPanel(chatId,mid,[renderHeader("اعضای بازگشتی"),statusLine("کاربران بازگشتی","【 "+n+" 】"),"","⛂ - بازگشتی یعنی کاربری که سابقه قدیمی داشته و دوباره در بازه اخیر فعال شده است."].join("\n"),[[["‹ بازگشت","sx:scope:members"]]]);
     }
     const today=toDateInput(new Date());
     const days:string[]=[];
@@ -2087,7 +2091,7 @@ export async function handleStatsCallback(pool: Pool, cb: StatsCallback, ownerId
       days.push(toDateInput(d));
     }
     return editPanel(chatId,mid,[renderHeader("تقویم فعالیت"),"", "★ - ۷ روز اخیر",...days.map(d=>"‹ "+faDayName(d)+" · "+faDate(d))].join("\n"),
-      days.map((d:any)=>[[ "‹ "+faDayName(d)+" · "+faDate(d), "s:day:group:"+d ]]).concat([[["‹ بازگشت","s:scope:members"]]]));
+      days.map((d:any)=>[[ "‹ "+faDayName(d)+" · "+faDate(d), "sx:day:group:"+d ]]).concat([[["‹ بازگشت","sx:scope:members"]]]));
   }
 
   if(p[1]==="day"){
