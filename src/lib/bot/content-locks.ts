@@ -350,24 +350,36 @@ function lockCenterTitle(lang:BotLang){
 
 function lockCenterRichBlocks(rows:any[],lang:BotLang="fa"){
   const sections=["normal","media","links","advertising","forwarding","files","messages","interactions","advanced","anti_attack","language"];
-  const names:any={normal:"قفل‌های حالت عادی",media:"رسانه",links:"لینک‌ها",advertising:"تبلیغات",forwarding:"فوروارد و اشتراک‌گذاری",files:"فایل و سند",messages:"پیام و نرخ ارسال",interactions:"تعامل و هویت",advanced:"محتوای پیشرفته",anti_attack:"امنیت و ضد اتک",language:"قفل زبان"};
+  const names:any={
+    normal:"قفل‌های حالت عادی",media:"رسانه",links:"لینک‌ها",advertising:"تبلیغات",
+    forwarding:"فوروارد و اشتراک‌گذاری",files:"فایل و سند",messages:"پیام و نرخ ارسال",
+    interactions:"تعامل و هویت",advanced:"محتوای پیشرفته",anti_attack:"امنیت و ضد اتک",language:"قفل زبان"
+  };
   const total=rows.length;
   const active=rows.filter((x:any)=>x.enabled).length;
-  const stats=[
-    "⛂ - سیستم قفل : فعال",
-    "⛂ - قوانین فعال : "+lockFmt(active)+" از "+lockFmt(total)
+  const status=total===0?"بدون قانون":active===0?"خاموش":active===total?"کامل":"فعال";
+  const statusBlock=[
+    "★ - وضعیت کلی",
+    "⛂ - سیستم قفل : ● فعال",
+    "⛂ - قوانین فعال : "+lockFmt(active)+" / "+lockFmt(total),
+    "⛂ - وضعیت : "+status
   ].join("\n");
+
   const sectionLines=sections.map(section=>{
     const rs=rows.filter((x:any)=>x.section===section);
-    return names[section]+"\n"+lockFmt(rs.filter((r:any)=>r.enabled).length)+" / "+lockFmt(rs.length);
-  }).join("\n\n");
+    const on=rs.filter((r:any)=>r.enabled).length;
+    const state=rs.length===0?"—":on===0?"خاموش":on===rs.length?"کامل":"فعال";
+    return "⛂ - "+names[section]+" : "+lockFmt(on)+" / "+lockFmt(rs.length)+" · "+state;
+  }).join("\n");
+
   const blocks:any[]=[
     {type:"heading",text:lockRichPlain(lockCenterTitle(lang)),size:2},
-    {type:"paragraph",text:lockRichPlain(stats)},
+    {type:"paragraph",text:lockRichPlain(statusBlock)},
     {type:"paragraph",text:lockRichPlain(LOCK_PANEL_SEPARATOR)},
+    {type:"heading",text:"★ - دسته‌بندی قفل‌ها",size:3},
     {type:"paragraph",text:lockRichPlain(sectionLines)},
     {type:"paragraph",text:lockRichPlain(LOCK_PANEL_SEPARATOR)},
-    {type:"paragraph",text:lockRichPlain("⛂ - راهنما : رنگ دکمه وضعیت قفل را نشان می‌دهد.")},
+    {type:"paragraph",text:lockRichPlain("⛂ - راهنما : عدد اول قوانین فعال و عدد دوم کل قوانین هر بخش است.")},
   ];
   return {blocks,is_rtl:lang==="fa"||lang==="ar"};
 }
@@ -430,20 +442,38 @@ async function lockSectionText(pool:Pool,groupId:number,section:string,title:str
 async function lockCenterText(pool:Pool,groupId:number){
   const rows=await lockRows(pool,groupId);
   const sections=["normal","media","links","advertising","forwarding","files","messages","interactions","advanced","anti_attack","language"];
-  const names:any={normal:"قفل‌های حالت عادی",media:"رسانه",links:"لینک‌ها",advertising:"تبلیغات",forwarding:"فوروارد و اشتراک‌گذاری",files:"فایل و سند",messages:"پیام و نرخ ارسال",interactions:"تعامل و هویت",advanced:"محتوای پیشرفته",anti_attack:"امنیت و ضد اتک",language:"قفل زبان"};
-  const body=["◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Lᴏᴄᴋ Cᴇɴᴛᴇʀ","",
-    "⛂ - سیستم قفل : فعال",
-    "⛂ - قوانین فعال : "+lockFmt(rows.filter((r:any)=>r.enabled).length)+" از "+lockFmt(rows.length),
-    ""
+  const names:any={
+    normal:"قفل‌های حالت عادی",media:"رسانه",links:"لینک‌ها",advertising:"تبلیغات",
+    forwarding:"فوروارد و اشتراک‌گذاری",files:"فایل و سند",messages:"پیام و نرخ ارسال",
+    interactions:"تعامل و هویت",advanced:"محتوای پیشرفته",anti_attack:"امنیت و ضد اتک",language:"قفل زبان"
+  };
+  const total=rows.length;
+  const active=rows.filter((r:any)=>r.enabled).length;
+  const status=total===0?"بدون قانون":active===0?"خاموش":active===total?"کامل":"فعال";
+  const body=[
+    "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Lᴏᴄᴋ Cᴇɴᴛᴇʀ",
+    "",
+    "★ - وضعیت کلی",
+    "⛂ - سیستم قفل : ● فعال",
+    "⛂ - قوانین فعال : "+lockFmt(active)+" / "+lockFmt(total),
+    "⛂ - وضعیت : "+status,
+    "",
+    LOCK_PANEL_SEPARATOR,
+    "",
+    "★ - دسته‌بندی قفل‌ها"
   ];
-  body.push(LOCK_PANEL_SEPARATOR);
-  for(let i=0;i<sections.length;i++){
-    const sec=sections[i];
+  for(const sec of sections){
     const rs=rows.filter((r:any)=>r.section===sec);
-    body.push(names[sec]," "+lockFmt(rs.filter((r:any)=>r.enabled).length)+" / "+lockFmt(rs.length));
-    if(i<sections.length-1)body.push("");
+    const on=rs.filter((r:any)=>r.enabled).length;
+    const state=rs.length===0?"—":on===0?"خاموش":on===rs.length?"کامل":"فعال";
+    body.push("⛂ - "+names[sec]+" : "+lockFmt(on)+" / "+lockFmt(rs.length)+" · "+state);
   }
-  body.push(LOCK_PANEL_SEPARATOR,"","⛂ - راهنما : رنگ دکمه وضعیت قفل را نشان می‌دهد.");
+  body.push(
+    "",
+    LOCK_PANEL_SEPARATOR,
+    "",
+    "⛂ - راهنما : عدد اول قوانین فعال و عدد دوم کل قوانین هر بخش است."
+  );
   return body.join("\n");
 }
 export async function runContentLockCommand(pool:Pool,ctx:LockCommandContext,commandId:string,args:string[]):Promise<string>{
