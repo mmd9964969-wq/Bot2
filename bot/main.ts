@@ -1381,13 +1381,12 @@ async function processMessage(msg: TgMessage, edited = false) {
     staff: [...adminIds].map((id) => ({ id, name: String(id), rank: rankOf(id, adminIds) })),
   };
 
-  // Core identity command is authoritative and must bypass every panel/DB response path.
-  // This prevents stale response templates from ever reaching Telegram for «آیدی».
+  // Core identity command uses the Rich Message pipeline directly.
+  // This block runs before generic handlers so stale text templates cannot answer «آیدی».
   const directCommandText = String(text || "").trim().replace(/^[\\/!.]+/, "").trim();
-  const directToken = directCommandText.split(/\s+/)[0].toLowerCase();
-  const directArgs = directCommandText.split(/\s+/).slice(1);
+  const directToken = directCommandText.split(/\\s+/)[0].toLowerCase();
+  const directArgs = directCommandText.split(/\\s+/).slice(1);
   if (["id","آیدی"].includes(directToken) && directArgs.length===0) {
-    // Identity is a manager-only command. Regular members get no response at all.
     if (!["owner","sudo","admin"].includes(ctx.userRank)) return;
 
     try {
@@ -1402,14 +1401,17 @@ async function processMessage(msg: TgMessage, edited = false) {
         const member=await telegramApi<any>("getChatMember",{chat_id:ctx.chatId,user_id:targetId});
         if(member.ok) target=member.result;
       }
+
       const targetUser=target?.user || {
         id:targetId,
         first_name:ctx.replyToUserId ? (ctx.replyToName || String(targetId)) : ctx.userName,
         username:ctx.replyToUserId ? undefined : (ctx.userUsername || "").replace(/^@/,"")
       };
+
       const targetRank=ctx.replyToUserId
         ? (String(target?.status||"")==="creator" ? "owner" : String(target?.status||"")==="administrator" ? "admin" : "member")
         : ctx.userRank;
+
       const targetCtx:any={
         ...ctx,
         userId:targetId,
@@ -1420,23 +1422,35 @@ async function processMessage(msg: TgMessage, edited = false) {
         replyToUserId:undefined,
         replyToName:undefined
       };
+
       const liveCard=await runLiveCommand({...targetCtx,messageId:0},"id",[]);
-      const photos=await telegramApi<any>("getUserProfilePhotos",{user_id:targetId,offset:0,max:1});
-      if(photos.ok&&Number(photos.result?.total_count||0)>0){
-        const sizes=photos.result?.photos?.[0];
-        const photo=sizes?.[sizes.length-1]?.file_id;
-        if(photo){
-          await telegramApi("sendPhoto",{chat_id:ctx.chatId,photo,caption:liveCard});
-          return;
-        }
+      const rich_message=buildIdRichMessage(liveCard,ctx.lang);
+
+      const rich=await telegramApi<any>("sendRichMessage",{
+        chat_id:ctx.chatId,
+        rich_message,
+        reply_parameters:{message_id:msg.message_id},
+      });
+
+      if(rich.ok){
+        await logCommandAccess(ctx,"id","command_executed","allowed_rich","direct");
+        return;
       }
-      await telegramApi("sendMessage",{chat_id:ctx.chatId,text:liveCard});
+
+      console.warn("[direct-id] Rich Message failed; falling back to legacy output:",rich.description);
+      await telegramApi("sendMessage",{
+        chat_id:ctx.chatId,
+        text:liveCard,
+        reply_to_message_id:msg.message_id,
+      });
+      await logCommandAccess(ctx,"id","command_executed","allowed_rich_fallback","direct");
       return;
     } catch(error) {
       console.error("[direct-id] identity command failed",error);
       await telegramApi("sendMessage",{
         chat_id:ctx.chatId,
-        text:ctx.lang==="fa" ? "✗ اجرای دستور آیدی ناموفق بود." : "✗ The ID command failed."
+        text:ctx.lang==="fa" ? "✗ اجرای دستور آیدی ناموفق بود." : "✗ The ID command failed.",
+        reply_to_message_id:msg.message_id,
       });
       return;
     }
