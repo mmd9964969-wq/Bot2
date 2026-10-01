@@ -14,6 +14,8 @@ type SudoRow = {
   updated_at:string;
 };
 
+const pendingAssignments=new Map<number,SudoLevel>();
+
 const LEVELS:Record<SudoLevel,{title:string;summary:string;capabilities:string[]}> = {
   low:{
     title:"سودو پایین",
@@ -215,8 +217,9 @@ export function sudoLevelDocument(level:SudoLevel){
 
 export async function ownerSudoCallback(pool:Pool,chatId:number,messageId:number,actor:number,data:string,ownerIds:string[]){
   await ensureOwnerSudoSchema(pool);
-  if(data==="os:center")return sendOwnerSudoCenter(chatId,messageId);
+  if(data==="os:center"){pendingAssignments.delete(actor);return sendOwnerSudoCenter(chatId,messageId);}
   if(data==="os:assign"){
+    pendingAssignments.delete(actor);
     return render(chatId,messageId,doc([
       ...baseBlocks("تعریف سودو","ابتدا سطح دسترسی را انتخاب کنید؛ سپس شناسه عددی کاربر را دریافت می‌کنیم."),
       {type:"paragraph",text:"هیچ سودویی به‌صورت خودکار مالک نمی‌شود و سطح انتخاب‌شده قابل ارتقا توسط خود سودو نیست."},
@@ -238,6 +241,7 @@ export async function ownerSudoCallback(pool:Pool,chatId:number,messageId:number
   if(data.startsWith("os:choose:")){
     const level=data.slice("os:choose:") as SudoLevel;
     if(!LEVELS[level])return;
+    pendingAssignments.set(actor,level);
     return render(chatId,messageId,doc([
       ...baseBlocks("ثبت سودو","شناسه عددی کاربر موردنظر را ارسال کنید."),
       table("انتخاب فعلی",[
@@ -315,15 +319,33 @@ export async function ownerSudoCallback(pool:Pool,chatId:number,messageId:number
   }
 }
 
-export async function handleOwnerSudoTextInput(pool:Pool,actor:number,text:string,ownerIds:string[]){
-  const clean=String(text||"").trim();
-  if(!/^\\d{5,20}$/.test(clean))return false;
+export async function handleOwnerSudoTextInput(pool:Pool,actor:number,chatId:number,text:string,ownerIds:string[]){
+  const level=pendingAssignments.get(actor);
+  if(!level)return false;
+  const clean=String(text||"").trim().replace(/^[+\\s]+/,"");
+  if(!/^\\d{5,20}$/.test(clean)){
+    await render(chatId,undefined,doc([
+      ...baseBlocks("ثبت سودو","شناسه عددی معتبر ارسال کنید."),
+      buttons([button("لغو","os:center","link")]),
+      {type:"footer",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ · Mᴀɴᴀɢᴇᴅ Sᴜᴅᴏ"},
+    ]));
+    return true;
+  }
   const target=Number(clean);
-  const result=await pool.query("SELECT 1 FROM bot_sudo_users WHERE user_id=$1 AND active=TRUE LIMIT 1",[actor]);
-  void result;
-  return false;
-}
-
-export async function grantOwnerSudoFromInput(pool:Pool,actor:number,target:number,level:SudoLevel,ownerIds:string[]){
-  return assignOwnerSudo(pool,actor,target,level,ownerIds);
+  const result=await assignOwnerSudo(pool,actor,target,level,ownerIds);
+  pendingAssignments.delete(actor);
+  await render(chatId,undefined,doc([
+    ...baseBlocks(result.ok?"دسترسی ثبت شد":"ثبت دسترسی انجام نشد",result.message),
+    table("نتیجه",[
+      ["شناسه",String(target)],
+      ["سطح",LEVELS[level].title],
+      ["وضعیت",result.ok?"فعال":"رد شده"],
+    ]),
+    buttons([
+      button("فهرست سودوها","os:list","primary"),
+      button("مرکز سودو","os:center","link"),
+    ]),
+    {type:"footer",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ · Mᴀɴᴀɢᴇᴅ Sᴜᴅᴏ"},
+  ]));
+  return true;
 }
