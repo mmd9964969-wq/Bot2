@@ -540,7 +540,7 @@ async function groupOverviewData(pool: Pool, chatId: number) {
          COUNT(*)::int total,
          COUNT(*) FILTER(WHERE ${rawDayExpression("m")}=(NOW() AT TIME ZONE '${TZ}')::date)::int today,
          COUNT(*) FILTER(WHERE ${rawDayExpression("m")}>=((NOW() AT TIME ZONE '${TZ}')::date-INTERVAL '6 days')::date)::int week,
-         COUNT(*) FILTER(WHERE ${rawDayExpression("m")}>=date_trunc('month',NOW() AT TIME ZONE '${TZ}')::date)::int month,
+         COUNT(*) FILTER(WHERE ${rawDayExpression("m")}>=date_trunc('month',NOW() AT TIME ZONE '${TZ}')::date)::int AS month_count,
          COUNT(DISTINCT ${rawDayExpression("m")})::int active_days
        FROM bot_message_records m
        WHERE m.chat_id=$1`,
@@ -628,7 +628,7 @@ async function groupOverviewData(pool: Pool, chatId: number) {
     totalMessages: number(m.total),
     messagesToday: number(m.today),
     messagesWeek: currentWeek,
-    messagesMonth: number(m.month),
+    messagesMonth: number(m.month_count),
     activeDays: number(m.active_days),
     dailyAverage,
     active30m: number(u.active_30m),
