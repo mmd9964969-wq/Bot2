@@ -112,13 +112,13 @@ function buildIdRichMessage(liveCard:string,lang:"fa"|"en",photoFileId?:string){
     {type:"divider"},
     {
       type:"details",
-      summary:lang==="fa"?"جزئیات":"Details",
+      summary:lang==="fa"?"راهنما":"Guide",
       is_open:false,
       blocks:[{
         type:"list",
         items:[
-          {blocks:[{type:"paragraph",text:lang==="fa"?"اطلاعات بدون نمادهای اضافی و با ساختار قابل توسعه نمایش داده می‌شود.":"The information is rendered in a structured, extensible format."}]},
-          {blocks:[{type:"paragraph",text:lang==="fa"?"این کارت برای اضافه‌کردن بخش‌های بیشتر مانند تگ، رسانه و آمار تکمیلی آماده است.":"This card is ready for additional sections such as tags, media and extended statistics."}]},
+          {blocks:[{type:"paragraph",text:lang==="fa"?"برای مشاهده اطلاعات یک عضو، روی پیام او ریپلای کنید و دستور آیدی را ارسال کنید.":"Reply to a member’s message and send the ID command to view their information."}]},
+          {blocks:[{type:"paragraph",text:lang==="fa"?"اطلاعات حساب، فعالیت و وضعیت مدیریتی در بخش‌های جداگانه نمایش داده می‌شود.":"Account, activity and moderation information are displayed in separate sections."}]},
         ],
       }],
     },
