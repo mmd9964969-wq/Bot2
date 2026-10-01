@@ -357,22 +357,32 @@ function buildDateRichMessage(text: string): any {
 
   const flushRows = () => {
     if (!rows.length) return;
-    blocks.push({
-      type: "table",
-      is_bordered: true,
-      is_striped: true,
-      is_compact: false,
-      cells: [
-        [
-          { text: lang === "fa" ? "عنوان" : "Field", is_header: true, align: "right", valign: "middle" },
-          { text: lang === "fa" ? "مقدار" : "Value", is_header: true, align: "right", valign: "middle" },
+
+    // Keep the Rich table layout, but split long sections into smaller
+    // visual groups so the content does not become a dense wall of rows.
+    for (let i = 0; i < rows.length; i += 4) {
+      const chunk = rows.slice(i, i + 4);
+      blocks.push({
+        type: "table",
+        is_bordered: true,
+        is_striped: true,
+        is_compact: false,
+        cells: [
+          [
+            { text: lang === "fa" ? "عنوان" : "Field", is_header: true, align: "right", valign: "middle" },
+            { text: lang === "fa" ? "مقدار" : "Value", is_header: true, align: "right", valign: "middle" },
+          ],
+          ...chunk.map(row => [
+            { text: row.label, align: "right", valign: "middle" },
+            { text: row.value, align: "right", valign: "middle" },
+          ]),
         ],
-        ...rows.map(row => [
-          { text: row.label, align: "right", valign: "middle" },
-          { text: row.value, align: "right", valign: "middle" },
-        ]),
-      ],
-    });
+      });
+
+      if (i + 4 < rows.length) {
+        blocks.push({ type: "paragraph", text: " " });
+      }
+    }
     rows.length = 0;
   };
 
