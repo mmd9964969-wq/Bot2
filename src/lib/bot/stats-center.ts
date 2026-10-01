@@ -691,66 +691,37 @@ async function anomalyData(pool: Pool, chatId: number) {
   };
 }
 
-async function topUsers(
-  pool: Pool,
-  chatId: number,
-  mode: "messages" | "interactions",
-  period: StatsPeriod,
-  limit = 3,
-) {
-  if (mode === "messages") {
-    const condition = period === "all"
-      ? "TRUE"
-      : `${rawDayExpression("m")} >= ((NOW() AT TIME ZONE '${TZ}')::date - INTERVAL '${period === "7d" ? "6" : period === "30d" ? "29" : "0"} days')::date`;
-    const result = await pool.query<any>(
-      `SELECT
-        m.user_id,
-        MAX(m.username) AS username,
-        MAX(m.first_name) AS first_name,
-        COUNT(*)::int n
-       FROM bot_message_records m
-       WHERE m.chat_id=$1 AND m.user_id IS NOT NULL AND ${condition}
-       GROUP BY m.user_id
-       ORDER BY n DESC,m.user_id
-       LIMIT ${Math.max(1, Math.min(limit, 10))}`,
+async function topUsers(pool: Pool, chatId: number, mode: "messages" | "interactions", period: StatsPeriod, limit = 3) {
+  const lim=Math.max(1,Math.min(limit,10));
+  if(mode==="messages"){
+    let condition="TRUE";
+    if(period==="today") condition=rawDayExpression("m")+"=(NOW() AT TIME ZONE '"+TZ+"')::date";
+    else if(period==="7d") condition=rawDayExpression("m")+">=((NOW() AT TIME ZONE '"+TZ+"')::date-INTERVAL '6 days')::date";
+    else if(period==="30d") condition=rawDayExpression("m")+">=((NOW() AT TIME ZONE '"+TZ+"')::date-INTERVAL '29 days')::date";
+    else if(period==="month") condition=rawDayExpression("m")+">=date_trunc('month',NOW() AT TIME ZONE '"+TZ+"')::date";
+    else if(period==="prevmonth") condition=rawDayExpression("m")+">=date_trunc('month',NOW() AT TIME ZONE '"+TZ+"')::date-INTERVAL '1 month' AND "+rawDayExpression("m")+"<date_trunc('month',NOW() AT TIME ZONE '"+TZ+"')::date";
+    const result=await pool.query<any>(
+      "SELECT m.user_id,MAX(m.username) AS username,MAX(m.first_name) AS first_name,COUNT(*)::int n "+
+      "FROM bot_message_records m WHERE m.chat_id=$1 AND m.user_id IS NOT NULL AND "+condition+
+      " GROUP BY m.user_id ORDER BY n DESC,m.user_id LIMIT "+lim,
       [chatId],
     );
-    return result.rows.map((x: any) => ({
-      userId: number(x.user_id),
-      username: x.username,
-      firstName: x.first_name,
-      count: number(x.n),
-    }));
+    return result.rows.map((x:any)=>({userId:number(x.user_id),username:x.username,firstName:x.first_name,count:number(x.n)}));
   }
 
-  const condition = period === "all"
-    ? "TRUE"
-    : period === "7d"
-      ? `d.day>=((NOW() AT TIME ZONE '${TZ}')::date-INTERVAL '6 days')::date`
-      : `d.day>=((NOW() AT TIME ZONE '${TZ}')::date-INTERVAL '29 days')::date`;
-
-  const result = await pool.query<any>(
-    `SELECT
-      d.target_user_id user_id,
-      MAX(m.username) username,
-      MAX(m.first_name) first_name,
-      SUM(d.interaction_count)::int n
-     FROM stats_interactions_daily d
-     LEFT JOIN member_tag_activity m
-       ON m.group_id=d.group_id AND m.user_id=d.target_user_id
-     WHERE d.group_id=$1 AND ${condition}
-     GROUP BY d.target_user_id
-     ORDER BY n DESC,d.target_user_id
-     LIMIT ${Math.max(1, Math.min(limit, 10))}`,
+  let condition="TRUE";
+  if(period==="today") condition="d.day=(NOW() AT TIME ZONE '"+TZ+"')::date";
+  else if(period==="7d") condition="d.day>=((NOW() AT TIME ZONE '"+TZ+"')::date-INTERVAL '6 days')::date";
+  else if(period==="30d") condition="d.day>=((NOW() AT TIME ZONE '"+TZ+"')::date-INTERVAL '29 days')::date";
+  else if(period==="month") condition="d.day>=date_trunc('month',NOW() AT TIME ZONE '"+TZ+"')::date";
+  else if(period==="prevmonth") condition="d.day>=date_trunc('month',NOW() AT TIME ZONE '"+TZ+"')::date-INTERVAL '1 month' AND d.day<date_trunc('month',NOW() AT TIME ZONE '"+TZ+"')::date";
+  const result=await pool.query<any>(
+    "SELECT d.target_user_id user_id,MAX(m.username) username,MAX(m.first_name) first_name,SUM(d.interaction_count)::int n "+
+    "FROM stats_interactions_daily d LEFT JOIN member_tag_activity m ON m.group_id=d.group_id AND m.user_id=d.target_user_id "+
+    "WHERE d.group_id=$1 AND "+condition+" GROUP BY d.target_user_id ORDER BY n DESC,d.target_user_id LIMIT "+lim,
     [chatId],
-  ).catch(() => ({ rows: [] }));
-
-  return result.rows.map((x: any) => ({
-    userId: number(x.user_id),
-    username: x.username,
-    firstName: x.first_name,
-    count: number(x.n),
-  }));
+  ).catch(()=>({rows:[]}));
+  return result.rows.map((x:any)=>({userId:number(x.user_id),username:x.username,firstName:x.first_name,count:number(x.n)}));
 }
 
 async function dailyUsers(pool: Pool, chatId: number, day: string, limit = 3) {
@@ -1265,22 +1236,31 @@ async function renderPeriods(chatId: number, messageId: number, scope: StatsScop
   return editPanel(chatId,messageId,text,periodButtons(scope,targetUserId));
 }
 
+async function groupPeriodCounts(pool:Pool,chatId:number,period:StatsPeriod){
+  let condition="TRUE";
+  if(period==="today") condition=rawDayExpression("m")+"=(NOW() AT TIME ZONE '"+TZ+"')::date";
+  else if(period==="7d") condition=rawDayExpression("m")+">=((NOW() AT TIME ZONE '"+TZ+"')::date-INTERVAL '6 days')::date";
+  else if(period==="30d") condition=rawDayExpression("m")+">=((NOW() AT TIME ZONE '"+TZ+"')::date-INTERVAL '29 days')::date";
+  else if(period==="month") condition=rawDayExpression("m")+">=date_trunc('month',NOW() AT TIME ZONE '"+TZ+"')::date";
+  else if(period==="prevmonth") condition=rawDayExpression("m")+">=date_trunc('month',NOW() AT TIME ZONE '"+TZ+"')::date-INTERVAL '1 month' AND "+rawDayExpression("m")+"<date_trunc('month',NOW() AT TIME ZONE '"+TZ+"')::date";
+  const r=await pool.query<any>(
+    "SELECT COUNT(*)::int messages,COUNT(DISTINCT user_id)::int active_users,COUNT(*) FILTER(WHERE has_link)::int links "+
+    "FROM bot_message_records m WHERE m.chat_id=$1 AND "+condition,
+    [chatId],
+  );
+  return r.rows[0]||{};
+}
+
 async function renderGroupPeriod(pool: Pool, chatId: number, messageId: number, period: StatsPeriod) {
   const d=await groupOverviewData(pool,chatId);
+  const periodData=await groupPeriodCounts(pool,chatId,period);
   const top=await topUsers(pool,chatId,"messages",period,5);
   const rows=[
     renderHeader(scopeLabel("group")+" · "+periodLabel(period)),
     statusLine("بازه",periodLabel(period)),
-    statusLine("پیام","【 "+(
-      period==="today"?d.messagesToday:
-      period==="7d"?d.messagesWeek:
-      period==="30d"?number(d.messagesMonth):
-      period==="month"?d.messagesMonth:
-      period==="prevmonth"?Math.max(0,d.messagesMonth):
-      d.totalMessages
-    )+" 】"),
+    statusLine("پیام","【 "+number(periodData.messages)+" 】"),
     statusLine("اعضای فعلی","【 "+d.memberCount+" 】"),
-    statusLine("کاربران فعال ۲۴ ساعت","【 "+d.active24h+" 】"),
+    statusLine("کاربران فعال در بازه","【 "+number(periodData.active_users)+" 】"),
     statusLine("اعضای جدید","【 "+(
       period==="today"?d.joinsToday:
       period==="7d"?d.joinsWeek:
@@ -1531,8 +1511,20 @@ async function renderHours(pool: Pool, chatId: number, messageId: number, scope:
   ]);
 }
 
+async function dailyUsersForUser(pool:Pool,chatId:number,userId:number,day:string,limit=5){
+  const r=await pool.query<any>(
+    "SELECT m.user_id,MAX(m.username) username,MAX(m.first_name) first_name,COUNT(*)::int n "+
+    "FROM bot_message_records m WHERE m.chat_id=$1 AND m.user_id=$2 AND "+rawDayExpression("m")+"=$3::date "+
+    "GROUP BY m.user_id LIMIT "+Math.max(1,Math.min(limit,10)),
+    [chatId,userId,day],
+  ).catch(()=>({rows:[]}));
+  return r.rows.map((x:any)=>({userId:number(x.user_id),username:x.username,firstName:x.first_name,count:number(x.n)}));
+}
+
 async function renderDay(pool: Pool, chatId: number, messageId: number, scope: StatsScope, day: string, targetUserId?: number) {
-  const top=await dailyUsers(pool,chatId,day,5);
+  const top=scope==="user"&&targetUserId
+    ? await dailyUsersForUser(pool,chatId,targetUserId,day,5)
+    : await dailyUsers(pool,chatId,day,5);
   const hourly=scope==="user"&&targetUserId
     ? await hourlyUser(pool,chatId,targetUserId,day)
     : await hourlyGroup(pool,chatId,day);
@@ -1609,11 +1601,12 @@ async function previousPeriodUser(pool: Pool,chatId:number,userId:number){
 
 async function renderContent(pool: Pool, chatId: number, messageId: number, scope: StatsScope, period: StatsPeriod, targetUserId?: number) {
   if(scope==="user"&&targetUserId){
+    const u=await resolveUser(pool,chatId,targetUserId);
     const c=await rawUserContent(pool,chatId,targetUserId,period);
     const total=Object.values(c).reduce((n,v)=>n+number(v),0);
     const text=[
       renderHeader("تحلیل محتوا · "+periodLabel(period)),
-      userTag(targetUserId),
+      userTag(targetUserId,u.username,u.first_name),
       "",
       statusLine("کل پیام","【 "+(total-number(c.links))+" 】"),
       statusLine("لینک","【 "+number(c.links)+" 】"),
