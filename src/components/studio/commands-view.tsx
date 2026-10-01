@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { cloneStudioDefaults, type StudioCommand, type StudioDocument, type StudioResponseTemplate } from "@/lib/bot/studio";
 import { useStudio } from "@/store/studio";
 import { Panel, PanelTitle } from "./panel";
+import { RichEditor } from "./rich-editor";
 
 export function CommandsView() {
   const fa = useStudio((s) => s.uiLang) === "fa";
@@ -70,7 +71,7 @@ export function CommandsView() {
   return (
     <div className="grid gap-5 lg:grid-cols-[19rem_1fr]">
       <Panel className="h-fit lg:sticky lg:top-28">
-        <PanelTitle kicker={fa ? "COMMAND CENTER" : "COMMAND CENTER"} title={fa ? "مرکز مدیریت دستورات" : "Command center"} hint={fa ? "۹ دستور فعال در دو فاز؛ نام، دسترسی و پاسخ از اینجا کنترل می‌شود." : "9 active commands across two phases; aliases, access and replies are controlled here."} />
+        <PanelTitle kicker={fa ? "COMMAND CENTER" : "COMMAND CENTER"} title={fa ? "مرکز مدیریت دستورات" : "Command center"} hint={fa ? "دستورات، دسترسی و پاسخ‌ها را با ویرایشگر متن غنی، جدول، فهرست، رسانه، نقل‌قول و دکمه کنترل کنید." : "Edit commands, access and replies with rich text, tables, lists, media, quotes and buttons."} />
         <div className="flex gap-1.5">
           <Filter active={phase === 0} onClick={() => setPhase(0)}>ALL</Filter>
           {[1, 2].map((p) => <Filter key={p} active={phase === p} onClick={() => setPhase(p)}>P{p}</Filter>)}
@@ -149,8 +150,8 @@ function CommandEditor({ command, fa, onPatch }: { command: StudioCommand; fa: b
         <EditorField label={fa ? "نام‌های انگلیسی" : "English aliases"}><Input dir="ltr" value={command.aliasesEn.join(" ")} onChange={(e) => onPatch({ aliasesEn: e.target.value.split(/\s+/).filter(Boolean) })} /></EditorField>
         <EditorField label={fa ? "حداقل مقام" : "Minimum rank"}><select value={command.minRank} onChange={(e) => onPatch({ minRank: e.target.value as StudioCommand["minRank"] })} className="h-9 rounded-lg bg-surface-2 px-2 text-xs ring-1 ring-line"><option value="member">{fa ? "عضو" : "member"}</option><option value="admin">{fa ? "ادمین" : "admin"}</option><option value="sudo">sudo</option><option value="owner">{fa ? "مالک" : "owner"}</option></select></EditorField>
         <EditorField label={fa ? "قابلیت متصل" : "Connected capability"}><div className="flex h-9 items-center rounded-lg bg-surface-2 px-3 text-xs ring-1 ring-line"><Badge tone="accent">{command.capabilityId}</Badge></div></EditorField>
-        <EditorField label={fa ? "پاسخ فارسی" : "Persian response"}><textarea value={command.responseFa} onChange={(e) => onPatch({ responseFa: e.target.value })} className="min-h-56 w-full resize-y rounded-xl bg-surface-2 p-3 text-sm leading-6 ring-1 ring-line outline-none focus:ring-accent/40" /></EditorField>
-        <EditorField label={fa ? "پاسخ انگلیسی" : "English response"}><textarea dir="ltr" value={command.responseEn} onChange={(e) => onPatch({ responseEn: e.target.value })} className="min-h-56 w-full resize-y rounded-xl bg-surface-2 p-3 text-sm leading-6 ring-1 ring-line outline-none focus:ring-accent/40" /></EditorField>
+        <EditorField label={fa ? "پاسخ فارسی · Rich Message" : "Persian response · Rich Message"}><RichEditor value={command.responseFa} rtl={fa} onChange={(value) => onPatch({ responseFa: value })} /></EditorField>
+        <EditorField label={fa ? "پاسخ انگلیسی · Rich Message" : "English response · Rich Message"}><RichEditor value={command.responseEn} rtl={false} onChange={(value) => onPatch({ responseEn: value })} /></EditorField>
       </div>
       <div className="mt-4 rounded-xl bg-bg p-3 text-[11px] leading-6 text-muted ring-1 ring-line">
         {fa ? "متغیرهای پویا: {{user_name}}، {{user_id}}، {{username}}، {{rank}}، {{chat_title}}، {{chat_id}}، {{members_count}}، {{admins_count}}، {{version}}، {{bot_name}} و {{live_card}}." : "Dynamic variables: {{user_name}}, {{user_id}}, {{username}}, {{rank}}, {{chat_title}}, {{chat_id}}, {{members_count}}, {{admins_count}}, {{version}}, {{bot_name}} and {{live_card}}."}
@@ -176,7 +177,7 @@ function ResponseCard({ item, fa, onPatch }: { item: StudioResponseTemplate; fa:
         </div>
         <Badge tone={item.phase === 1 ? "ok" : "warn"}>P{item.phase}</Badge>
       </div>
-      <textarea value={fa ? item.responseFa : item.responseEn} dir={fa ? "rtl" : "ltr"} onChange={(e) => onPatch(fa ? { responseFa: e.target.value } : { responseEn: e.target.value })} className="mt-3 min-h-36 w-full resize-y rounded-xl bg-bg p-3 text-xs leading-6 ring-1 ring-line outline-none focus:ring-accent/40" />
+      <div className="mt-3"><RichEditor value={fa ? item.responseFa : item.responseEn} rtl={fa} onChange={(value) => onPatch(fa ? { responseFa: value } : { responseEn: value })} /></div>
     </div>
   );
 }
