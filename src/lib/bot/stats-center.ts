@@ -961,25 +961,38 @@ async function hourlyUser(pool: Pool, chatId: number, userId: number, day?: stri
 }
 
 async function memberDynamics(pool: Pool, chatId: number, period: StatsPeriod) {
-  const bounds = periodCondition(period, "d");
-  const result = await pool.query<any>(
-    `SELECT
-      (SELECT COUNT(*)::int FROM bot_member_join_events j
-       WHERE j.group_id=$1 AND (j.joined_at AT TIME ZONE '${TZ}')::date IN (
-         SELECT day FROM stats_group_daily d WHERE d.group_id=$1 AND ${bounds}
-       )) joins,
-      (SELECT COUNT(*)::int FROM bot_member_leave_events l
-       WHERE l.group_id=$1 AND (l.left_at AT TIME ZONE '${TZ}')::date IN (
-         SELECT day FROM stats_group_daily d WHERE d.group_id=$1 AND ${bounds}
-       )) leaves,
-      (SELECT COUNT(DISTINCT j.user_id)::int FROM bot_member_join_events j
-       WHERE j.group_id=$1 AND j.joined_at>=NOW()-INTERVAL '7 days') new_users,
-      (SELECT COUNT(DISTINCT m.user_id)::int FROM bot_message_records m
-       WHERE m.chat_id=$1 AND m.user_id IS NOT NULL AND ${period=== "all" ? "TRUE" : `${rawTsExpression("m")}>=NOW()-INTERVAL '${period === "7d" ? "6" : period === "30d" ? "29" : period === "month" ? "31" : period === "prevmonth" ? "60" : "1"} days'`}) active_users
-    `,
+  let joinCondition="TRUE";
+  let leaveCondition="TRUE";
+  let activityCondition="TRUE";
+  if(period==="today"){
+    joinCondition="j.joined_at>=CURRENT_DATE";
+    leaveCondition="l.left_at>=CURRENT_DATE";
+    activityCondition=rawTsExpression("m")+">=CURRENT_DATE";
+  }else if(period==="7d"){
+    joinCondition="j.joined_at>=NOW()-INTERVAL '6 days'";
+    leaveCondition="l.left_at>=NOW()-INTERVAL '6 days'";
+    activityCondition=rawTsExpression("m")+">=NOW()-INTERVAL '6 days'";
+  }else if(period==="30d"){
+    joinCondition="j.joined_at>=NOW()-INTERVAL '29 days'";
+    leaveCondition="l.left_at>=NOW()-INTERVAL '29 days'";
+    activityCondition=rawTsExpression("m")+">=NOW()-INTERVAL '29 days'";
+  }else if(period==="month"){
+    joinCondition="j.joined_at>=date_trunc('month',NOW())";
+    leaveCondition="l.left_at>=date_trunc('month',NOW())";
+    activityCondition=rawTsExpression("m")+">=date_trunc('month',NOW())";
+  }else if(period==="prevmonth"){
+    joinCondition="j.joined_at>=date_trunc('month',NOW())-INTERVAL '1 month' AND j.joined_at<date_trunc('month',NOW())";
+    leaveCondition="l.left_at>=date_trunc('month',NOW())-INTERVAL '1 month' AND l.left_at<date_trunc('month',NOW())";
+    activityCondition=rawTsExpression("m")+">=date_trunc('month',NOW())-INTERVAL '1 month' AND "+rawTsExpression("m")+"<date_trunc('month',NOW())";
+  }
+  const result=await pool.query<any>(
+    "SELECT "+
+      "(SELECT COUNT(*)::int FROM bot_member_join_events j WHERE j.group_id=$1 AND "+joinCondition+") joins,"+
+      "(SELECT COUNT(*)::int FROM bot_member_leave_events l WHERE l.group_id=$1 AND "+leaveCondition+") leaves,"+
+      "(SELECT COUNT(DISTINCT m.user_id)::int FROM bot_message_records m WHERE m.chat_id=$1 AND m.user_id IS NOT NULL AND "+activityCondition+") active_users",
     [chatId],
-  ).catch(() => ({ rows: [] }));
-  return result.rows[0] || {};
+  ).catch(()=>({rows:[]}));
+  return result.rows[0]||{};
 }
 
 async function retentionData(pool: Pool, chatId: number) {
