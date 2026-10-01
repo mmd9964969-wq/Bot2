@@ -27,6 +27,7 @@ import { renderGameText } from "../src/lib/bot/game-emoji.ts";
 import { ensureCleanupSchema, trackCleanupMessage, handleCleanupText, handleCleanupCallback } from "../src/lib/bot/cleanup-engine.ts";
 import { ensureOwnerGroupSchema, upsertOwnerGroupFromChat, touchOwnerGroupActivity } from "../src/lib/bot/owner-groups.ts";
 import { ensureDateSchema, handleDateTextInput, handleDateCallback, openDateCenterFromCommand, runDateReminders } from "../src/lib/bot/date-center.ts";
+import { decodeRichDocument, richDocumentToPlainText, renderStudioTemplate, validateRichDocument } from "../src/lib/bot/rich-message.ts";
 
 const TOKEN = process.env.BOT_TOKEN ?? "";
 if (!TOKEN) { console.error("BOT_TOKEN is missing"); process.exit(1); }
@@ -652,7 +653,7 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
       const coreLiveIds=new Set(["robot","id","admin","info","rank","me","ping","bot","status"]);
       if(coreLiveIds.has(studioCommand.id)){
         if(configuredTemplate && configuredTemplate.includes("{{live_card}}")){
-          return configuredTemplate.replace(/{{\s*live_card\s*}}/gi,liveCard).replace(/{{\s*([a-z0-9_]+)\s*}}/gi,(_,key)=>values[key]??"—");
+          return renderStudioTemplate(configuredTemplate,values);
         }
         // Core information/status commands must never use a stale static panel template.
         return liveCard;
@@ -661,7 +662,7 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
         ? configuredTemplate
         : (ctx.lang==="fa"?studioCommand.responseFa:studioCommand.responseEn);
       if(!selected.trim()) return liveCard;
-      return selected.replace(/{{\s*([a-z0-9_]+)\s*}}/gi,(_,key)=>values[key]??"—");
+      return renderStudioTemplate(selected,values);
     }catch(error){
       console.error("[studio-command]",error);
       return ctx.lang==="fa"?"✗ اجرای دستور ناموفق بود؛ دسترسی ربات یا هدف را بررسی کنید.":"✗ Command failed; check bot permissions or target.";
@@ -704,7 +705,7 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
     live_card:"—"
   };
   await logCommandAccess(ctx,panelCommand.command_key,"command_executed","allowed",role);
-  return template.replace(/{{\s*([a-z0-9_]+)\s*}}/gi,(_,key)=>values[key]??"—");
+  return renderStudioTemplate(template,values);
 }
 
 function render(template: string, ctx: BotContext) {
@@ -1415,7 +1416,7 @@ async function processMessage(msg: TgMessage, edited = false) {
     if (!edited && isGameCenterCommand(text)) payload.reply_markup = gameCenterKeyboard(ctx.userId);
 
     // Core «اطلاعات / info» gets live drill-down buttons into the existing
-    // management centers. Normal buttons use the › marker; back is blue.
+    // management centers. The same reply markup can accompany Rich Messages.
     const isInfoCommand = ["info","اطلاعات"].includes(directToken) && directArgs.length === 0;
     if (isInfoCommand) {
       const faButtons = [
@@ -1433,6 +1434,36 @@ async function processMessage(msg: TgMessage, edited = false) {
         [{text:"‹ Back",callback_data:"c:home",style:"primary"}],
       ];
       payload.reply_markup = {inline_keyboard: ctx.lang === "fa" ? faButtons : enButtons};
+    }
+
+    const rich = decodeRichDocument(studioResult);
+    if (rich) {
+      const validation = validateRichDocument(rich);
+      if (!validation.ok) {
+        console.error("[rich-message] validation failed:", validation.errors);
+      } else {
+        const sent = await telegramApi<any>("sendRichMessage", {
+          chat_id: chat.id,
+          rich_message: {
+            blocks: rich.blocks,
+            is_rtl: rich.is_rtl ?? ctx.lang === "fa",
+          },
+          reply_parameters: { message_id: msg.message_id },
+          ...(payload.reply_markup ? { reply_markup: payload.reply_markup } : {}),
+        }).catch((error) => {
+          console.error("[rich-message] sendRichMessage failed:", error);
+          return null;
+        });
+        if (sent?.ok) return;
+      }
+
+      await telegramApi("sendMessage", {
+        chat_id: chat.id,
+        text: richDocumentToPlainText(rich),
+        reply_to_message_id: msg.message_id,
+        ...(payload.reply_markup ? { reply_markup: payload.reply_markup } : {}),
+      }).catch(() => {});
+      return;
     }
 
     await telegramApi("sendMessage", payload);
