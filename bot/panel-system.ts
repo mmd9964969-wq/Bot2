@@ -7,7 +7,8 @@ import { ensureContentLocks, editRichLockCenter } from "../src/lib/bot/content-l
 import { SUBSCRIPTION_PLANS, createGroupSubscription, renewGroupSubscription, cancelGroupSubscription, getActiveGroupSubscription, getCurrentGroupSubscription, resolveCustomer, resolveGroup, validateGroup, planLabel, type SubscriptionPlan } from "../src/lib/bot/group-subscriptions.ts";
 import { glassKeyboard, styledGlassButton } from "../src/lib/bot/panel-design.ts";
 import { getGroupLanguage, setGroupLanguage, ensureGroupLanguageSchema, normalizeBotLang, languageNative, languageButtonLabel, SUPPORTED_LANGUAGES, type BotLang } from "../src/lib/bot/i18n.ts";
-import { prepareRichDocument, validateRichDocument } from "../src/lib/bot/rich-message.ts";
+import { prepareRichDocument, validateRichDocument, richDocumentToPlainText } from "../src/lib/bot/rich-message.ts";
+import { ensureSudoSchema, listSudos, getSudo, upsertSudo, removeSudo, sudoLevelLabel, sudoCapabilities, sudoSecurityRules, type SudoLevel } from "../src/lib/bot/sudo-center.ts";
 import { ensureOwnerSudoSchema, ownerSudoCallback, handleOwnerSudoTextInput } from "../src/lib/bot/owner-sudo.ts";
 import { AUTOMATION_ACTIONS } from "../src/lib/bot/automation-engine.ts";
 import { getGroupStats } from "../src/lib/bot/runtime.ts";
@@ -93,7 +94,8 @@ const K={
     [["مدیریت گروه‌ها","o:groups"]],
     [["زبان گروه‌ها","o:languages"],["ارسال همگانی","o:broadcast"]],
     [["کنترل اجرایی","o:runtime"],["ممیزی سیستم","o:audit"]],
-    [["امنیت و دسترسی","o:security"],["پشتیبان‌گیری و بازیابی","o:backup"]],
+    [["مرکز سودو","o:sudo"],["امنیت و دسترسی","o:security"]],
+    [["پشتیبان‌گیری و بازیابی","o:backup"]],
     [["تنظیمات پیشرفته","o:settings"],["وضعیت سرور و منابع","o:server"]],
     [["فهرست سیاه مشتریان","o:blacklist"],["مدیریت قابلیت‌ها","o:features"]],
     [["مدیریت سودو","os:center"],["مرکز هوش مصنوعی","o:ai"]],
@@ -147,7 +149,8 @@ const PANEL_TITLES:Record<string,Partial<Record<BotLang,string>>> = {
   "مدیریت قابلیت‌ها":{en:"Fᴇᴀᴛᴜʀᴇ Cᴇɴᴛᴇʀ",ar:"إدارة الميزات",ru:"Управление функциями",tr:"Özellik Merkezi",zh:"功能中心"},
   "امنیت و دسترسی":{en:"Sᴇᴄᴜʀɪᴛʏ & Aᴄᴄᴇss",ar:"الأمان والصلاحيات",ru:"Безопасность и доступ",tr:"Güvenlik ve Erişim",zh:"安全与访问"},
   "ممیزی سیستم":{en:"Sʏsᴛᴇᴍ Aᴜᴅɪᴛ",ar:"تدقيق النظام",ru:"Аудит системы",tr:"Sistem Denetimi",zh:"系统审计"},
-  "ارسال همگانی":{en:"Bʀᴏᴀᴅᴄᴀsᴛ Cᴇɴᴛᴇʀ",ar:"الإرسال الجماعي",ru:"Массовая рассылка",tr:"Toplu Gönderim",zh:"群发中心"}
+  "ارسال همگانی":{en:"Bʀᴏᴀᴅᴄᴀsᴛ Cᴇɴᴛᴇʀ",ar:"الإرسال الجماعي",ru:"Массовая рассылка",tr:"Toplu Gönderim",zh:"群发中心"},
+  "مرکز سودو":{en:"Sᴜᴅᴏ Cᴇɴᴛᴇʀ",ar:"مركز سودو",ru:"Центр sudo",tr:"Sudo Merkezi",zh:"Sudo 中心"}
 };
 
 const BUTTON_LABELS:Record<string,Partial<Record<BotLang,string>>> = {
@@ -260,7 +263,7 @@ function ownerPanelTable(lang:BotLang,title:string,rows:Array<{label:string;valu
     caption:lang==="fa"?title:(PANEL_TITLES[title]?.[lang]??title),
     is_bordered:true,
     is_striped:true,
-    is_compact:true,
+    is_compact:false,
     cells:[
       [
         {text:lang==="fa"?"شاخص":"Field",is_header:true,align:"right",valign:"middle"},
@@ -381,6 +384,217 @@ function buildOwnerRichMessage(panel:PanelMessage,lang:BotLang){
   const validation=validateRichDocument(prepared);
   if(!validation.ok)console.error("[owner-rich] validation failed:",validation.errors);
   return {blocks:prepared.blocks,is_rtl:prepared.is_rtl};
+}
+
+type RichSudoButton={text:string;callback_data:string;style?:"primary"|"success"|"danger"|"link"};
+
+function sudoRichButtons(rows:RichSudoButton[][]):RichBlock[]{
+  return rows.filter(row=>row.length).map(row=>({
+    type:"buttons",
+    align:"center",
+    buttons:row.slice(0,4).map(button=>({
+      text:String(button.text),
+      callback_data:String(button.callback_data),
+      style:button.style??"link",
+    })),
+  }));
+}
+
+function sudoRichDocument(blocks:RichBlock[]){
+  const prepared=prepareRichDocument({version:1,is_rtl:true,blocks});
+  const validation=validateRichDocument(prepared);
+  if(!validation.ok)console.error("[sudo-rich] validation failed:",validation.errors);
+  return prepared;
+}
+
+function sudoFallbackKeyboard(rows:RichSudoButton[][]){
+  return {inline_keyboard:rows.filter(row=>row.length).map(row=>row.map(button=>({
+    text:String(button.text),
+    callback_data:String(button.callback_data),
+  })))};
+}
+
+async function sendSudoRich(pool:Pool,chatId:number,userId:number,blocks:RichBlock[],rows:RichSudoButton[][],messageId?:number){
+  const prepared=sudoRichDocument([...blocks,...sudoRichButtons(rows)]);
+  if(prepared.blocks.length<=500){
+    const payload:any={
+      chat_id:chatId,
+      rich_message:{
+        blocks:prepared.blocks,
+        is_rtl:true,
+      },
+    };
+    if(messageId)payload.message_id=messageId;
+    const method=messageId?"editMessageText":"sendRichMessage";
+    const result=await telegramApi(method,payload).catch(error=>{
+      console.error("[sudo-rich] Telegram Rich Message failed:",error);
+      return null;
+    });
+    if(result?.ok){
+      if(messageId){
+        const touched=await touchPanelMessage(pool,chatId,messageId,userId).catch(()=>false);
+        if(!touched)await bindPanelMessage(pool,chatId,messageId,userId,"panel").catch(()=>{});
+      }else{
+        const newId=Number((result.result as any)?.message_id);
+        if(Number.isSafeInteger(newId)&&newId>0)await bindPanelMessage(pool,chatId,newId,userId,"panel").catch(()=>{});
+      }
+      return result;
+    }
+  }
+
+  const plain=richDocumentToPlainText(prepared);
+  const markup=sudoFallbackKeyboard(rows);
+  const result=messageId
+    ? await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,text:plain,reply_markup:markup})
+    : await telegramApi("sendMessage",{chat_id:chatId,text:plain,reply_markup:markup});
+  if(result.ok){
+    if(messageId){
+      const touched=await touchPanelMessage(pool,chatId,messageId,userId).catch(()=>false);
+      if(!touched)await bindPanelMessage(pool,chatId,messageId,userId,"panel").catch(()=>{});
+    }else{
+      const newId=Number((result.result as any)?.message_id);
+      if(Number.isSafeInteger(newId)&&newId>0)await bindPanelMessage(pool,chatId,newId,userId,"panel").catch(()=>{});
+    }
+  }
+  return result;
+}
+
+const SUDO_LEVEL_ORDER:SudoLevel[]=["low","medium","pro"];
+
+function sudoLevelByKey(value:string):SudoLevel|null{
+  return SUDO_LEVEL_ORDER.includes(value as SudoLevel)?value as SudoLevel:null;
+}
+
+function sudoLevelBlocks(level:SudoLevel){
+  const capabilities=sudoCapabilities(level);
+  return [
+    {
+      type:"table",
+      caption:sudoLevelLabel(level),
+      is_bordered:true,
+      is_striped:true,
+      is_compact:false,
+      cells:[
+        [
+          {text:"دامنه",is_header:true,align:"right",valign:"middle"},
+          {text:"مقدار",is_header:true,align:"right",valign:"middle"},
+        ],
+        [
+          {text:"سطح",align:"right",valign:"middle"},
+          {text:sudoLevelLabel(level),align:"right",valign:"middle"},
+        ],
+        [
+          {text:"امنیت",align:"right",valign:"middle"},
+          {text:"اجباری و فعال",align:"right",valign:"middle"},
+        ],
+        [
+          {text:"تعداد قابلیت‌ها",align:"right",valign:"middle"},
+          {text:String(capabilities.length),align:"right",valign:"middle"},
+        ],
+      ],
+    },
+    {
+      type:"list",
+      items:capabilities.map(item=>({blocks:[{type:"paragraph",text:item}]})),
+    },
+  ];
+}
+
+function ownerSudoHomeBlocks(records:any[]){
+  const counts={
+    low:records.filter(x=>x.level==="low").length,
+    medium:records.filter(x=>x.level==="medium").length,
+    pro:records.filter(x=>x.level==="pro").length,
+  };
+  const blocks:RichBlock[]=[
+    {type:"heading",text:"◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · مرکز سودو",size:1},
+    {type:"paragraph",text:"مرکز کنترل سطوح دسترسی سودو؛ هر سطح دامنه مشخصی از عملیات را اجرا می‌کند و امنیت سودو در هسته اعمال می‌شود."},
+    {
+      type:"table",
+      caption:"وضعیت سودو",
+      is_bordered:true,
+      is_striped:true,
+      is_compact:false,
+      cells:[
+        [
+          {text:"شاخص",is_header:true,align:"right",valign:"middle"},
+          {text:"مقدار",is_header:true,align:"right",valign:"middle"},
+        ],
+        [
+          {text:"سودوهای ثبت‌شده",align:"right",valign:"middle"},
+          {text:String(records.length),align:"right",valign:"middle"},
+        ],
+        [
+          {text:"سودو پایین",align:"right",valign:"middle"},
+          {text:String(counts.low),align:"right",valign:"middle"},
+        ],
+        [
+          {text:"سودو متوسط",align:"right",valign:"middle"},
+          {text:String(counts.medium),align:"right",valign:"middle"},
+        ],
+        [
+          {text:"سودو حرفه‌ای",align:"right",valign:"middle"},
+          {text:String(counts.pro),align:"right",valign:"middle"},
+        ],
+        [
+          {text:"قفل امنیتی",align:"right",valign:"middle"},
+          {text:"اجباری",align:"right",valign:"middle"},
+        ],
+        [
+          {text:"حفاظت مالک",align:"right",valign:"middle"},
+          {text:"فعال",align:"right",valign:"middle"},
+        ],
+      ],
+    },
+    {type:"divider"},
+    {type:"details",summary:"سودو پایین",is_open:false,blocks:sudoLevelBlocks("low")},
+    {type:"details",summary:"سودو متوسط",is_open:false,blocks:sudoLevelBlocks("medium")},
+    {type:"details",summary:"سودو حرفه‌ای",is_open:false,blocks:sudoLevelBlocks("pro")},
+    {type:"details",summary:"سودوی امنیتی",is_open:false,blocks:[
+      {type:"list",items:sudoSecurityRules().map(item=>({blocks:[{type:"paragraph",text:item}]}))},
+    ]},
+    {type:"footer",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴜᴅᴏ Cᴇɴᴛᴇʀ"},
+  ];
+  return blocks;
+}
+
+function ownerSudoLevelBlocks(level:SudoLevel){
+  return [
+    {type:"heading",text:"◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · "+sudoLevelLabel(level),size:1},
+    {type:"paragraph",text:"سطح انتخاب‌شده را قبل از تخصیص بررسی کنید. تخصیص فقط توسط مالک انجام می‌شود و قفل امنیتی به‌صورت خودکار فعال می‌ماند."},
+    ...sudoLevelBlocks(level),
+    {type:"divider"},
+    {type:"details",summary:"قواعد امنیتی",is_open:true,blocks:[
+      {type:"list",items:sudoSecurityRules().map(item=>({blocks:[{type:"paragraph",text:item}]}))},
+    ]},
+    {type:"footer",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴜᴅᴏ Cᴏɴᴛʀᴏʟ"},
+  ];
+}
+
+function ownerSudoUserBlocks(row:any){
+  const level=String(row.level) as SudoLevel;
+  return [
+    {type:"heading",text:"◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · مدیریت سودو",size:1},
+    {
+      type:"table",
+      caption:"جزئیات سودو",
+      is_bordered:true,
+      is_striped:true,
+      is_compact:false,
+      cells:[
+        [{text:"شاخص",is_header:true,align:"right",valign:"middle"},{text:"مقدار",is_header:true,align:"right",valign:"middle"}],
+        [{text:"شناسه کاربر",align:"right",valign:"middle"},{text:String(row.user_id),align:"right",valign:"middle"}],
+        [{text:"سطح",align:"right",valign:"middle"},{text:sudoLevelLabel(level),align:"right",valign:"middle"}],
+        [{text:"امنیت",align:"right",valign:"middle"},{text:"اجباری و فعال",align:"right",valign:"middle"}],
+        [{text:"ثبت‌شده",align:"right",valign:"middle"},{text:faDate(row.created_at),align:"right",valign:"middle"}],
+        [{text:"آخرین تغییر",align:"right",valign:"middle"},{text:faDate(row.updated_at),align:"right",valign:"middle"}],
+      ],
+    },
+    {type:"divider"},
+    {type:"heading",text:"قابلیت‌های فعال",size:2},
+    {type:"list",items:sudoCapabilities(level).map(item=>({blocks:[{type:"paragraph",text:item}]}))},
+    {type:"footer",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴜᴅᴏ Cᴏɴᴛʀᴏʟ"},
+  ];
 }
 
 function normalizePanelDigits(value:string):string {
@@ -828,7 +1042,7 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
   await customerEnsure(pool,uid,msg.from!);
   const inputText=String(msg.text||"").trim();
   if(await handleOwnerSudoTextInput(pool,uid,msg.chat.id,inputText,ownerIds))return true;
-  if(["owner","مالک"].includes(raw)){
+  if(["owner","مالک","سودو"].includes(raw)){
     await audit(pool,String(uid),"owner_panel_opened",String(uid));await renderOwner(pool,uid,msg.chat.id);return true;
   }
   const subscriptionCommand = raw.replace(/\s+/g," ").trim();
@@ -853,6 +1067,35 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
   }
 
   const s=getSession(uid);
+  if(s&&s.flow==="owner_sudo_assign"){
+    const level=sudoLevelByKey(String(s.data.level||"low"));
+    if(!level){
+      clearSession(uid);
+      return send(msg.chat.id,"نشست سودو نامعتبر است.",menu([[["‹ بازگشت","o:sudo"]]]))&&true;
+    }
+    const repliedId=Number(msg.reply_to_message?.from?.id||0);
+    const targetId=Number.isSafeInteger(repliedId)&&repliedId>0 ? repliedId : Number(inputText.replace(/^@/,""));
+    if(!Number.isSafeInteger(targetId)||targetId<=0){
+      return send(msg.chat.id,"شناسه عددی کاربر معتبر وارد کنید یا روی پیام کاربر ریپلای کنید.",menu([[["‹ بازگشت","o:sudo"]]]))&&true;
+    }
+    const result=await upsertSudo(pool,targetId,level,uid,ownerIds);
+    if(!result.ok){
+      return send(msg.chat.id,
+        result.reason==="owner_protected"
+          ?"مالک نمی‌تواند سودو شود و در برابر عملیات سودو محافظت می‌شود."
+          :"افزودن سودو انجام نشد.",
+        menu([[["‹ بازگشت","o:sudo"]]])
+      )&&true;
+    }
+    clearSession(uid);
+    await audit(pool,String(uid),"sudo_assigned",String(targetId),{level,security:true});
+    return sendSudoRich(pool,msg.chat.id,uid,ownerSudoUserBlocks(result.row),[
+      [{text:"سطح پایین",callback_data:"o:sudo:set:"+targetId+":low"},{text:"سطح متوسط",callback_data:"o:sudo:set:"+targetId+":medium"}],
+      [{text:"سطح حرفه‌ای",callback_data:"o:sudo:set:"+targetId+":pro"}],
+      [{text:"حذف سودو",callback_data:"o:sudo:remove:"+targetId,style:"danger"}],
+      [{text:"‹ بازگشت",callback_data:"o:sudo:list",style:"primary"}],
+    ]) as any;
+  }
   if(s&&s.flow==="owner_subscription_create"){
     const step=Number(s.data.step||1);
     if(step===1){
@@ -1147,6 +1390,158 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   // CallbackQuery is acknowledged once by dispatchPanelCallback().
   const data=String(cb.data||"");const msg=cb.message;if(!msg)return;
   if(data.startsWith("os:"))return ownerSudoCallback(pool,msg.chat.id,msg.message_id,uid,data,ownerIds);
+  if(data==="o:sudo"){
+    await ensureSudoSchema(pool);
+    const records=await listSudos(pool);
+    return sendSudoRich(pool,msg.chat.id,uid,ownerSudoHomeBlocks(records),[
+      [{text:"سودو پایین",callback_data:"o:sudo:level:low"},{text:"سودو متوسط",callback_data:"o:sudo:level:medium"}],
+      [{text:"سودو حرفه‌ای",callback_data:"o:sudo:level:pro"}],
+      [{text:"فهرست سودوها",callback_data:"o:sudo:list"},{text:"افزودن سودو",callback_data:"o:sudo:add",style:"success"}],
+      [{text:"سودوی امنیتی",callback_data:"o:sudo:security"}],
+      [{text:"‹ بازگشت",callback_data:"o:home",style:"primary"}],
+    ],msg.message_id);
+  }
+  if(data.startsWith("o:sudo:level:")){
+    const level=sudoLevelByKey(data.slice("o:sudo:level:".length));
+    if(!level)return;
+    return sendSudoRich(pool,msg.chat.id,uid,ownerSudoLevelBlocks(level),[
+      [{text:"تخصیص این سطح",callback_data:"o:sudo:assign:"+level,style:"success"}],
+      [{text:"فهرست سودوها",callback_data:"o:sudo:list"},{text:"سودوی امنیتی",callback_data:"o:sudo:security"}],
+      [{text:"‹ بازگشت",callback_data:"o:sudo",style:"primary"}],
+    ],msg.message_id);
+  }
+  if(data==="o:sudo:add"){
+    session(uid,"owner_sudo_assign",{level:"low"});
+    return sendSudoRich(pool,msg.chat.id,uid,[
+      {type:"heading",text:"◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · افزودن سودو",size:1},
+      {type:"paragraph",text:"شناسه عددی کاربر را ارسال کنید یا روی پیام کاربر ریپلای کنید. سطح پیش‌فرض برای این مسیر «سودو پایین» است و بعداً از فهرست قابل تغییر است."},
+      {type:"table",caption:"حفاظت",is_bordered:true,is_striped:true,is_compact:false,cells:[
+        [{text:"قانون",is_header:true,align:"right",valign:"middle"},{text:"وضعیت",is_header:true,align:"right",valign:"middle"}],
+        [{text:"مالک",align:"right",valign:"middle"},{text:"قابل تبدیل به سودو نیست",align:"right",valign:"middle"}],
+        [{text:"امنیت",align:"right",valign:"middle"},{text:"خودکار فعال",align:"right",valign:"middle"}],
+      ]},
+    ],[
+      [{text:"سودو پایین",callback_data:"o:sudo:choose:low",style:"primary"},{text:"سودو متوسط",callback_data:"o:sudo:choose:medium"}],
+      [{text:"سودو حرفه‌ای",callback_data:"o:sudo:choose:pro"}],
+      [{text:"‹ بازگشت",callback_data:"o:sudo",style:"primary"}],
+    ],msg.message_id);
+  }
+  if(data.startsWith("o:sudo:choose:")){
+    const level=sudoLevelByKey(data.slice("o:sudo:choose:".length));
+    if(!level)return;
+    session(uid,"owner_sudo_assign",{level});
+    return sendSudoRich(pool,msg.chat.id,uid,[
+      {type:"heading",text:"◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · تخصیص سطح",size:1},
+      {type:"paragraph",text:"شناسه عددی کاربر را ارسال کنید یا روی پیام کاربر ریپلای کنید."},
+      {type:"table",caption:"سطح انتخاب‌شده",is_bordered:true,is_striped:true,is_compact:false,cells:[
+        [{text:"شاخص",is_header:true,align:"right",valign:"middle"},{text:"مقدار",is_header:true,align:"right",valign:"middle"}],
+        [{text:"سطح",align:"right",valign:"middle"},{text:sudoLevelLabel(level),align:"right",valign:"middle"}],
+        [{text:"امنیت",align:"right",valign:"middle"},{text:"اجباری و فعال",align:"right",valign:"middle"}],
+      ]},
+    ],[
+      [{text:"‹ بازگشت",callback_data:"o:sudo",style:"primary"}],
+    ],msg.message_id);
+  }
+  if(data==="o:sudo:list"){
+    const records=await listSudos(pool);
+    const tableRows=records.slice(0,30).map((row:any)=>[
+      {text:String(row.user_id),align:"right",valign:"middle"},
+      {text:sudoLevelLabel(String(row.level) as SudoLevel),align:"right",valign:"middle"},
+      {text:"فعال",align:"right",valign:"middle"},
+    ]);
+    const blocks:RichBlock[]=[
+      {type:"heading",text:"◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · فهرست سودوها",size:1},
+      tableRows.length
+        ? {type:"table",caption:"اعضای سودو",is_bordered:true,is_striped:true,is_compact:false,cells:[
+            [{text:"شناسه",is_header:true,align:"right",valign:"middle"},{text:"سطح",is_header:true,align:"right",valign:"middle"},{text:"امنیت",is_header:true,align:"right",valign:"middle"}],
+            ...tableRows,
+          ]}
+        : {type:"paragraph",text:"هنوز هیچ سودوی مدیریتی ثبت نشده است."},
+      {type:"divider"},
+      {type:"paragraph",text:tableRows.length?"برای مدیریت هر سودو، شناسه موردنظر را انتخاب کنید.":"ابتدا یکی از سطوح سودو را انتخاب و کاربر را اضافه کنید."},
+      {type:"footer",text:"Pᴇʀsɪᴀɴ ᴮᵒᴛ · Sᴜᴅᴏ Cᴇɴᴛᴇʀ"},
+    ];
+    const rows:RichSudoButton[][]=[];
+    for(const row of records.slice(0,20)){
+      rows.push([{text:"مدیریت "+String(row.user_id),callback_data:"o:sudo:user:"+String(row.user_id)}]);
+    }
+    rows.push([{text:"افزودن سودو",callback_data:"o:sudo:add",style:"success"},{text:"‹ بازگشت",callback_data:"o:sudo",style:"primary"}]);
+    return sendSudoRich(pool,msg.chat.id,uid,blocks,rows,msg.message_id);
+  }
+  if(data==="o:sudo:security"){
+    const rules=sudoSecurityRules();
+    return sendSudoRich(pool,msg.chat.id,uid,[
+      {type:"heading",text:"◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · سودوی امنیتی",size:1},
+      {type:"paragraph",text:"این لایه برای جلوگیری از سوءاستفاده از سطح سودو طراحی شده است. امنیت در زمان ثبت فعال می‌شود و عملیات حساس روی مالک از مسیر سودو عبور نمی‌کند."},
+      {type:"table",caption:"وضعیت امنیت",is_bordered:true,is_striped:true,is_compact:false,cells:[
+        [{text:"کنترل",is_header:true,align:"right",valign:"middle"},{text:"وضعیت",is_header:true,align:"right",valign:"middle"}],
+        [{text:"حفاظت مالک",align:"right",valign:"middle"},{text:"فعال",align:"right",valign:"middle"}],
+        [{text:"قفل امنیتی",align:"right",valign:"middle"},{text:"اجباری",align:"right",valign:"middle"}],
+        [{text:"ثبت ممیزی",align:"right",valign:"middle"},{text:"فعال",align:"right",valign:"middle"}],
+      ]},
+      {type:"list",items:rules.map(item=>({blocks:[{type:"paragraph",text:item}]}))},
+      {type:"footer",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴇᴄᴜʀᴇ Sᴜᴅᴏ"},
+    ],[
+      [{text:"فهرست سودوها",callback_data:"o:sudo:list"}],
+      [{text:"‹ بازگشت",callback_data:"o:sudo",style:"primary"}],
+    ],msg.message_id);
+  }
+  if(data.startsWith("o:sudo:assign:")){
+    const level=sudoLevelByKey(data.slice("o:sudo:assign:".length));
+    if(!level)return;
+    session(uid,"owner_sudo_assign",{level});
+    return sendSudoRich(pool,msg.chat.id,uid,[
+      {type:"heading",text:"◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · تخصیص سودو",size:1},
+      {type:"paragraph",text:"شناسه عددی کاربر را ارسال کنید یا روی پیام او ریپلای کنید."},
+      ...sudoLevelBlocks(level),
+    ],[
+      [{text:"‹ بازگشت",callback_data:"o:sudo",style:"primary"}],
+    ],msg.message_id);
+  }
+  if(data.startsWith("o:sudo:user:")){
+    const targetId=Number(data.slice("o:sudo:user:".length));
+    if(!Number.isSafeInteger(targetId)||targetId<=0)return;
+    const row=await getSudo(pool,targetId);
+    if(!row)return;
+    const level=String(row.level) as SudoLevel;
+    return sendSudoRich(pool,msg.chat.id,uid,ownerSudoUserBlocks(row),[
+      [{text:"سطح پایین",callback_data:"o:sudo:set:"+targetId+":low"},{text:"سطح متوسط",callback_data:"o:sudo:set:"+targetId+":medium"}],
+      [{text:"سطح حرفه‌ای",callback_data:"o:sudo:set:"+targetId+":pro"}],
+      [{text:"حذف سودو",callback_data:"o:sudo:remove:"+targetId,style:"danger"}],
+      [{text:"‹ بازگشت",callback_data:"o:sudo:list",style:"primary"}],
+    ],msg.message_id);
+  }
+  if(data.startsWith("o:sudo:set:")){
+    const parts=data.split(":");
+    const targetId=Number(parts[3]);
+    const level=sudoLevelByKey(parts[4]||"");
+    if(!Number.isSafeInteger(targetId)||targetId<=0||!level)return;
+    const result=await upsertSudo(pool,targetId,level,uid,ownerIds);
+    if(!result.ok){
+      return sendSudoRich(pool,msg.chat.id,uid,[
+        {type:"heading",text:"◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · تغییر سطح سودو",size:1},
+        {type:"paragraph",text:result.reason==="owner_protected"?"مالک قابل تبدیل یا مدیریت به‌عنوان سودو نیست.":"شناسه کاربر معتبر نیست."},
+      ],[[{text:"‹ بازگشت",callback_data:"o:sudo:list",style:"primary"}]],msg.message_id);
+    }
+    await audit(pool,String(uid),"sudo_level_changed",String(targetId),{level});
+    return sendSudoRich(pool,msg.chat.id,uid,ownerSudoUserBlocks(result.row),[
+      [{text:"سطح پایین",callback_data:"o:sudo:set:"+targetId+":low"},{text:"سطح متوسط",callback_data:"o:sudo:set:"+targetId+":medium"}],
+      [{text:"سطح حرفه‌ای",callback_data:"o:sudo:set:"+targetId+":pro"}],
+      [{text:"حذف سودو",callback_data:"o:sudo:remove:"+targetId,style:"danger"}],
+      [{text:"‹ بازگشت",callback_data:"o:sudo:list",style:"primary"}],
+    ],msg.message_id);
+  }
+  if(data.startsWith("o:sudo:remove:")){
+    const targetId=Number(data.slice("o:sudo:remove:".length));
+    if(!Number.isSafeInteger(targetId)||targetId<=0)return;
+    const removed=await removeSudo(pool,targetId);
+    if(removed)await audit(pool,String(uid),"sudo_removed",String(targetId),{});
+    return sendSudoRich(pool,msg.chat.id,uid,[
+      {type:"heading",text:"◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · حذف سودو",size:1},
+      {type:"paragraph",text:removed?"سودو با موفقیت حذف شد و دسترسی سطح سودو از هسته برداشته شد.":"این سودو دیگر در سامانه ثبت نشده است."},
+    ],[[{text:"فهرست سودوها",callback_data:"o:sudo:list"},{text:"‹ بازگشت",callback_data:"o:sudo",style:"primary"}]],msg.message_id);
+  }
+
   if(data==="o:subscriptions"){
     const [active,expiring,expired,lifetime]=await Promise.all([
       pool.query("SELECT COUNT(*)::int n FROM bot_group_subscriptions WHERE status='ACTIVE'"),
