@@ -1879,8 +1879,7 @@ export async function handleStatsTextInput(pool: Pool, msg: StatsMessage) {
     }
     s.flow="range_end";
     s.rangeStart=date;
-    await telegramApi("sendMessage",{chat_id:msg.chat.id,text:"تاریخ پایان بازه را ارسال کنید.
-نمونه: 2026-10-07"}).catch(()=>{});
+    await telegramApi("sendMessage",{chat_id:msg.chat.id,text:"تاریخ پایان بازه را ارسال کنید.\nنمونه: 2026-10-07"}).catch(()=>{});
     return true;
   }
 
