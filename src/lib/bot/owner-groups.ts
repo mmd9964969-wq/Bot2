@@ -50,6 +50,26 @@ export async function ensureOwnerGroupSchema(db:Queryable){
     CREATE INDEX IF NOT EXISTS idx_owner_group_audit_group_time ON owner_group_audit(group_id,created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_owner_group_audit_owner_time ON owner_group_audit(owner_id,created_at DESC);
   `);
+  // Backfill the new registry from legacy group records so existing groups are not lost.
+  try {
+    await db.query(`
+      INSERT INTO owner_group_registry(group_id,title,bot_status,is_enabled,last_sync_at,updated_at)
+      SELECT group_id,COALESCE(NULLIF(title,''),'گروه بدون نام'),CASE WHEN is_active THEN 'ACTIVE' ELSE 'DISABLED' END,is_active,NOW(),NOW()
+      FROM bot_customer_groups
+      ON CONFLICT(group_id) DO UPDATE SET
+        title=COALESCE(NULLIF(owner_group_registry.title,''),EXCLUDED.title),
+        is_enabled=owner_group_registry.is_enabled,
+        updated_at=NOW()
+    `);
+  } catch {}
+  try {
+    await db.query(`
+      INSERT INTO owner_group_registry(group_id,title,bot_status,is_enabled,last_sync_at,updated_at)
+      SELECT id,COALESCE(NULLIF(title,''),'گروه بدون نام'),'ACTIVE',TRUE,NOW(),NOW()
+      FROM bot_groups
+      ON CONFLICT(group_id) DO NOTHING
+    `);
+  } catch {}
 }
 
 function mapTelegramStatus(status:string):OwnerGroupStatus{
