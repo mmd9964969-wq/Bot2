@@ -241,24 +241,227 @@ async function answer(callbackId: string) {
   }).catch(() => {});
 }
 
+type RichInputBlock = Record<string, any>;
+
+function richInlineUser(userId: number, username?: string | null, firstName?: string | null) {
+  const label = username ? "@" + String(username).replace(/^@/, "") : String(firstName || userId);
+  return {
+    type: "url",
+    text: label,
+    url: "tg://user?id=" + encodeURIComponent(String(userId)),
+  };
+}
+
+function richButtonStyle(label: string, callbackData: string) {
+  const text = String(label || "").trim();
+  const data = String(callbackData || "");
+  if (/(?:^|:)back(?:$|:)/i.test(data) || /بازگشت/u.test(text)) return "primary";
+  if (/(?:^|:)(?:on|enable)(?::|$)/i.test(data)) return "success";
+  if (/(?:^|:)(?:off|disable)(?::|$)/i.test(data)) return "danger";
+  return "link";
+}
+
+function richButtons(rows: string[][][]): RichInputBlock[] {
+  return rows.map(row => ({
+    type: "buttons",
+    align: "center",
+    buttons: row.slice(0, 8).map(([label, callbackData]) => ({
+      text: String(label || "").replace(/^[^A-Za-z\u0600-\u06FF\u0660-\u0669]+/u, "").trim(),
+      callback_data: callbackData,
+      style: richButtonStyle(label, callbackData),
+    })),
+  }));
+}
+
+function richTable(headers: string[], rows: Array<Array<any>>, caption?: string): RichInputBlock {
+  const cells = [
+    headers.map(text => ({ text: String(text), is_header: true, align: "center", valign: "middle" })),
+    ...rows.map(row => row.map((cell: any) => ({
+      text: cell && typeof cell === "object" && cell.type ? cell : String(cell ?? "—"),
+      align: "right",
+      valign: "middle",
+    }))),
+  ];
+  return {
+    type: "table",
+    cells,
+    is_bordered: true,
+    is_compact: true,
+    ...(caption ? { caption: caption } : {}),
+  };
+}
+
+function richParagraph(text: string): RichInputBlock {
+  return { type: "paragraph", text };
+}
+
+function richHeading(text: string, size = 3): RichInputBlock {
+  return { type: "heading", text, size: Math.max(1, Math.min(6, size)) };
+}
+
+function richDivider(): RichInputBlock {
+  return { type: "divider" };
+}
+
+function richDetails(summary: string, blocks: RichInputBlock[], open = false): RichInputBlock {
+  return {
+    type: "details",
+    summary,
+    blocks,
+    ...(open ? { is_open: true } : {}),
+  };
+}
+
+function richFooter(text: string): RichInputBlock {
+  return { type: "footer", text };
+}
+
+function richStatus(text: string, kind: "normal" | "success" | "warning" = "normal"): RichInputBlock {
+  const body = kind === "success"
+    ? { type: "bold", text }
+    : kind === "warning"
+      ? { type: "italic", text }
+      : text;
+  return { type: "blockquote", blocks: [{ type: "paragraph", text: body }] };
+}
+
+function richizeLegacyText(text: string): RichInputBlock[] {
+  const source = String(text || "").replace(/\r/g, "");
+  const lines = source.split("\n");
+  const blocks: RichInputBlock[] = [];
+  let table: { label: string; value: string }[] = [];
+
+  const flushTable = () => {
+    if (!table.length) return;
+    blocks.push(richTable(["شاخص", "مقدار"], table.map(x => [x.label, x.value])));
+    table = [];
+  };
+
+  for (const original of lines) {
+    const line = original.trim();
+    if (!line) {
+      flushTable();
+      continue;
+    }
+    if (/^─────━━─────/u.test(line)) {
+      flushTable();
+      blocks.push(richDivider());
+      continue;
+    }
+    if (line.startsWith("◈ ")) {
+      flushTable();
+      blocks.push(richHeading(line.replace(/^◈\s*/u, ""), 1));
+      continue;
+    }
+    if (line.startsWith("★ - ")) {
+      flushTable();
+      blocks.push(richHeading(line.replace(/^★\s*-\s*/u, ""), 3));
+      continue;
+    }
+    const match = line.match(/^⛂\s*-\s*(.*?)\s*:\s*(.*)$/u);
+    if (match) {
+      table.push({ label: match[1], value: match[2] });
+      continue;
+    }
+    flushTable();
+    if (/^[𝟬-𝟵]{3}\s*[·|]/u.test(line)) {
+      const cleaned = line.replace(/[‹›]/gu, "").replace(/\s*·\s*/gu, "  ");
+      blocks.push(richParagraph(cleaned));
+      continue;
+    }
+    if (/^[●○■]/u.test(line)) {
+      blocks.push(richStatus(line.replace(/^[●○■]\s*/u, ""), line.startsWith("●") ? "success" : line.startsWith("■") ? "warning" : "normal"));
+      continue;
+    }
+    if (/^⛂\s*-/.test(line)) {
+      blocks.push(richParagraph(line.replace(/^⛂\s*-\s*/u, "")));
+      continue;
+    }
+    blocks.push(richParagraph(line));
+  }
+
+  flushTable();
+  return blocks.length ? blocks : [richParagraph("بدون داده")];
+}
+
 async function editPanel(chatId: number, messageId: number, text: string, rows: string[][][]) {
-  await telegramApi("editMessageText", {
+  const rich = await telegramApi<any>("editMessageText", {
     chat_id: chatId,
     message_id: messageId,
-    text,
-    parse_mode: "HTML",
-    reply_markup: kb(rows),
-  }).catch(() => {});
+    rich_message: {
+      blocks: [...richizeLegacyText(text), ...richButtons(rows)],
+      is_rtl: true,
+    },
+  }).catch(() => null);
+
+  if (!rich?.ok) {
+    await telegramApi("editMessageText", {
+      chat_id: chatId,
+      message_id: messageId,
+      text,
+      parse_mode: "HTML",
+      reply_markup: kb(rows),
+    }).catch(() => {});
+  }
   return true;
 }
 
 async function sendPanel(chatId: number, text: string, rows: string[][][]) {
-  await telegramApi("sendMessage", {
+  const rich = await telegramApi<any>("sendRichMessage", {
     chat_id: chatId,
-    text,
-    parse_mode: "HTML",
-    reply_markup: kb(rows),
-  });
+    rich_message: {
+      blocks: [...richizeLegacyText(text), ...richButtons(rows)],
+      is_rtl: true,
+    },
+  }).catch(() => null);
+
+  if (!rich?.ok) {
+    await telegramApi("sendMessage", {
+      chat_id: chatId,
+      text,
+      parse_mode: "HTML",
+      reply_markup: kb(rows),
+    }).catch(() => {});
+  }
+  return true;
+}
+
+async function editRichPanel(chatId: number, messageId: number, blocks: RichInputBlock[], rows: string[][][] = []) {
+  const rich = await telegramApi<any>("editMessageText", {
+    chat_id: chatId,
+    message_id: messageId,
+    rich_message: {
+      blocks: [...blocks, ...richButtons(rows)],
+      is_rtl: true,
+    },
+  }).catch(() => null);
+
+  if (!rich?.ok) {
+    return editPanel(chatId, messageId, blocks.map((block: any) => {
+      if (block.type === "heading") return "★ - " + String(block.text);
+      if (block.type === "divider") return "─────━━───── ◈ ─────━━─────";
+      if (block.type === "paragraph") return String(block.text);
+      if (block.type === "footer") return String(block.text);
+      return "";
+    }).filter(Boolean).join("\n"), rows);
+  }
+  return true;
+}
+
+async function sendRichPanel(chatId: number, blocks: RichInputBlock[], rows: string[][][] = []) {
+  const rich = await telegramApi<any>("sendRichMessage", {
+    chat_id: chatId,
+    rich_message: {
+      blocks: [...blocks, ...richButtons(rows)],
+      is_rtl: true,
+    },
+  }).catch(() => null);
+
+  if (!rich?.ok) {
+    const text = blocks.filter((x:any) => x.type === "paragraph" || x.type === "heading" || x.type === "footer")
+      .map((x:any) => String(x.text || "")).join("\n");
+    await sendPanel(chatId, text, rows);
+  }
   return true;
 }
 
@@ -1165,48 +1368,88 @@ function statusLine(label: string, value: string) {
 
 async function renderGroupOverview(pool: Pool, chatId: number, messageId?: number) {
   const d=await groupOverviewData(pool,chatId);
-  const lines=[
-    renderHeader("نمای کلی گروه"),
-    statusLine("پیام امروز","【 "+d.messagesToday+" 】"),
-    statusLine("پیام ۷ روزه","【 "+d.messagesWeek+" 】"),
-    statusLine("پیام این ماه","【 "+d.messagesMonth+" 】"),
-    statusLine("پیام کل","【 "+d.totalMessages+" 】"),
-    statusLine("میانگین پیام روزانه","【 "+decimal(d.dailyAverage)+" 】"),
-    statusLine("اعضای فعلی","【 "+d.memberCount+" 】"),
-    statusLine("فعال ۳۰ دقیقه اخیر","【 "+d.active30m+" 】"),
-    statusLine("فعال ۲۴ ساعت اخیر","【 "+d.active24h+" 】"),
-    statusLine("عضو جدید امروز","【 "+d.joinsToday+" 】"),
-    statusLine("خروج امروز","【 "+d.leavesToday+" 】"),
-    statusLine("رشد خالص امروز","【 "+signed(d.netToday)+" 】"),
-    statusLine("فعال‌ترین ساعت",d.busiestHour==null?"■":String(d.busiestHour).padStart(2,"0")+":00 · "+d.busiestHourCount),
-    statusLine("روند ۷ روزه",d.currentWeekTrend),
-    statusLine("تخلف امنیتی امروز","【 "+d.securityViolationsToday+" 】"),
-    statusLine("اخطار امروز","【 "+d.warningsToday+" 】"),
-    statusLine("اقدامات مدیریتی امروز","【 "+d.penaltiesToday+" 】"),
-    "",
-    "★ - ۳ نفر برتر چت",
-    ...(d.topChat.length
-      ? d.topChat.map((u:any,i:number)=>rankNumber(i+1)+" · "+userTag(u.userId,u.username,u.firstName)+" · "+u.count+" پیام")
-      : ["■ داده‌ای ثبت نشده است."]),
-    "",
-    "★ - ۳ نفر برتر فرند",
-    ...(d.topFriends.length
-      ? d.topFriends.map((u:any,i:number)=>rankNumber(i+1)+" · "+userTag(u.userId,u.username,u.firstName)+" · "+u.count+" تعامل")
-      : ["■ داده‌ای برای تعامل مستقیم ثبت نشده است."]),
-    "",
-    "★ - تشخیص ناهنجاری",
+  const blocks: RichInputBlock[]=[
+    richHeading("Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴛᴀᴛs Cᴇɴᴛᴇʀ",1),
+    richHeading("نمای کلی گروه",2),
+    richTable(
+      ["شاخص","مقدار"],
+      [
+        ["پیام امروز",d.messagesToday],
+        ["پیام ۷ روز اخیر",d.messagesWeek],
+        ["پیام این ماه",d.messagesMonth],
+        ["پیام کل",d.totalMessages],
+        ["میانگین پیام روزانه",decimal(d.dailyAverage)],
+        ["اعضای فعلی",d.memberCount],
+        ["فعال در ۳۰ دقیقه",d.active30m],
+        ["فعال در ۲۴ ساعت",d.active24h],
+        ["عضو جدید امروز",d.joinsToday],
+        ["خروج امروز",d.leavesToday],
+        ["رشد خالص امروز",signed(d.netToday)],
+        ["فعال‌ترین ساعت",d.busiestHour==null?"ثبت نشده":String(d.busiestHour).padStart(2,"0")+":00 · "+d.busiestHourCount],
+        ["روند ۷ روزه",d.currentWeekTrend],
+      ]
+    ),
+    richDivider(),
+    richHeading("رشد و وضعیت",3),
+    richTable(
+      ["شاخص","مقدار"],
+      [
+        ["تخلف امنیتی امروز",d.securityViolationsToday],
+        ["اخطار امروز",d.warningsToday],
+        ["اقدامات مدیریتی امروز",d.penaltiesToday],
+      ]
+    ),
+    richDivider(),
+    richHeading("برترین کاربران",3),
+    d.topChat.length
+      ? richTable(
+          ["رتبه","کاربر","پیام"],
+          d.topChat.map((u:any,i:number)=>[
+            String(i+1).padStart(3,"0"),
+            richInlineUser(u.userId,u.username,u.firstName),
+            number(u.count),
+          ])
+        )
+      : richParagraph("هنوز داده‌ای برای رتبه‌بندی ثبت نشده است."),
+    d.topFriends.length
+      ? richDetails(
+          "تعامل مستقیم",
+          [
+            richTable(
+              ["رتبه","کاربر","تعامل"],
+              d.topFriends.map((u:any,i:number)=>[
+                String(i+1).padStart(3,"0"),
+                richInlineUser(u.userId,u.username,u.firstName),
+                number(u.count),
+              ])
+            ),
+          ]
+        )
+      : richDetails("تعامل مستقیم", [richParagraph("داده کافی برای تحلیل تعامل مستقیم ثبت نشده است.")]),
+    richDivider(),
+    richHeading("تحلیل فعالیت",3),
     d.anomaly.detected
-      ? "● الگوی غیرعادی شناسایی شد · اوج ۱۵ دقیقه‌ای : "+d.anomaly.peak15m
-      : "○ الگوی غیرعادی مشخصی ثبت نشده است.",
-    "",
-    "★ - آخرین بروزرسانی : "+faDateTime(new Date()),
+      ? richStatus("الگوی غیرعادی شناسایی شد", "warning")
+      : richParagraph("الگوی غیرعادی مشخصی ثبت نشده است."),
+    richDetails(
+      "جزئیات ناهنجاری",
+      [
+        richTable(["شاخص","مقدار"],[
+          ["اوج ۱۵ دقیقه‌ای",d.anomaly.peak15m],
+          ["میانگین ۱۵ دقیقه‌ای",decimal(d.anomaly.average15m,2)],
+          ["نسبت اوج به میانگین",decimal(d.anomaly.ratio,2)],
+        ])
+      ]
+    ),
+    richDivider(),
+    richFooter("آخرین بروزرسانی · " + faDateTime(new Date())),
   ];
   const rows=[
-    [["‹ اطلاعات بیشتر","sx:more"]],
-    [["‹ بروزرسانی","sx:home"] ,["‹ گزارش آماری","sx:report:group"]],
+    [["اطلاعات بیشتر","sx:more"]],
+    [["بروزرسانی","sx:home"],["گزارش آماری","sx:report:group"]],
   ];
-  if(messageId)return editPanel(chatId,messageId,lines.join("\n"),rows);
-  return sendPanel(chatId,lines.join("\n"),rows);
+  if(messageId)return editRichPanel(chatId,messageId,blocks,rows);
+  return sendRichPanel(chatId,blocks,rows);
 }
 
 async function renderMore(pool: Pool, chatId: number, messageId: number, targetUserId?: number) {
@@ -1371,59 +1614,63 @@ async function renderUserPeriod(pool: Pool, chatId: number, messageId: number, u
   const u=await resolveUser(pool,chatId,userId);
   const summary=await userDailySummary(pool,chatId,userId,period);
   const rank=await userRank(pool,chatId,userId,period);
-  const content = period==="all" ? await rawUserContent(pool,chatId,userId,period) : await rawUserContent(pool,chatId,userId,period);
+  const content=await rawUserContent(pool,chatId,userId,period);
   const interactions=await topInteractionTargets(pool,chatId,userId,period,5);
   const hours=await hourlyUser(pool,chatId,userId);
   const peak=hours.reduce((best:any,row:any)=>number(row.message_count)>number(best?.message_count)?row:best,null);
-  const lastActivity=summary.last_activity?faDateTime(summary.last_activity):"قابل تعیین نیست";
-  const firstActivity=summary.first_activity?faDateTime(summary.first_activity):"قابل تعیین نیست";
   const avg=number(summary.active_days)>0?number(summary.messages)/number(summary.active_days):0;
-  const text=[
-    renderHeader("آمار کاربر"),
-    "★ - کاربر",
-    statusLine("کاربر",userTag(userId,u.username,u.first_name)),
-    "",
-    statusLine("بازه",periodLabel(period)),
-    statusLine("تعداد پیام","【 "+number(summary.messages)+" 】"),
-    statusLine("رتبه پیام","【 "+(rank.rank?rank.rank:"■")+" 】"),
-    statusLine("جمعیت رتبه‌بندی","【 "+number(rank.population)+" 】"),
-    statusLine("روزهای فعال","【 "+number(summary.active_days)+" 】"),
-    statusLine("میانگین پیام در روز فعال","【 "+decimal(avg)+" 】"),
-    statusLine("لینک‌ها","【 "+number(content.links)+" 】"),
-    statusLine("آخرین فعالیت",lastActivity),
-    statusLine("اولین فعالیت",firstActivity),
-    "",
-    "★ - محتوای ارسال‌شده",
-    "⛂ - متن : "+number(content.text),
-    "⛂ - عکس : "+number(content.photo),
-    "⛂ - ویدیو : "+number(content.video),
-    "⛂ - فایل : "+number(content.document),
-    "⛂ - استیکر : "+number(content.sticker),
-    "⛂ - صوت : "+number(content.audio),
-    "⛂ - سایر : "+number(content.other),
-    "",
-    "★ - ساعت اوج",
-    peak
-      ? "⛂ - "+String(number(peak.hour)).padStart(2,"0")+":00 · 【 "+number(peak.message_count)+" پیام 】"
-      : "■ داده‌ای ثبت نشده است.",
-    "",
-    "★ - فرند / تعامل مستقیم",
-    ...(interactions.length
-      ? interactions.map((x:any,i:number)=>rankNumber(i+1)+" · "+userTag(x.userId,x.username,x.firstName)+" · "+x.count+" تعامل")
-      : ["■ داده‌ای ثبت نشده است."]),
-    "",
-    "★ - وضعیت",
-    "⛂ - آخرین فعالیت : "+lastActivity,
-    "⛂ - حالت : "+(
-      summary.last_activity && new Date(summary.last_activity).getTime()>=Date.now()-30*60*1000
-        ? "● فعال"
-        : "○ عادی"
+  const active=summary.last_activity && new Date(summary.last_activity).getTime()>=Date.now()-30*60*1000;
+  const blocks: RichInputBlock[]=[
+    richHeading("Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴛᴀᴛs Cᴇɴᴛᴇʀ",1),
+    richHeading("آمار کاربر",2),
+    richStatus(
+      u.username ? "@" + String(u.username).replace(/^@/,"") : String(u.first_name || userId),
+      active ? "success" : "normal"
     ),
-  ].join("\n");
-  return editPanel(chatId,messageId,text,[
-    ...periodButtons("user",userId),
-    [["‹ آمار ساعتی","sx:uhours:user:"+userId+":"+period],["‹ مقایسه عملکرد","sx:ucompare:"+userId+":"+period]],
-    [["‹ گزارش کاربر","sx:ureport:"+userId+":"+period],["‹ بازگشت","sx:more"]],
+    richTable(["شاخص","مقدار"],[
+      ["بازه",periodLabel(period)],
+      ["تعداد پیام",number(summary.messages)],
+      ["رتبه پیام",rank.rank || "ثبت نشده"],
+      ["جمعیت رتبه‌بندی",number(rank.population)],
+      ["روزهای فعال",number(summary.active_days)],
+      ["میانگین پیام در روز فعال",decimal(avg)],
+      ["لینک‌ها",number(content.links)],
+      ["اولین فعالیت",summary.first_activity?faDateTime(summary.first_activity):"قابل تعیین نیست"],
+      ["آخرین فعالیت",summary.last_activity?faDateTime(summary.last_activity):"قابل تعیین نیست"],
+      ["وضعیت",active?"فعال":"عادی"],
+    ]),
+    richDivider(),
+    richHeading("محتوای ارسال‌شده",3),
+    richTable(["نوع","تعداد"],[
+      ["متن",number(content.text)],
+      ["عکس",number(content.photo)],
+      ["ویدیو",number(content.video)],
+      ["فایل",number(content.document)],
+      ["استیکر",number(content.sticker)],
+      ["صوت",number(content.audio)],
+      ["ویدیو نوت",number(content.video_note)],
+      ["سایر",number(content.other)],
+    ]),
+    richDivider(),
+    richHeading("ساعت اوج",3),
+    peak
+      ? richTable(["شاخص","مقدار"],[["ساعت",String(number(peak.hour)).padStart(2,"0")+":00"],["پیام",number(peak.message_count)]])
+      : richParagraph("داده‌ای برای تعیین ساعت اوج ثبت نشده است."),
+    richDivider(),
+    interactions.length
+      ? richDetails("تعامل مستقیم",[
+          richTable(["رتبه","کاربر","تعامل"],interactions.map((x:any,i:number)=>[
+            String(i+1).padStart(3,"0"),
+            richInlineUser(x.userId,x.username,x.firstName),
+            number(x.count),
+          ]))
+        ])
+      : richDetails("تعامل مستقیم",[richParagraph("داده‌ای برای تعامل مستقیم ثبت نشده است.")]),
+  ];
+  return editRichPanel(chatId,messageId,blocks,[
+    [["بازه‌های آماری","sx:periods:user:"+userId],["آمار ساعتی","sx:uhours:"+userId+":"+period]],
+    [["تحلیل محتوا","sx:content:user:"+period+":"+userId],["مقایسه عملکرد","sx:ucompare:"+userId+":"+period]],
+    [["گزارش کاربر","sx:ureport:"+userId+":"+period],["بازگشت","sx:more"]],
   ]);
 }
 
@@ -1524,82 +1771,73 @@ async function groupStatusIndex(pool:Pool,chatId:number){
 async function renderRanking(pool: Pool, chatId: number, messageId: number, scope: StatsScope, period: StatsPeriod, targetUserId?: number, dimension:"messages"|"media"|"links"|"replies"|"growth"="messages") {
   if(scope==="admins"){
     const admins=await auditAdminDirectory(pool,chatId);
-    const text=[renderHeader("رتبه‌بندی مدیران · "+periodLabel(period)),"★ - رتبه‌بندی اقدامات مدیریتی","",
-      ...(admins.length?admins.map((u:any,i:number)=>rankNumber(i+1)+" · "+userTag(u.userId,u.username,u.firstName)+" · "+u.actions+" اقدام"):["■ داده‌ای ثبت نشده است."])
-    ].join("\n");
-    return editPanel(chatId,messageId,text,[
-      [["‹ اقدامات","sx:ranking:admins:"+period],["‹ بازگشت","sx:period:admins:"+period]],
+    const blocks:RichInputBlock[]=[
+      richHeading("Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴛᴀᴛs Cᴇɴᴛᴇʀ",1),
+      richHeading("رتبه‌بندی مدیران",2),
+      admins.length
+        ? richTable(["رتبه","مدیر","اقدامات"],admins.slice(0,10).map((u:any,i:number)=>[
+            String(i+1).padStart(3,"0"),
+            richInlineUser(u.userId,u.username,u.firstName),
+            number(u.actions),
+          ]))
+        : richParagraph("داده‌ای ثبت نشده است."),
+    ];
+    return editRichPanel(chatId,messageId,blocks,[
+      [["اقدامات","sx:ranking:admins:"+period],["بازگشت","sx:period:admins:"+period]],
     ]);
   }
-
-  if(scope==="user"&&targetUserId){
-    return renderUserPeriod(pool,chatId,messageId,targetUserId,period);
-  }
+  if(scope==="user"&&targetUserId)return renderUserPeriod(pool,chatId,messageId,targetUserId,period);
 
   const rows:any[]=await advancedRanking(pool,chatId,period,dimension);
-  const title=dimension==="growth"?"رشد فعالیت":dimension==="media"?"محتوای رسانه‌ای":dimension==="links"?"اشتراک لینک":dimension==="replies"?"تعامل / پاسخ":"پیام";
-  const text=[
-    renderHeader("رتبه‌بندی · "+periodLabel(period)),
-    "★ - معیار : "+title,
-    "",
-    ...(rows.length?rows.map((u:any,i:number)=>{
-      const suffix=dimension==="growth"
-        ? " · "+(u.delta>=0?"↗ ":"↘ ")+Math.abs(number(u.delta))+" نسبت به ۷ روز قبل"
-        : " · "+number(u.count);
-      return rankNumber(i+1)+" · "+userTag(u.userId,u.username,u.firstName)+suffix;
-    }):["■ داده‌ای ثبت نشده است."]),
-  ].join("\n");
-
-  return editPanel(chatId,messageId,text,[
-    [["‹ پیام","sx:ranking:group:"+period],["‹ رسانه","sx:rankdim:group:"+period+":media"]],
-    [["‹ لینک","sx:rankdim:group:"+period+":links"],["‹ پاسخ","sx:rankdim:group:"+period+":replies"]],
-    [["‹ رشد فعالیت","sx:rankdim:group:"+period+":growth"],["‹ بازگشت","sx:period:group:"+period]],
+  const title=dimension==="growth"?"رشد فعالیت":dimension==="media"?"محتوای رسانه‌ای":dimension==="links"?"اشتراک لینک":dimension==="replies"?"تعامل و پاسخ":"پیام";
+  const blocks:RichInputBlock[]=[
+    richHeading("Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴛᴀᴛs Cᴇɴᴛᴇʀ",1),
+    richHeading("رتبه‌بندی",2),
+    richTable(["رتبه","کاربر",title],rows.length?rows.map((u:any,i:number)=>[
+      String(i+1).padStart(3,"0"),
+      richInlineUser(u.userId,u.username,u.firstName),
+      dimension==="growth"
+        ? (u.delta>=0?"+":"-")+Math.abs(number(u.delta))
+        : number(u.count),
+    ]):[["—","داده‌ای ثبت نشده است.","—"]]),
+    richFooter("بازه · "+periodLabel(period)),
+  ];
+  return editRichPanel(chatId,messageId,blocks,[
+    [["پیام","sx:ranking:group:"+period],["رسانه","sx:rankdim:group:"+period+":media"]],
+    [["لینک","sx:rankdim:group:"+period+":links"],["پاسخ","sx:rankdim:group:"+period+":replies"]],
+    [["رشد فعالیت","sx:rankdim:group:"+period+":growth"],["بازگشت","sx:period:group:"+period]],
   ]);
 }
 
-
-
 async function renderHours(pool: Pool, chatId: number, messageId: number, scope: StatsScope, periodOrDay: StatsPeriod|string, targetUserId?: number) {
   const isDay=/^\d{4}-\d{2}-\d{2}$/.test(String(periodOrDay));
-  let rows:any[]=[];
   const label=isDay?faDate(String(periodOrDay)):periodLabel(periodOrDay as StatsPeriod);
-
-  if(scope==="user"&&targetUserId){
-    if(isDay) rows=await hourlyUser(pool,chatId,targetUserId,String(periodOrDay));
-    else rows=await hourlyUser(pool,chatId,targetUserId);
-  }else{
-    if(isDay) rows=await hourlyGroup(pool,chatId,String(periodOrDay));
-    else rows=await hourlyGroup(pool,chatId,toDateInput(new Date()));
-  }
-
+  const rows:any[]=scope==="user"&&targetUserId
+    ? (isDay?await hourlyUser(pool,chatId,targetUserId,String(periodOrDay)):await hourlyUser(pool,chatId,targetUserId))
+    : (isDay?await hourlyGroup(pool,chatId,String(periodOrDay)):await hourlyGroup(pool,chatId,toDateInput(new Date())));
   const counts=new Map<number,number>();
   for(const row of rows) counts.set(number(row.hour),number(row.message_count));
-  const top=Array.from(counts.entries()).sort((a,b)=>b[1]-a[1]).slice(0,5);
-  const max=Math.max(1,top.length?top[0][1]:0);
-  const lines:string[]=[
-    renderHeader(scope==="user"?"آمار ساعتی کاربر":"آمار ساعتی گروه"),
-    statusLine("بازه یا روز",label),
-    "",
-    "★ - توزیع ۲۴ ساعته",
+  const peak=Array.from(counts.entries()).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const blocks:RichInputBlock[]=[
+    richHeading("Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴛᴀᴛs Cᴇɴᴛᴇʀ",1),
+    richHeading(scope==="user"?"آمار ساعتی کاربر":"آمار ساعتی گروه",2),
+    richParagraph("بازه · "+label),
+    richTable(["ساعت","پیام"],Array.from({length:24},(_,hour)=>[
+      String(hour).padStart(2,"0")+":00",
+      counts.get(hour)||0,
+    ])),
+    richDivider(),
+    richHeading("ساعت‌های اوج",3),
+    peak.length
+      ? richTable(["رتبه","ساعت","پیام"],peak.map(([hour,n],i)=>[
+          String(i+1).padStart(3,"0"),
+          String(hour).padStart(2,"0")+":00",
+          n,
+        ]))
+      : richParagraph("داده‌ای ثبت نشده است."),
   ];
-  for(let hour=0;hour<24;hour++){
-    const n=counts.get(hour)||0;
-    const bar="█".repeat(Math.min(18,Math.max(0,Math.round((n/max)*18))));
-    lines.push("⛂ - "+String(hour).padStart(2,"0")+":00 · "+bar+" · "+n);
-  }
-  lines.push("", "★ - ساعت‌های اوج");
-  if(top.length){
-    for(let i=0;i<top.length;i++){
-      const h=top[i][0];
-      const n=top[i][1];
-      lines.push(rankNumber(i+1)+" · "+String(h).padStart(2,"0")+":00 · "+n+" پیام");
-    }
-  }else{
-    lines.push("■ داده‌ای ثبت نشده است.");
-  }
-
-  return editPanel(chatId,messageId,lines.join("\n"),[
-    [["‹ رتبه‌بندی","sx:ranking:"+scope+(targetUserId?":"+targetUserId:"")],["‹ بازگشت","sx:periods:"+scope+(targetUserId?":"+targetUserId:"")]],
+  return editRichPanel(chatId,messageId,blocks,[
+    [["رتبه‌بندی","sx:ranking:"+scope+(targetUserId?":"+targetUserId:"")],["بازه‌های آماری","sx:periods:"+scope+(targetUserId?":"+targetUserId:"")]],
   ]);
 }
 
@@ -1818,27 +2056,30 @@ async function sendUserCommandCard(pool:Pool,chatId:number,userId:number,user?:T
   const data=await userDailySummary(pool,chatId,userId,"all");
   const today=await userDailySummary(pool,chatId,userId,"today");
   const rank=await userRank(pool,chatId,userId,"all");
-  const text=[
-    renderHeader("آمار فعالیت کاربر"),
-    statusLine("کاربر",userTag(userId,resolved.username||row.username,resolved.first_name||row.first_name)),
-    "",
-    statusLine("امروز","【 "+number(today.messages)+" پیام 】"),
-    statusLine("کل پیام‌ها","【 "+number(data.messages)+" 】"),
-    statusLine("رتبه در پیام","【 "+(rank.rank||"■")+" 】"),
-    statusLine("روزهای فعال","【 "+number(data.active_days)+" 】"),
-    statusLine("میانگین روز فعال","【 "+decimal(number(data.active_days)>0?number(data.messages)/number(data.active_days):0)+" 】"),
-    statusLine("لینک‌ها","【 "+number(data.links)+" 】"),
-    statusLine("آخرین فعالیت",data.last_activity?faDateTime(data.last_activity):"ثبت نشده"),
-    "",
-    "─────━━───── ◈ ─────━━─────",
-    "",
-    "─────━━───── ◈ ─────━━─────",
-  ].join("\n");
-  return sendPanel(chatId,text,[
-    [["‹ بازه‌های آماری","sx:periods:user:"+userId],["‹ رتبه‌بندی","sx:ranking:user:"+userId]],
-    [["‹ آمار ساعتی","sx:uhours:"+userId+":today"],["‹ تحلیل محتوا","sx:content:user:today:"+userId]],
-    [["‹ مقایسه عملکرد","sx:ucompare:"+userId+":today"],["‹ گزارش کاربر","sx:ureport:"+userId+":today"]],
-    [["‹ بازگشت","sx:home"]],
+  const blocks: RichInputBlock[]=[
+    richHeading("Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴛᴀᴛs Cᴇɴᴛᴇʀ",1),
+    richHeading("آمار فعالیت کاربر",2),
+    richStatus(
+      resolved.username ? "@" + String(resolved.username).replace(/^@/,"") : String(resolved.first_name || userId),
+      "normal"
+    ),
+    richTable(["شاخص","مقدار"],[
+      ["پیام امروز",number(today.messages)],
+      ["کل پیام‌ها",number(data.messages)],
+      ["رتبه پیام",rank.rank || "ثبت نشده"],
+      ["روزهای فعال",number(data.active_days)],
+      ["میانگین پیام در روز فعال",decimal(number(data.active_days)>0?number(data.messages)/number(data.active_days):0)],
+      ["لینک‌ها",number(data.links)],
+      ["آخرین فعالیت",data.last_activity?faDateTime(data.last_activity):"ثبت نشده"],
+    ]),
+    richDivider(),
+    richParagraph("برای مشاهده جزئیات دوره‌ای، ساعتی، محتوا و عملکرد این کاربر از گزینه‌های زیر استفاده کنید."),
+  ];
+  return sendRichPanel(chatId,blocks,[
+    [["بازه‌های آماری","sx:periods:user:"+userId],["رتبه‌بندی","sx:ranking:user:"+userId]],
+    [["آمار ساعتی","sx:uhours:"+userId+":today"],["تحلیل محتوا","sx:content:user:today:"+userId]],
+    [["مقایسه عملکرد","sx:ucompare:"+userId+":today"],["گزارش کاربر","sx:ureport:"+userId+":today"]],
+    [["بازگشت","sx:home"]],
   ]);
 }
 
@@ -2033,20 +2274,32 @@ export async function handleStatsCallback(pool: Pool, cb: StatsCallback, ownerId
 
   if(p[1]==="growth"){
     const g=await growthStats(pool,chatId);
-    const text=[
-      renderHeader("رشد گروه"),
-      statusLine("ورود ۷ روز اخیر","【 "+g.joins7+" 】"),
-      statusLine("خروج ۷ روز اخیر","【 "+g.leaves7+" 】"),
-      statusLine("رشد خالص ۷ روزه","【 "+signed(g.net7)+" 】"),
-      statusLine("رشد خالص ۷ روز قبل","【 "+signed(g.prevNet)+" 】"),
-      statusLine("روند",g.trend),
-      "",
-      "★ - رشد فعالیت کاربران",
-      ...(await advancedRanking(pool,chatId,"7d","growth")).slice(0,5).map((u:any,i:number)=>rankNumber(i+1)+" · "+userTag(u.userId,u.username,u.firstName)+" · "+(u.delta>=0?"↗ ":"↘ ")+Math.abs(number(u.delta))),
-    ].join("\n");
-    return editPanel(chatId,mid,text,[[
-      ["‹ رتبه‌بندی رشد","sx:rankdim:group:7d:growth"],["‹ بازگشت","sx:more"]
-    ]]);
+    const growthRows=await advancedRanking(pool,chatId,"7d","growth");
+    const blocks: RichInputBlock[]=[
+      richHeading("Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴛᴀᴛs Cᴇɴᴛᴇʀ",1),
+      richHeading("رشد گروه",2),
+      richTable(["شاخص","مقدار"],[
+        ["ورود ۷ روز اخیر",g.joins7],
+        ["خروج ۷ روز اخیر",g.leaves7],
+        ["رشد خالص ۷ روزه",signed(g.net7)],
+        ["رشد خالص ۷ روز قبل",signed(g.prevNet)],
+        ["روند",g.trend],
+      ]),
+      richDivider(),
+      richHeading("رشد فعالیت کاربران",3),
+      growthRows.length
+        ? richTable(["رتبه","کاربر","تغییر"],growthRows.slice(0,5).map((u:any,i:number)=>[
+            String(i+1).padStart(3,"0"),
+            richInlineUser(u.userId,u.username,u.firstName),
+            (u.delta>=0?"+":"-")+Math.abs(number(u.delta)),
+          ]))
+        : richParagraph("داده‌ای برای محاسبه رشد فعالیت ثبت نشده است."),
+      richDivider(),
+      richFooter("بازه تحلیل · ۷ روز اخیر"),
+    ];
+    return editRichPanel(chatId,mid,blocks,[
+      [["رتبه‌بندی رشد","sx:rankdim:group:7d:growth"],["بازگشت","sx:more"]]
+    ]);
   }
 
   if(p[1]==="status"){
