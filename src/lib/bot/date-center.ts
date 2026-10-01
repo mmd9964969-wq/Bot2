@@ -217,14 +217,40 @@ function formatPersian(date: Date, lang: Lang, timeZone: string) {
     day: "numeric",
   }).format(date);
 }
+const GREGORIAN_MONTH_FA = [
+  "", "ژانویه", "فوریه", "مارس", "آوریل", "مه", "ژوئن",
+  "ژوئیه", "اوت", "سپتامبر", "اکتبر", "نوامبر", "دسامبر"
+];
+
 function formatGregorian(date: Date, lang: Lang, timeZone: string) {
-  return new Intl.DateTimeFormat(lang === "fa" ? "fa-IR" : "en-US", {
+  const fmt = new Intl.DateTimeFormat("en-US-u-ca-gregory", {
     timeZone,
     weekday: "long",
     year: "numeric",
-    month: "long",
+    month: "numeric",
     day: "numeric",
+  });
+  const parts = Object.fromEntries(
+    fmt.formatToParts(date)
+      .filter(x => x.type !== "literal")
+      .map(x => [x.type, x.value])
+  );
+  const year = Number(parts.year);
+  const month = Number(parts.month);
+  const day = Number(parts.day);
+  const weekdayEn = String(parts.weekday || "");
+  if (lang === "en") {
+    const monthEn = new Intl.DateTimeFormat("en-US-u-ca-gregory", {
+      timeZone,
+      month: "long",
+    }).format(date);
+    return year + " " + monthEn + " " + day + ", " + weekdayEn;
+  }
+  const weekdayFa = new Intl.DateTimeFormat("fa-IR-u-ca-gregory", {
+    timeZone,
+    weekday: "long",
   }).format(date);
+  return faNum(year) + " " + GREGORIAN_MONTH_FA[month] + " " + faNum(day) + ", " + weekdayFa;
 }
 function isoWeek(year: number, month: number, day: number) {
   const date = civilDate(year, month, day);
