@@ -172,6 +172,13 @@ export async function ensureOwnerSudoSchema(pool:Pool){
     )
   `);
   await pool.query(`
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bot_sudo_pending(
+      actor_id BIGINT PRIMARY KEY,
+      level TEXT NOT NULL CHECK(level IN ('low','medium','pro','security')),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
     CREATE TABLE IF NOT EXISTS bot_sudo_audit(
       id BIGSERIAL PRIMARY KEY,
       actor_id BIGINT NOT NULL,
@@ -289,7 +296,7 @@ export function sudoLevelDocument(level:SudoLevel){
 
 export async function ownerSudoCallback(pool:Pool,chatId:number,messageId:number,actor:number,data:string,ownerIds:string[]){
   await ensureOwnerSudoSchema(pool);
-  if(data==="os:center"){pendingAssignments.delete(actor);return sendOwnerSudoCenter(chatId,messageId);}
+  if(data==="os:center"){ pendingAssignments.delete(actor); await pool.query("DELETE FROM bot_sudo_pending WHERE actor_id=$1",[actor]); return sendOwnerSudoCenter(chatId,messageId); }
   if(data==="os:assign"){
     pendingAssignments.delete(actor);
     return render(chatId,messageId,doc([
@@ -314,6 +321,7 @@ export async function ownerSudoCallback(pool:Pool,chatId:number,messageId:number
     const level=data.slice("os:choose:") as SudoLevel;
     if(!LEVELS[level])return;
     pendingAssignments.set(actor,level);
+    await pool.query("INSERT INTO bot_sudo_pending(actor_id,level) VALUES($1,$2) ON CONFLICT(actor_id) DO UPDATE SET level=EXCLUDED.level,updated_at=NOW()",[actor,level]);
     return render(chatId,messageId,doc([
       ...baseBlocks("ثبت سودو","شناسه عددی کاربر موردنظر را ارسال کنید."),
       table("انتخاب فعلی",[
@@ -392,10 +400,12 @@ export async function ownerSudoCallback(pool:Pool,chatId:number,messageId:number
 }
 
 export async function handleOwnerSudoTextInput(pool:Pool,actor:number,chatId:number,text:string,ownerIds:string[]){
-  const level=pendingAssignments.get(actor);
+  let level=pendingAssignments.get(actor);
+  if(!level){
+    const pending=(await pool.query("SELECT level FROM bot_sudo_pending WHERE actor_id=$1 LIMIT 1",[actor])).rows[0] as {level:SudoLevel}|undefined;
+    if(pending?.level) level=pending.level;
+  }
   if(!level)return false;
-  const clean=String(text||"").trim().replace(/^[+\\s]+/,"");
-  if(!/^\\d{5,20}$/.test(clean)){
     await render(chatId,undefined,doc([
       ...baseBlocks("ثبت سودو","شناسه عددی معتبر ارسال کنید."),
       buttons([button("لغو","os:center","link")]),
@@ -406,6 +416,7 @@ export async function handleOwnerSudoTextInput(pool:Pool,actor:number,chatId:num
   const target=Number(clean);
   const result=await assignOwnerSudo(pool,actor,target,level,ownerIds);
   pendingAssignments.delete(actor);
+  await pool.query("DELETE FROM bot_sudo_pending WHERE actor_id=$1",[actor]);
   await render(chatId,undefined,doc([
     ...baseBlocks(result.ok?"دسترسی ثبت شد":"ثبت دسترسی انجام نشد",result.message),
     table("نتیجه",[
