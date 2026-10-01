@@ -8,6 +8,7 @@ import { rankAtLeast } from "../src/lib/bot/registry.ts";
 import { runLiveCommand, recordMessage, recordMemberJoin, recordMemberLeave, ensureGroupInfoSchema, getGroupStats, type GroupInfoSnapshot } from "../src/lib/bot/runtime.ts";
 import { enforceContentLocks, ensureContentLocks, runContentLockCommand, sendContentLockCenter, type ContentLockMessage } from "../src/lib/bot/content-locks.ts";
 import { ensureMessageToolsSchema, trackMessageAndActivity } from "../src/lib/bot/message-tools.ts";
+import { ensureStatsCenterSchema, isStatsCommand, openStatsCenterFromCommand } from "../src/lib/bot/stats-center.ts";
 import { isRuntimeMaintenance, startRuntimeControlServer } from "./runtime-control.ts";
 import { ensureAutomationSchema, runAutomations, tickSchedules } from "../src/lib/bot/automation-engine.ts";
 import { dispatchPanelMessage, dispatchPanelCallback, openModerationCenterFromCommand, openManagerCenterFromCommand } from "./panel-system.ts";
@@ -1332,6 +1333,16 @@ async function processMessage(msg: TgMessage, edited = false) {
     if (await handleCleanupText(studioPool, chat.id, msg.from.id, text, msg.reply_to_message?.from?.id, msg.reply_to_message?.message_id)) return;
   }
 
+  // Advanced Stats Center is a dedicated route so HTML user tags and analytics
+  // navigation stay separate from the generic response-template renderer.
+  if (!isPrivate && await isStatsCommand(text)) {
+    if (!["owner","sudo","admin"].includes(ctx.userRank)) return;
+    await openStatsCenterFromCommand(studioPool, msg, config.ownerIds).catch(error => {
+      console.error("[stats-center] command failed", error);
+    });
+    return;
+  }
+
   if (studioPool && await dispatchPanelMessage(studioPool, msg, config.ownerIds)) {
     // The panel entry message belongs to the temporary panel session.
     // Normal bot commands remain in the chat for manual cleanup by admins.
@@ -1506,6 +1517,7 @@ async function poll() {
     await ensureInviteLinkSchema(studioPool);
     await ensureSpecialUsersSchema(studioPool);
     await ensureGroupInfoSchema(studioPool);
+    await ensureStatsCenterSchema(studioPool);
     await ensureOwnerGroupSchema(studioPool);
     await ensureDateSchema(studioPool);
   }
