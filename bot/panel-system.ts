@@ -13,6 +13,7 @@ import { ensureOwnerGroupSchema, listOwnerGroups, ownerGroupOverview, getOwnerGr
 import { ensureGroupConfigSchema, handleGroupConfigMessage, handleGroupConfigInput, handleGroupConfigCallback } from "../src/lib/bot/group-config.ts";
 import { handleInviteLinkCallback, handleInviteLinkTextInput } from "../src/lib/bot/invite-links.ts";
 import { handleSpecialCallback, handleSpecialCommand, handleSpecialTextInput } from "../src/lib/bot/special-users.ts";
+import { handleDateTextInput, handleDateCallback } from "../src/lib/bot/date-center.ts";
 import { handleSpecialBulkCallback, handleSpecialBulkCommand, handleSpecialBulkTextInput } from "../src/lib/bot/special-bulk.ts";
 import { handleMemberControlCallback, handleMemberControlTextInput, renderMemberControl } from "../src/lib/bot/member-control.ts";
 import { trackMessageAndActivity, handleMessageToolsText, handleMessageToolsCallback } from "../src/lib/bot/message-tools.ts";
@@ -3355,6 +3356,8 @@ export async function dispatchPanelMessage(pool:Pool,msg:TgMessage,ownerIds:stri
     if(await handleMemberControlTextInput(pool,msg))return true;
     if(await handleSpecialBulkTextInput(pool,msg))return true;
     if(await handleSpecialTextInput(pool,msg))return true;
+    // Date Center takes precedence when the user is inside an active date input flow.
+    if(await handleDateTextInput(pool,msg))return true;
     if(await handleSpecialBulkCommand(pool,msg,ownerIds))return true;
     if(await handleSpecialCommand(pool,msg,ownerIds))return true;
     if(await handleInput(pool,msg))return true;
@@ -3396,6 +3399,7 @@ export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:str
     // Route panel callbacks before secondary feature handlers so every main
     // customer/owner navigation callback reaches its dedicated controller.
     if(data.startsWith("o:") || data.startsWith("og:")) return ownerCallback(pool,cb,ownerIds);
+    if(data.startsWith("date:")) return handleDateCallback(pool,cb);
     if(data.startsWith("c:")) return customerCallback(pool,cb,ownerIds);
     if(data.startsWith("link:")) return handleInviteLinkCallback(pool,cb as any);
     if(data.startsWith("cfg:")) return handleGroupConfigCallback(pool,cb as any);
