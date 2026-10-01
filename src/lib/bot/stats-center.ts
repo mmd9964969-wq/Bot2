@@ -88,7 +88,7 @@ function userTag(userId: number, username?: string | null, firstName?: string | 
   const raw = username
     ? "@" + String(username).replace(/^@/, "")
     : String(firstName || userId);
-  return "【 <a href="tg://user?id=" + encodeURIComponent(String(userId)) + ">" + escapeHtml(raw) + "</a> 】";
+  return '【 <a href="tg://user?id=' + encodeURIComponent(String(userId)) + '">' + escapeHtml(raw) + '</a> 】';
 }
 
 function rankNumber(value: number) {
