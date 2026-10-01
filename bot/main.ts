@@ -1329,18 +1329,17 @@ async function processMessage(msg: TgMessage, edited = false) {
     }
   }
 
-  if (!isPrivate && ["owner","sudo","admin"].includes(ctx.userRank)) {
-    if (await handleCleanupText(studioPool, chat.id, msg.from.id, text, msg.reply_to_message?.from?.id, msg.reply_to_message?.message_id)) return;
-  }
-
-  // Advanced Stats Center is a dedicated route so HTML user tags and analytics
-  // navigation stay separate from the generic response-template renderer.
+  // Advanced Stats Center must run before generic text handlers so the
+  // dedicated manager check inside Stats Center is authoritative.
   if (!isPrivate && await isStatsCommand(text)) {
-    if (!["owner","sudo","admin"].includes(ctx.userRank)) return;
     await openStatsCenterFromCommand(studioPool, msg, config.ownerIds).catch(error => {
       console.error("[stats-center] command failed", error);
     });
     return;
+  }
+
+  if (!isPrivate && ["owner","sudo","admin"].includes(ctx.userRank)) {
+    if (await handleCleanupText(studioPool, chat.id, msg.from.id, text, msg.reply_to_message?.from?.id, msg.reply_to_message?.message_id)) return;
   }
 
   if (studioPool && await dispatchPanelMessage(studioPool, msg, config.ownerIds)) {
