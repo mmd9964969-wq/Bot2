@@ -121,9 +121,9 @@ export function renderStudioTemplate(template: string, values: Record<string, st
 
 
 
-function markdownToRichText(input: string): any {
+export function markdownToRichText(input: string): any {
   const source = String(input ?? "");
-  const token = /(\*\*([^*]+)\*\*|~~([^~]+)~~|\|\|([^|]+)\|\||==([^=]+)==|`([^`]+)`|[([^]]+)]((https?://[^)s]+)))/g;
+  const token = new RegExp("(\\*\\*([^*]+)\\*\\*|~~([^~]+)~~|\\|\\|([^|]+)\\|\\||==([^=]+)==|`([^`]+)`|\\[([^\\]]+)\\]\\((https?:\\/\\/[^)\\s]+)\\))", "g");
   const out: any[] = [];
   let last = 0;
   let match: RegExpExecArray | null;
