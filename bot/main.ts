@@ -25,6 +25,7 @@ import { handleFrontierExpansionCallback } from "../src/lib/bot/frontier-expansi
 import { renderGameText } from "../src/lib/bot/game-emoji.ts";
 import { ensureCleanupSchema, trackCleanupMessage, handleCleanupText, handleCleanupCallback } from "../src/lib/bot/cleanup-engine.ts";
 import { ensureOwnerGroupSchema, upsertOwnerGroupFromChat, touchOwnerGroupActivity } from "../src/lib/bot/owner-groups.ts";
+import { ensureDateSchema, handleDateTextInput, handleDateCallback, openDateCenterFromCommand, runDateReminders } from "../src/lib/bot/date-center.ts";
 
 const TOKEN = process.env.BOT_TOKEN ?? "";
 if (!TOKEN) { console.error("BOT_TOKEN is missing"); process.exit(1); }
@@ -557,6 +558,14 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
         const liveCard=await runModerationCommand(studioPool!,ctx,studioCommand.id,commandArgs);
         await logCommandAccess(ctx,studioCommand.id,"command_executed","allowed",auth.role);
         return liveCard;
+      }
+      if(studioCommand.id==="date"){
+        const opened=await openDateCenterFromCommand(studioPool!,{
+          chatId:ctx.chatId,userId:ctx.userId,chatType:ctx.chatType,userRank:ctx.userRank,
+          lang:ctx.lang==="en"?"en":"fa",userName:ctx.userName,chatTitle:ctx.chatTitle
+        },commandArgs);
+        await logCommandAccess(ctx,"date","command_executed",opened?.ok===false?"date_center_failed":"allowed",auth.role);
+        return null;
       }
       if(studioCommand.id==="link"){
         if(ctx.chatType==="private"){
@@ -1498,11 +1507,13 @@ async function poll() {
     await ensureSpecialUsersSchema(studioPool);
     await ensureGroupInfoSchema(studioPool);
     await ensureOwnerGroupSchema(studioPool);
+    await ensureDateSchema(studioPool);
   }
   setInterval(() => void refreshStudio(), 5000);
   setInterval(() => { if (studioPool) void tickSchedules(studioPool).catch(error => console.error("[scheduler]", error)); }, 5000);
   setInterval(() => { if (studioPool) void sweepGroupSubscriptions(studioPool).catch(error => console.error("[subscriptions]", error)); }, 30000);
   setInterval(() => { if (studioPool) void sweepSpecialUsers(studioPool).catch(error => console.error("[special]", error)); }, 15000);
+  setInterval(() => { if (studioPool) void runDateReminders(studioPool).catch(error => console.error("[date]", error)); }, 15000);
   void sweepGroupSubscriptions(studioPool).catch(error => console.error("[subscriptions]", error));
   void sweepSpecialUsers(studioPool).catch(error => console.error("[special]", error));
 
