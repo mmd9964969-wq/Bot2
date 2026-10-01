@@ -1496,7 +1496,7 @@ function chatWeekButtonRows() {
     if (!rows[rowIndex]) rows[rowIndex] = [];
     rows[rowIndex].push([label, "sx:chat:day:" + day]);
     return rows;
-  }, []).concat([[["جمعه " + faDate(currentWeekDays()[6]), "sx:chat:day:" + currentWeekDays()[6]]]]);
+  }, []);
 }
 
 function hourButtonRows(day: string) {
@@ -2644,26 +2644,8 @@ export async function handleStatsCallback(pool: Pool, cb: StatsCallback, ownerId
   if(data==="sx:scope:members")return renderMemberHub(pool,chatId,mid);
   if(data==="sx:adminchat")return renderChatStatsHub(pool,chatId,mid,"sx:scope:admins");
   if(data==="sx:memberchat")return renderChatStatsHub(pool,chatId,mid,"sx:scope:members");
-  if(data.startsWith("sx:adminactions:")) {
-    const actionPeriod=(data.split(":")[2]||"today") as StatsPeriod;
-    if(actionPeriod==="breakdown" || actionPeriod==="admins" || actionPeriod==="cases" || actionPeriod==="audit") {
-      return renderAdminActions(pool,chatId,mid,"today");
-    }
-    return renderAdminActions(pool,chatId,mid,actionPeriod);
-  }
-  if(data.startsWith("sx:chat:day:"))return renderChatDay(pool,chatId,mid,data.slice("sx:chat:day:".length),"sx:chat:home");
-  if(data.startsWith("sx:chat:hours:"))return renderChatHours(pool,chatId,mid,data.slice("sx:chat:hours:".length));
-  if(data.startsWith("sx:chat:details:"))return renderChatDetails(pool,chatId,mid,data.slice("sx:chat:details:".length));
-  if(data.startsWith("sx:chat:hour:")) {
-    const parts=data.split(":");
-    return renderChatHour(pool,chatId,mid,parts[3],Number(parts[4]));
-  }
-  if(data.startsWith("sx:chat:rankhour:")) {
-    const parts=data.split(":");
-    return renderChatRanking(pool,chatId,mid,parts[3],Number(parts[4]));
-  }
-  if(data.startsWith("sx:chat:rank:"))return renderChatRanking(pool,chatId,mid,data.slice("sx:chat:rank:".length));
-  if(data==="sx:chat:home")return renderChatStatsHub(pool,chatId,mid,"sx:more");
+
+  // Specific admin-action subviews must be handled before the generic period route.
   if(data.startsWith("sx:adminactions:breakdown:"))return renderAdminActionBreakdown(pool,chatId,mid,data.slice("sx:adminactions:breakdown:".length) as StatsPeriod);
   if(data.startsWith("sx:adminactions:admins:"))return renderAdminActive(pool,chatId,mid,data.slice("sx:adminactions:admins:".length) as StatsPeriod);
   if(data.startsWith("sx:adminactions:cases:"))return renderAdminCases(pool,chatId,mid,data.slice("sx:adminactions:cases:".length) as StatsPeriod);
@@ -2682,6 +2664,24 @@ export async function handleStatsCallback(pool: Pool, cb: StatsCallback, ownerId
         : richParagraph("سابقه‌ای ثبت نشده است."),
     ],[[["آمار اقدامات","sx:adminactions:"+period],["بازگشت","sx:scope:admins"]]]);
   }
+  if(data.startsWith("sx:adminactions:")) {
+    const actionPeriod=(data.split(":")[2]||"today") as StatsPeriod;
+    return renderAdminActions(pool,chatId,mid,actionPeriod);
+  }
+
+  if(data.startsWith("sx:chat:day:"))return renderChatDay(pool,chatId,mid,data.slice("sx:chat:day:".length),"sx:chat:home");
+  if(data.startsWith("sx:chat:hours:"))return renderChatHours(pool,chatId,mid,data.slice("sx:chat:hours:".length));
+  if(data.startsWith("sx:chat:details:"))return renderChatDetails(pool,chatId,mid,data.slice("sx:chat:details:".length));
+  if(data.startsWith("sx:chat:hour:")) {
+    const parts=data.split(":");
+    return renderChatHour(pool,chatId,mid,parts[3],Number(parts[4]));
+  }
+  if(data.startsWith("sx:chat:rankhour:")) {
+    const parts=data.split(":");
+    return renderChatRanking(pool,chatId,mid,parts[3],Number(parts[4]));
+  }
+  if(data.startsWith("sx:chat:rank:"))return renderChatRanking(pool,chatId,mid,data.slice("sx:chat:rank:".length));
+  if(data==="sx:chat:home")return renderChatStatsHub(pool,chatId,mid,"sx:more");
   if(data==="sx:scope:group")return renderChatStatsHub(pool,chatId,mid,"sx:more");
   if(data==="sx:scope:user"){
     return renderUserPeriod(pool,chatId,mid,Number(cb.from.id),"today");
