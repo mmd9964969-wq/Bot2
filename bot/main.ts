@@ -8,7 +8,7 @@ import { rankAtLeast } from "../src/lib/bot/registry.ts";
 import { runLiveCommand, recordMessage, recordMemberJoin, recordMemberLeave, ensureGroupInfoSchema, getGroupStats, type GroupInfoSnapshot } from "../src/lib/bot/runtime.ts";
 import { enforceContentLocks, ensureContentLocks, runContentLockCommand, sendContentLockCenter, type ContentLockMessage } from "../src/lib/bot/content-locks.ts";
 import { ensureMessageToolsSchema, trackMessageAndActivity } from "../src/lib/bot/message-tools.ts";
-import { ensureStatsCenterSchema, isStatsCommand, openStatsCenterFromCommand } from "../src/lib/bot/stats-center.ts";
+import { ensureStatsCenterSchema, isStatsCommand, openStatsCenterFromCommand, runDailyStatsBroadcast } from "../src/lib/bot/stats-center.ts";
 import { isRuntimeMaintenance, startRuntimeControlServer } from "./runtime-control.ts";
 import { ensureAutomationSchema, runAutomations, tickSchedules } from "../src/lib/bot/automation-engine.ts";
 import { dispatchPanelMessage, dispatchPanelCallback, openModerationCenterFromCommand, openManagerCenterFromCommand } from "./panel-system.ts";
@@ -1522,6 +1522,7 @@ async function poll() {
   }
   setInterval(() => void refreshStudio(), 5000);
   setInterval(() => { if (studioPool) void tickSchedules(studioPool).catch(error => console.error("[scheduler]", error)); }, 5000);
+  setInterval(() => { if (studioPool) void runDailyStatsBroadcast(studioPool).catch(error => console.error("[stats-daily]", error)); }, 5000);
   setInterval(() => { if (studioPool) void sweepGroupSubscriptions(studioPool).catch(error => console.error("[subscriptions]", error)); }, 30000);
   setInterval(() => { if (studioPool) void sweepSpecialUsers(studioPool).catch(error => console.error("[special]", error)); }, 15000);
   setInterval(() => { if (studioPool) void runDateReminders(studioPool).catch(error => console.error("[date]", error)); }, 15000);
