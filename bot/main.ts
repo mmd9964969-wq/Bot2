@@ -27,7 +27,7 @@ import { renderGameText } from "../src/lib/bot/game-emoji.ts";
 import { ensureCleanupSchema, trackCleanupMessage, handleCleanupText, handleCleanupCallback } from "../src/lib/bot/cleanup-engine.ts";
 import { ensureOwnerGroupSchema, upsertOwnerGroupFromChat, touchOwnerGroupActivity } from "../src/lib/bot/owner-groups.ts";
 import { ensureDateSchema, handleDateTextInput, handleDateCallback, openDateCenterFromCommand, runDateReminders } from "../src/lib/bot/date-center.ts";
-import { decodeRichDocument, richDocumentToPlainText, renderStudioTemplate, validateRichDocument } from "../src/lib/bot/rich-message.ts";
+import { decodeRichDocument, prepareRichDocument, richDocumentToPlainText, renderStudioTemplate, validateRichDocument } from "../src/lib/bot/rich-message.ts";
 
 const TOKEN = process.env.BOT_TOKEN ?? "";
 if (!TOKEN) { console.error("BOT_TOKEN is missing"); process.exit(1); }
@@ -1438,15 +1438,16 @@ async function processMessage(msg: TgMessage, edited = false) {
 
     const rich = decodeRichDocument(studioResult);
     if (rich) {
-      const validation = validateRichDocument(rich);
+      const prepared = prepareRichDocument(rich);
+      const validation = validateRichDocument(prepared);
       if (!validation.ok) {
         console.error("[rich-message] validation failed:", validation.errors);
       } else {
         const sent = await telegramApi<any>("sendRichMessage", {
           chat_id: chat.id,
           rich_message: {
-            blocks: rich.blocks,
-            is_rtl: rich.is_rtl ?? ctx.lang === "fa",
+            blocks: prepared.blocks,
+            is_rtl: prepared.is_rtl ?? ctx.lang === "fa",
           },
           reply_parameters: { message_id: msg.message_id },
           ...(payload.reply_markup ? { reply_markup: payload.reply_markup } : {}),
@@ -1459,7 +1460,7 @@ async function processMessage(msg: TgMessage, edited = false) {
 
       await telegramApi("sendMessage", {
         chat_id: chat.id,
-        text: richDocumentToPlainText(rich),
+        text: richDocumentToPlainText(prepared),
         reply_to_message_id: msg.message_id,
         ...(payload.reply_markup ? { reply_markup: payload.reply_markup } : {}),
       }).catch(() => {});
