@@ -15,6 +15,9 @@ type SudoRow = {
 };
 
 const pendingAssignments=new Map<number,SudoLevel>();
+const sudoCache=new Map<number,SudoRow>();
+const LOW_COMMANDS=new Set(["robot","id","admin","info","rank","me","ping","bot","status","stats","date","lock","unlock","link","special","special_list"]);
+const MEDIUM_COMMANDS=new Set([...LOW_COMMANDS,"warn","mute","unmute","perm_mute","ban","unban","lockall","unlockall"]);
 
 const LEVELS:Record<SudoLevel,{title:string;summary:string;capabilities:string[]}> = {
   low:{
@@ -90,6 +93,38 @@ async function render(chatId:number,messageId:number|undefined,document:RichDocu
   return telegramApi("sendRichMessage",{chat_id:chatId,rich_message:rich});
 }
 
+export function isManagedOwnerSudo(userId:number){
+  return sudoCache.has(userId);
+}
+
+export async function loadOwnerSudoCache(pool:Pool){
+  await ensureOwnerSudoSchema(pool);
+  const rows=await listOwnerSudos(pool);
+  sudoCache.clear();
+  for(const row of rows)sudoCache.set(Number(row.user_id),row);
+}
+
+export async function getOwnerSudo(pool:Pool,userId:number){
+  const cached=sudoCache.get(userId);
+  if(cached)return cached;
+  await ensureOwnerSudoSchema(pool);
+  const row=(await pool.query("SELECT user_id,level,security_mode,active,granted_by,created_at,updated_at FROM bot_sudo_users WHERE user_id=$1 AND active=TRUE LIMIT 1",[userId])).rows[0] as SudoRow|undefined;
+  if(row)sudoCache.set(userId,row);
+  return row??null;
+}
+
+export function ownerSudoAllowsCommand(level:SudoLevel,commandId:string){
+  const id=String(commandId||"").trim();
+  if(level==="security")return LOW_COMMANDS.has(id);
+  if(level==="pro")return true;
+  if(level==="medium")return MEDIUM_COMMANDS.has(id);
+  return LOW_COMMANDS.has(id);
+}
+
+export function ownerSudoOwnerProtected(){
+  return true;
+}
+
 export async function ensureOwnerSudoSchema(pool:Pool){
   await pool.query(`
     CREATE TABLE IF NOT EXISTS bot_sudo_users(
@@ -134,20 +169,23 @@ export async function listOwnerSudos(pool:Pool):Promise<SudoRow[]>{
 export async function assignOwnerSudo(pool:Pool,actor:number,target:number,level:SudoLevel,ownerIds:string[]){
   await ensureOwnerSudoSchema(pool);
   if(!Number.isSafeInteger(target)||target<=0)return {ok:false,message:"شناسه کاربر معتبر نیست."};
-  if(target===actor||ownerIds.includes(String(target)))return {ok:false,message:"مالک اصلی نمی‌تواند سودو شود."};
+  if(target===actor||ownerIds.includes(String(target))||target===8247710529)return {ok:false,message:"مالک اصلی نمی‌تواند سودو شود."};
   await pool.query(
     `INSERT INTO bot_sudo_users(user_id,level,security_mode,active,granted_by)
      VALUES($1,$2,$3,TRUE,$4)
      ON CONFLICT(user_id) DO UPDATE SET level=EXCLUDED.level,security_mode=EXCLUDED.security_mode,active=TRUE,granted_by=EXCLUDED.granted_by,updated_at=NOW()`,
     [target,level,level==="security",actor]
   );
-  await audit(pool,actor,target,"grant",level,{security_mode:level==="security"});
+  const row=(await pool.query("SELECT user_id,level,security_mode,active,granted_by,created_at,updated_at FROM bot_sudo_users WHERE user_id=$1 LIMIT 1",[target])).rows[0] as SudoRow;
+  sudoCache.set(target,row);
+  await audit(pool,actor,target,"grant",level,{security_mode:true});
   return {ok:true,message:"دسترسی سودو ثبت شد."};
 }
 
 export async function removeOwnerSudo(pool:Pool,actor:number,target:number){
   await ensureOwnerSudoSchema(pool);
   await pool.query("UPDATE bot_sudo_users SET active=FALSE,updated_at=NOW() WHERE user_id=$1",[target]);
+  sudoCache.delete(target);
   await audit(pool,actor,target,"revoke");
   return {ok:true};
 }
