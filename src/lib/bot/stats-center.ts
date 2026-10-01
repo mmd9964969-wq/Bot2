@@ -1846,8 +1846,6 @@ export async function handleStatsCallback(pool: Pool, cb: StatsCallback, ownerId
     await answer(cb.id);
     return true;
   }
-  await answer(cb.id);
-
   const data=String(cb.data||"");
   const chatId=cb.message.chat.id;
   const mid=cb.message.message_id;
