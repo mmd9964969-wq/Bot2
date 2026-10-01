@@ -935,7 +935,8 @@ async function sendCustomer(pool:Pool,ownerId:number,chatId:number,row:any){
 
 async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   const uid=cb.from.id;if(!await isOwner(pool,uid,ownerIds))return;
-  const data=String(cb.data||"");const msg=cb.message;if(!msg)return;await answer(cb.id);
+  // CallbackQuery is acknowledged once by dispatchPanelCallback().
+  const data=String(cb.data||"");const msg=cb.message;if(!msg)return;
   if(data==="o:subscriptions"){
     const [active,expiring,expired,lifetime]=await Promise.all([
       pool.query("SELECT COUNT(*)::int n FROM bot_group_subscriptions WHERE status='ACTIVE'"),
@@ -1515,8 +1516,8 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   const uid=cb.from.id;
   const msg=cb.message;
   if(!msg)return;
-  await answer(cb.id);
-
+  // CallbackQuery is acknowledged once by dispatchPanelCallback().
+  // A second answerCallbackQuery call throws QUERY_ID_INVALID and aborts navigation.
   const data=String(cb.data||"");
   const s=getSession(uid);
   const groupId=Number(s?.data?.chatId||msg.chat.id);
