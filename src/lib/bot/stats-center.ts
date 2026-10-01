@@ -1957,7 +1957,7 @@ export async function handleStatsCallback(pool: Pool, cb: StatsCallback, ownerId
   }
 
   const p=data.split(":");
-  if(p[0]!=="s")return false;
+  if(p[0]!=="sx")return false;
 
   if(p[1]==="periods"){
     const scope=p[2] as StatsScope;
