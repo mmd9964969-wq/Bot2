@@ -1,4 +1,5 @@
 const http = require("http");
+const zlib = require("zlib");
 const fs = require("fs");
 const path = require("path");
 const { checkConnection, query } = require("./backend/database");
@@ -7,77 +8,76 @@ const { ensureContentLocksSchema, contentLocksApi } = require("./backend/content
 const { ensureInstallationsSchema, installationsApi } = require("./backend/installations");
 
 const PORT = process.env.PORT || 3000;
+let schemaReady = false;
+let schemaInitError = null;
 
 async function ensureBaseSchema() {
-  await query(`CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    telegram_id BIGINT UNIQUE,
-    username TEXT,
-    first_name TEXT,
-    role TEXT NOT NULL DEFAULT 'member',
-    language TEXT NOT NULL DEFAULT 'fa',
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`);
-
-  await query(`CREATE TABLE IF NOT EXISTS commands (
-    id BIGSERIAL PRIMARY KEY,
-    command_key TEXT NOT NULL UNIQUE,
-    fa_name TEXT,
-    en_name TEXT,
-    enabled BOOLEAN NOT NULL DEFAULT TRUE,
-    permission_level INTEGER NOT NULL DEFAULT 10,
-    response_fa TEXT,
-    response_en TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`);
-
-  await query(`CREATE TABLE IF NOT EXISTS settings (
-    key TEXT PRIMARY KEY,
-    value JSONB NOT NULL DEFAULT '{}'::jsonb,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`);
-
-  await query(`CREATE TABLE IF NOT EXISTS audit_logs (
-    id BIGSERIAL PRIMARY KEY,
-    actor_id TEXT,
-    action TEXT NOT NULL,
-    target TEXT,
-    before_data JSONB,
-    after_data JSONB,
-    source TEXT NOT NULL DEFAULT 'panel',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`);
-
-  await query(`CREATE TABLE IF NOT EXISTS sync_state (
-    id INTEGER PRIMARY KEY DEFAULT 1,
-    source TEXT NOT NULL DEFAULT 'panel',
-    last_sync_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`);
+  const statements = [
+    `CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      telegram_id BIGINT UNIQUE,
+      username TEXT,
+      first_name TEXT,
+      role TEXT NOT NULL DEFAULT 'member',
+      language TEXT NOT NULL DEFAULT 'fa',
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS commands (
+      id BIGSERIAL PRIMARY KEY,
+      command_key TEXT NOT NULL UNIQUE,
+      fa_name TEXT,
+      en_name TEXT,
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      permission_level INTEGER NOT NULL DEFAULT 10,
+      response_fa TEXT,
+      response_en TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS audit_logs (
+      id BIGSERIAL PRIMARY KEY,
+      actor_id TEXT,
+      action TEXT NOT NULL,
+      target TEXT,
+      before_data JSONB,
+      after_data JSONB,
+      source TEXT NOT NULL DEFAULT 'panel',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS sync_state (
+      id INTEGER PRIMARY KEY DEFAULT 1,
+      source TEXT NOT NULL DEFAULT 'panel',
+      last_sync_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS response_templates (
+      id BIGSERIAL PRIMARY KEY,
+      response_key TEXT NOT NULL UNIQUE,
+      event_type TEXT NOT NULL DEFAULT 'custom',
+      title TEXT NOT NULL DEFAULT '',
+      message_fa TEXT NOT NULL DEFAULT '',
+      message_en TEXT NOT NULL DEFAULT '',
+      channel TEXT NOT NULL DEFAULT 'group',
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS user_permissions (
+      user_id TEXT NOT NULL,
+      permission_key TEXT NOT NULL,
+      allowed BOOLEAN NOT NULL DEFAULT FALSE,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, permission_key)
+    )`
+  ];
+  await Promise.all(statements.map(sql => query(sql)));
   await query(`INSERT INTO sync_state (id, source) VALUES (1, 'panel') ON CONFLICT (id) DO NOTHING`);
-
-  await query(`CREATE TABLE IF NOT EXISTS response_templates (
-    id BIGSERIAL PRIMARY KEY,
-    response_key TEXT NOT NULL UNIQUE,
-    event_type TEXT NOT NULL DEFAULT 'custom',
-    title TEXT NOT NULL DEFAULT '',
-    message_fa TEXT NOT NULL DEFAULT '',
-    message_en TEXT NOT NULL DEFAULT '',
-    channel TEXT NOT NULL DEFAULT 'group',
-    enabled BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`);
-
-  await query(`CREATE TABLE IF NOT EXISTS user_permissions (
-    user_id TEXT NOT NULL,
-    permission_key TEXT NOT NULL,
-    allowed BOOLEAN NOT NULL DEFAULT FALSE,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (user_id, permission_key)
-  )`);
 }
 
 async function ensurePermissionSchema() {
@@ -212,9 +212,31 @@ const types = {
   ".js": "application/javascript; charset=utf-8"
 };
 
-function send(res, status, body, type = "application/json; charset=utf-8") {
-  res.writeHead(status, {"Content-Type": type, "Cache-Control": "no-store"});
+function send(res, status, body, type = "application/json; charset=utf-8", headers = {}) {
+  res.writeHead(status, {"Content-Type": type, "Cache-Control": "no-store", ...headers});
   res.end(body);
+}
+
+function sendStatic(res, req, status, body, type, isHtml = false) {
+  const raw = Buffer.isBuffer(body) ? body : Buffer.from(body);
+  const cacheControl = isHtml ? "no-cache, max-age=0, must-revalidate" : "public, max-age=31536000, immutable";
+  const acceptEncoding = String(req.headers["accept-encoding"] || "").toLowerCase();
+  const acceptsGzip = acceptEncoding.split(",").some(value => value.trim().startsWith("gzip"));
+  const compressible = type.startsWith("text/") || type.startsWith("application/javascript") || type.startsWith("application/json");
+  const common = {"Cache-Control": cacheControl, "Vary": "Accept-Encoding"};
+
+  if (acceptsGzip && raw.length >= 1024 && compressible) {
+    return zlib.gzip(raw, {level: 6}, (error, compressed) => {
+      if (error) return send(res, status, raw, type, common);
+      send(res, status, compressed, type, {
+        ...common,
+        "Content-Encoding": "gzip",
+        "Content-Length": String(compressed.length)
+      });
+    });
+  }
+
+  send(res, status, raw, type, {...common, "Content-Length": String(raw.length)});
 }
 
 function readBody(req) {
@@ -514,10 +536,29 @@ const server = http.createServer(async (req,res) => {
     const url = new URL(req.url,"http://localhost");
 
     if (url.pathname === "/api/health") {
-      const database = await checkConnection();
+      const database = schemaReady
+        ? await checkConnection()
+        : {
+            connected: false,
+            configured: Boolean(process.env.DATABASE_URL),
+            initializing: !schemaInitError,
+            error: schemaInitError || null
+          };
       return send(res,200,JSON.stringify({
-        name:"PERSIAN BOT STUDIO", status:"online", phase:"03",
-        language:["fa","en"], database, timestamp:new Date().toISOString()
+        name:"PERSIAN BOT STUDIO",
+        status:"online",
+        phase:"03",
+        ready:schemaReady,
+        language:["fa","en"],
+        database,
+        timestamp:new Date().toISOString()
+      }));
+    }
+
+    if (url.pathname.startsWith("/api/") && url.pathname !== "/api/health" && !schemaReady) {
+      return send(res, 503, JSON.stringify({
+        error: schemaInitError ? "Database initialization failed" : "Panel is initializing",
+        ready: false
       }));
     }
 
@@ -553,25 +594,34 @@ const server = http.createServer(async (req,res) => {
 
     fs.readFile(filePath,(error,data) => {
       if (error) return send(res,404,JSON.stringify({error:"Not found"}));
-      send(res,200,data,types[path.extname(filePath)] || "application/octet-stream");
+      const ext = path.extname(filePath).toLowerCase();
+      const type = types[ext] || "application/octet-stream";
+      sendStatic(res, req, 200, data, type, ext === ".html");
     });
   } catch(error) {
     send(res,500,JSON.stringify({error:error.message}));
   }
 });
-ensureBaseSchema()
-  .then(() => Promise.all([
-    ensurePermissionSchema(),
-    ensureSupervisionSchema(),
-    ensureRuntimeSchema(),
-    ensureCommandAccessSchema(),
-    ensureWarningsSchema(),
-    ensureContentLocksSchema(),
-    ensureInstallationsSchema()
-  ]))
-  .then(() => ensureCoreCommandRecords())
-  .then(() => server.listen(PORT, () => console.log(`PERSIAN BOT STUDIO running on port ${PORT}`)))
-  .catch(error => {
+server.listen(PORT, () => console.log(`PERSIAN BOT STUDIO running on port ${PORT}`));
+
+(async () => {
+  try {
+    await ensureBaseSchema();
+    await Promise.all([
+      ensurePermissionSchema(),
+      ensureSupervisionSchema(),
+      ensureRuntimeSchema(),
+      ensureCommandAccessSchema(),
+      ensureWarningsSchema(),
+      ensureContentLocksSchema(),
+      ensureInstallationsSchema()
+    ]);
+    await ensureCoreCommandRecords();
+    schemaReady = true;
+    schemaInitError = null;
+    console.log("PERSIAN BOT STUDIO database schema ready");
+  } catch (error) {
+    schemaInitError = error.message;
     console.error("Database schema initialization failed:", error);
-    process.exit(1);
-  });
+  }
+})();
