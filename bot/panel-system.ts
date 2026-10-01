@@ -1335,7 +1335,7 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     ]));
   }
 
-  if(data.startsWith("og:list:"){
+  if(data.startsWith("og:list:")){
     const parts=data.split(":");const page=Math.max(1,Number(parts[2]||1));const filter=parts[3]||undefined;
     if(!Number.isInteger(page))return;
     const result=await listOwnerGroups(pool,{status:filter,limit:8,offset:(page-1)*8});
