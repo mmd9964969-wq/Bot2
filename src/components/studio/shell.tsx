@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Activity, BookOpen, Layers3, MessageSquare, Rocket, ShieldCheck } from "lucide-react";
+import { Activity, BookOpen, Layers3, MessageSquare, Rocket, ShieldCheck, Users } from "lucide-react";
 import { NizamMark } from "@/components/mark";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { ConfigView } from "./config-view";
 import { DeployView } from "./deploy-view";
 import { OverviewView } from "./overview-view";
 import { SimView } from "./sim-view";
+import { GroupManagementView } from "./group-management-view";
 
 const NAV: { id: ViewId; fa: string; en: string; icon: typeof Activity }[] = [
   { id: "overview", fa: "نمای کلی", en: "Overview", icon: Activity },
@@ -17,6 +18,7 @@ const NAV: { id: ViewId; fa: string; en: string; icon: typeof Activity }[] = [
   { id: "commands", fa: "دستورات", en: "Commands", icon: BookOpen },
   { id: "sim", fa: "آزمایش", en: "Simulator", icon: MessageSquare },
   { id: "deploy", fa: "سرویس", en: "Service", icon: Rocket },
+  { id: "groups", fa: "مدیریت گروه‌ها", en: "Groups", icon: Users },
 ];
 
 export function StudioShell() {
@@ -89,6 +91,7 @@ export function StudioShell() {
         {view === "commands" && <CommandsView />}
         {view === "sim" && <SimView />}
         {view === "deploy" && <DeployView />}
+        {view === "groups" && <GroupManagementView />}
       </main>
     </div>
   );
