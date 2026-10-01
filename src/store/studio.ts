@@ -11,7 +11,8 @@ export type ViewId =
   | "config"
   | "commands"
   | "sim"
-  | "deploy";
+  | "deploy"
+  | "groups";
 
 export type SimMessage = {
   id: string;
