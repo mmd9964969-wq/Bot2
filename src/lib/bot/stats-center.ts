@@ -573,10 +573,10 @@ async function groupOverviewData(pool: Pool, chatId: number) {
       [chatId],
     ),
     pool.query<any>(
-      `SELECT ${rawHourExpression("m")} AS hour,COUNT(*)::int n
+      `SELECT ${rawHourExpression("m")} AS "hour",COUNT(*)::int n
        FROM bot_message_records m
        WHERE m.chat_id=$1
-       GROUP BY 1 ORDER BY n DESC,hour ASC LIMIT 1`,
+       GROUP BY 1 ORDER BY n DESC,"hour" ASC LIMIT 1`,
       [chatId],
     ),
     topUsers(pool, chatId, "messages", "7d", 3),
@@ -593,9 +593,9 @@ async function groupOverviewData(pool: Pool, chatId: number) {
     pool.query<any>(
       `SELECT
         (SELECT COUNT(*)::int FROM warning_penalties WHERE group_id=$1 AND created_at>=CURRENT_DATE) penalties_today,
-        (SELECT COUNT(*)::int FROM audit_logs WHERE target=$1 AND created_at>=CURRENT_DATE) audits_today
+        (SELECT COUNT(*)::int FROM audit_logs WHERE target=$2 AND created_at>=CURRENT_DATE) audits_today
       `,
-      [String(chatId)],
+      [chatId,String(chatId)],
     ),
   ]);
 
@@ -893,7 +893,7 @@ async function hourlyGroup(pool: Pool, chatId: number, day: string) {
   ).catch(() => ({ rows: [] }));
   if (result.rows.length) return result.rows;
   const raw = await pool.query<any>(
-    `SELECT ${rawHourExpression("m")} hour,COUNT(*)::int message_count
+    `SELECT ${rawHourExpression("m")} AS "hour",COUNT(*)::int message_count
      FROM bot_message_records m
      WHERE m.chat_id=$1 AND ${rawDayExpression("m")}=$2::date
      GROUP BY 1 ORDER BY 1`,
@@ -913,7 +913,7 @@ async function hourlyUser(pool: Pool, chatId: number, userId: number, day?: stri
     ).catch(() => ({ rows: [] }));
     if (result.rows.length) return result.rows;
     const raw = await pool.query<any>(
-      `SELECT ${rawHourExpression("m")} hour,COUNT(*)::int message_count
+      `SELECT ${rawHourExpression("m")} AS "hour",COUNT(*)::int message_count
        FROM bot_message_records m
        WHERE m.chat_id=$1 AND m.user_id=$2 AND ${rawDayExpression("m")}=$3::date
        GROUP BY 1 ORDER BY 1`,
@@ -922,7 +922,7 @@ async function hourlyUser(pool: Pool, chatId: number, userId: number, day?: stri
     return raw.rows;
   }
   const raw = await pool.query<any>(
-    `SELECT ${rawHourExpression("m")} hour,COUNT(*)::int message_count
+    `SELECT ${rawHourExpression("m")} AS "hour",COUNT(*)::int message_count
      FROM bot_message_records m
      WHERE m.chat_id=$1 AND m.user_id=$2 AND ${rawDayExpression("m")}>=((NOW() AT TIME ZONE '${TZ}')::date-INTERVAL '29 days')::date
      GROUP BY 1 ORDER BY 1`,
@@ -1836,7 +1836,9 @@ async function sendUserCommandCard(pool:Pool,chatId:number,userId:number,user?:T
     "⛂ - جزئیات این کاربر از مسیر گزینه‌های پایین در دسترس است.",
   ].join("\n");
   return sendPanel(chatId,text,[
-    [["‹ اطلاعات بیشتر","sx:scope:user:"+userId]],
+    [["‹ بازه‌های آماری","sx:periods:user:"+userId],["‹ رتبه‌بندی","sx:ranking:user:"+userId]],
+    [["‹ آمار ساعتی","sx:uhours:"+userId+":today"],["‹ تحلیل محتوا","sx:content:user:today:"+userId]],
+    [["‹ مقایسه عملکرد","sx:ucompare:"+userId+":today"],["‹ گزارش کاربر","sx:ureport:"+userId+":today"]],
     [["‹ بازگشت","sx:home"]],
   ]);
 }
