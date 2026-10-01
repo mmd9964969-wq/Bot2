@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { Pool } from "pg";
 import { telegramApi } from "../telegram/api.ts";
 
-type PanelScope={userId:number;pool:Pool};
+type PanelScope={userId:number;pool:Pool;kind?: "owner"|"customer"};
 
 const scopeStorage=new AsyncLocalStorage<PanelScope>();
 let schemaPromise:Promise<void>|null=null;
@@ -14,6 +14,11 @@ export function runWithPanelScope<T>(userId:number,pool:Pool,fn:()=>Promise<T>):
 
 export function currentPanelScope():PanelScope|null{
   return scopeStorage.getStore()??null;
+}
+
+export function setCurrentPanelKind(kind:"owner"|"customer"){
+  const scope=scopeStorage.getStore();
+  if(scope)scope.kind=kind;
 }
 
 export async function ensurePanelSessionSchema(pool:Pool){
