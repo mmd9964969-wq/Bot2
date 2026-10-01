@@ -361,7 +361,7 @@ function buildDateRichMessage(text: string): any {
     caption: title,
     is_bordered: true,
     is_striped: true,
-    is_compact: true,
+    is_compact: false,
     cells: [
       [
         { text: lang === "fa" ? "عنوان" : "Field", is_header: true, align: "right", valign: "middle" },
