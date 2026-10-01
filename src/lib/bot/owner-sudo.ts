@@ -1,6 +1,6 @@
 import type { Pool } from "pg";
 import { telegramApi } from "../telegram/api.ts";
-import { prepareRichDocument, validateRichDocument, type RichDocument } from "./rich-message.ts";
+import { prepareRichDocument, validateRichDocument, richDocumentToPlainText, type RichDocument } from "./rich-message.ts";
 
 export type SudoLevel = "low" | "medium" | "pro" | "security";
 
@@ -84,13 +84,47 @@ function validate(docValue:RichDocument){
   return docValue;
 }
 
+function richReplyMarkup(document:RichDocument){
+  const rows=document.blocks
+    .filter(block=>block?.type==="buttons" && Array.isArray(block.buttons))
+    .map(block=>(block.buttons as any[])
+      .filter(button=>button?.callback_data || button?.url)
+      .map(button=>button?.url
+        ? {text:String(button.text??"—"),url:String(button.url)}
+        : {text:String(button.text??"—"),callback_data:String(button.callback_data)}
+      )
+    )
+    .filter(row=>row.length>0);
+  return rows.length ? {inline_keyboard:rows} : undefined;
+}
+
 async function render(chatId:number,messageId:number|undefined,document:RichDocument){
   const rich=validate(document);
-  const payload={chat_id:chatId,...(messageId?{message_id:messageId}:{rich_message:rich})};
-  if(messageId){
-    return telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,rich_message:rich});
+  const plain=richDocumentToPlainText(rich);
+  const reply_markup=richReplyMarkup(rich);
+
+  try{
+    const richResult=messageId
+      ? await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,rich_message:rich})
+      : await telegramApi("sendRichMessage",{chat_id:chatId,rich_message:rich});
+    if((richResult as any)?.ok===true)return richResult;
+    console.warn("[owner-sudo] rich render unavailable; using legacy Telegram message");
+  }catch(error){
+    console.warn("[owner-sudo] rich render failed; using legacy Telegram message",error);
   }
-  return telegramApi("sendRichMessage",{chat_id:chatId,rich_message:rich});
+
+  return messageId
+    ? telegramApi("editMessageText",{
+        chat_id:chatId,
+        message_id:messageId,
+        text:plain,
+        ...(reply_markup?{reply_markup}:{}),
+      })
+    : telegramApi("sendMessage",{
+        chat_id:chatId,
+        text:plain,
+        ...(reply_markup?{reply_markup}:{}),
+      });
 }
 
 export function isManagedOwnerSudo(userId:number){
