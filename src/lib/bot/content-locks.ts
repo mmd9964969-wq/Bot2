@@ -368,22 +368,41 @@ function lockCenterRichBlocks(rows:any[],lang:BotLang="fa"){
   const active=rows.filter((x:any)=>x.enabled).length;
   const status=total===0?"بدون قانون":active===0?"خاموش":active===total?"کامل":"فعال";
 
+  const header:any[]=[
+    {text:"بخش",is_header:true,align:"right",valign:"middle"},
+    {text:"فعال",is_header:true,align:"center",valign:"middle"},
+    {text:"کل",is_header:true,align:"center",valign:"middle"},
+    {text:"وضعیت",is_header:true,align:"center",valign:"middle"},
+  ];
+
   const tableRows:any[][] = sections.map((section) => {
     const rs=rows.filter((r:any)=>r.section===section);
     const on=rs.filter((r:any)=>r.enabled).length;
     const state=rs.length===0?"—":on===0?"خاموش":on===rs.length?"کامل":"فعال";
     return [
-      {text:names[section]},
-      {text:String(on)},
-      {text:String(rs.length)},
-      {text:state},
+      {text:names[section],align:"right",valign:"middle"},
+      {text:String(on),align:"center",valign:"middle"},
+      {text:String(rs.length),align:"center",valign:"middle"},
+      {text:state,align:"center",valign:"middle"},
     ];
   });
 
-  const enabledRules=rows
+  const activeRows=rows
     .filter((r:any)=>r.enabled)
     .slice(0,20)
-    .map((r:any)=>({text:"قانون فعال: "+(LOCK_LABELS[r.rule_key]||r.rule_key)}));
+    .map((r:any)=>({
+      blocks:[{
+        type:"paragraph",
+        text:"قانون فعال: "+(LOCK_LABELS[r.rule_key]||r.rule_key)
+      }]
+    }));
+
+  const infoItems=[
+    {blocks:[{type:"paragraph",text:"سیستم قفل: "+status}]},
+    {blocks:[{type:"paragraph",text:"قوانین فعال: "+String(active)+" از "+String(total)}]},
+    {blocks:[{type:"paragraph",text:"قوانین قابل مدیریت: "+String(total)}]},
+    {blocks:[{type:"paragraph",text:"دسته‌بندی‌ها از طریق دکمه‌های شیشه‌ای پایین پیام باز می‌شوند."}]},
+  ];
 
   const blocks:any[]=[
     {type:"heading",text:lockCenterTitle(lang),size:2},
@@ -392,41 +411,31 @@ function lockCenterRichBlocks(rows:any[],lang:BotLang="fa"){
     {
       type:"table",
       caption:"وضعیت کلی سیستم",
-      headers:[
-        {text:"بخش"},
-        {text:"فعال"},
-        {text:"کل"},
-        {text:"وضعیت"},
-      ],
-      cells:tableRows,
+      is_bordered:true,
+      is_striped:true,
+      is_compact:true,
+      cells:[header,...tableRows],
     },
     {type:"divider"},
     {
       type:"details",
       summary:"جزئیات سیستم",
-      blocks:[
-        {
-          type:"list",
-          style:"bullet",
-          items:[
-            {text:"سیستم قفل: "+status},
-            {text:"قوانین فعال: "+String(active)+" از "+String(total)},
-            {text:"قوانین فعال در حافظه: "+String(enabledRules.length)},
-            {text:"استثناها و دامنه‌های مجاز از بخش مربوطه قابل مدیریت هستند."},
-          ],
-        },
-      ],
+      is_open:true,
+      blocks:[{
+        type:"list",
+        items:infoItems,
+      }],
     },
-    ...(enabledRules.length
+    ...(activeRows.length
       ? [
           {type:"heading",text:"قوانین فعال",size:3},
-          {type:"list",style:"bullet",items:enabledRules},
+          {type:"list",items:activeRows},
         ]
       : []),
     {type:"divider"},
     {
       type:"paragraph",
-      text:"برای تغییر هر بخش، از دکمه‌های زیر استفاده کنید. دکمه‌ها همان کیبورد شیشه‌ای فعلی ربات هستند.",
+      text:"برای تغییر هر بخش از دکمه‌های شیشه‌ای زیر استفاده کنید.",
     },
   ];
 
