@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import { telegramApi } from "../telegram/api.ts";
 import { glassKeyboard } from "./panel-design.ts";
+import { prepareRichDocument, validateRichDocument } from "./rich-message.ts";
 import type { Rank } from "./registry.ts";
 
 const SEP = "─────━━───── ◈ ─────━━─────";
@@ -338,6 +339,124 @@ async function setSetting(pool: Pool, userId: number, key: string, value: unknow
   if (!allowed.has(key)) return;
   await pool.query("UPDATE bot_date_user_settings SET " + key + "=$1, updated_at=NOW() WHERE user_id=$2", [value, userId]);
 }
+
+function dateRichLanguage(text: string): Lang {
+  return /[\u0600-\u06FF]/.test(text) ? "fa" : "en";
+}
+
+function buildDateRichMessage(text: string): any {
+  const source = String(text ?? "").trim();
+  const lang = dateRichLanguage(source);
+  const normalized = source
+    .split("\n")
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  const blocks: any[] = [];
+  const rows: Array<{label: string; value: string}> = [];
+
+  const flushRows = () => {
+    if (!rows.length) return;
+    blocks.push({
+      type: "table",
+      is_bordered: true,
+      is_striped: true,
+      is_compact: true,
+      cells: [
+        [
+          { text: lang === "fa" ? "عنوان" : "Field", is_header: true, align: "right", valign: "middle" },
+          { text: lang === "fa" ? "مقدار" : "Value", is_header: true, align: "right", valign: "middle" },
+        ],
+        ...rows.map(row => [
+          { text: row.label, align: "right", valign: "middle" },
+          { text: row.value, align: "right", valign: "middle" },
+        ]),
+      ],
+    });
+    rows.length = 0;
+  };
+
+  for (const raw of normalized) {
+    if (raw === SEP) {
+      flushRows();
+      blocks.push({ type: "divider" });
+      continue;
+    }
+
+    if (raw.startsWith(TITLE)) {
+      flushRows();
+      blocks.push({
+        type: "heading",
+        text: lang === "fa" ? "Pᴇʀsɪᴀɴ ᴮᵒᵗ · مرکز تاریخ" : "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Date Center",
+        size: 3,
+      });
+      continue;
+    }
+
+    if (raw.startsWith("★ - ")) {
+      flushRows();
+      blocks.push({
+        type: "heading",
+        text: raw.slice(4).trim(),
+        size: 2,
+      });
+      continue;
+    }
+
+    if (raw.startsWith("⛂ - ")) {
+      const field = raw.slice("⛂ - ".length);
+      const cut = field.indexOf(" : ");
+      rows.push(
+        cut >= 0
+          ? { label: field.slice(0, cut).trim(), value: field.slice(cut + 3).trim() || "—" }
+          : { label: field.trim(), value: "—" },
+      );
+      continue;
+    }
+
+    flushRows();
+    blocks.push({ type: "paragraph", text: raw });
+  }
+
+  flushRows();
+
+  if (!blocks.length) {
+    blocks.push({
+      type: "paragraph",
+      text: lang === "fa" ? "اطلاعاتی برای نمایش وجود ندارد." : "There is no information to display.",
+    });
+  }
+
+  const prepared = prepareRichDocument({
+    version: 1,
+    is_rtl: lang === "fa",
+    blocks,
+  });
+  const validation = validateRichDocument(prepared);
+  if (!validation.ok) console.error("[date-rich] validation failed:", validation.errors);
+  return prepared;
+}
+
+async function sendDateMessage(payload: any) {
+  const sourceText = String(payload?.text ?? "");
+  const richMessage = buildDateRichMessage(sourceText);
+  const { text: _legacyText, ...rest } = payload ?? {};
+
+  const sent = await telegramApi("sendRichMessage", {
+    ...rest,
+    rich_message: {
+      blocks: richMessage.blocks,
+      is_rtl: richMessage.is_rtl,
+    },
+  }).catch((error) => {
+    console.error("[date-rich] sendRichMessage failed:", error);
+    return null;
+  });
+
+  if (sent?.ok) return sent;
+  return telegramApi("sendMessage", payload);
+}
+
 function menuForLang(lang: Lang) {
   return lang === "en"
     ? [
@@ -388,12 +507,25 @@ async function home(ctx: DateCtx, pool: Pool, messageId?: number) {
   const text = TITLE + "\n\n" + heading(ctx.lang === "fa" ? "مرکز تاریخ" : "Date Center") + "\n\n" + body + "\n\n" + SEP + "\n\n" + heading(ctx.lang === "fa" ? "ابزارها" : "Tools");
   const markup = glassKeyboard(menuForLang(ctx.lang));
   if (messageId) return editDate(ctx, messageId, text, markup);
-  return telegramApi("sendMessage", { chat_id: ctx.chatId, text, reply_markup: markup });
+  return sendDateMessage({ chat_id: ctx.chatId, text, reply_markup: markup });
 }
 async function editDate(ctx: DateCtx, messageId: number, text: string, replyMarkup: any) {
-  const r = await telegramApi("editMessageText", { chat_id: ctx.chatId, message_id: messageId, text, reply_markup: replyMarkup });
-  if (!r.ok) await telegramApi("sendMessage", { chat_id: ctx.chatId, text, reply_markup: replyMarkup });
-  return r;
+  const richMessage = buildDateRichMessage(text);
+  const r = await telegramApi("editMessageText", {
+    chat_id: ctx.chatId,
+    message_id: messageId,
+    rich_message: {
+      blocks: richMessage.blocks,
+      is_rtl: richMessage.is_rtl,
+    },
+    reply_markup: replyMarkup,
+  }).catch((error) => {
+    console.error("[date-rich] edit rich message failed:", error);
+    return null;
+  });
+
+  if (r?.ok) return r;
+  return sendDateMessage({ chat_id: ctx.chatId, text, reply_markup: replyMarkup });
 }
 function backKeyboard() {
   return glassKeyboard([[["‹ بازگشت", "date:home"]]]);
@@ -681,20 +813,20 @@ export async function openDateCenterFromCommand(pool: Pool, ctx: DateCtx, args: 
       line(ctx.lang === "fa" ? "میلادی" : "Gregorian", formatGregorian(c, ctx.lang, s.timezone)) + "\n" +
       line(ctx.lang === "fa" ? "قمری" : "Lunar", islamicFull(c, ctx.lang)) + "\n" +
       line(ctx.lang === "fa" ? "روز سال" : "Day of year", faNum(jalaliDayOfYear(j.year, j.month, j.day))) + "\n\n" + SEP;
-    return telegramApi("sendMessage", { chat_id: ctx.chatId, text, reply_markup: backKeyboard() });
+    return sendDateMessage({ chat_id: ctx.chatId, text, reply_markup: backKeyboard() });
   }
   if (["فردا", "tomorrow"].includes(sub)) {
     const s = await getSettings(pool, ctx.userId), p = parseParts(new Date(), s.timezone), t = shiftCivil(p.year, p.month, p.day, 1), c = civilDate(t.year, t.month, t.day);
-    return telegramApi("sendMessage", { chat_id: ctx.chatId, text: TITLE + "\n\n" + heading(ctx.lang === "fa" ? "فردا" : "Tomorrow") + "\n\n" + line(ctx.lang === "fa" ? "شمسی" : "Persian", formatPersian(c, ctx.lang, s.timezone)) + "\n" + line(ctx.lang === "fa" ? "میلادی" : "Gregorian", formatGregorian(c, ctx.lang, s.timezone)) + "\n" + line(ctx.lang === "fa" ? "قمری" : "Lunar", islamicFull(c, ctx.lang)) + "\n\n" + SEP, reply_markup: backKeyboard() });
+    return sendDateMessage({ chat_id: ctx.chatId, text: TITLE + "\n\n" + heading(ctx.lang === "fa" ? "فردا" : "Tomorrow") + "\n\n" + line(ctx.lang === "fa" ? "شمسی" : "Persian", formatPersian(c, ctx.lang, s.timezone)) + "\n" + line(ctx.lang === "fa" ? "میلادی" : "Gregorian", formatGregorian(c, ctx.lang, s.timezone)) + "\n" + line(ctx.lang === "fa" ? "قمری" : "Lunar", islamicFull(c, ctx.lang)) + "\n\n" + SEP, reply_markup: backKeyboard() });
   }
   if (["دیروز", "yesterday"].includes(sub)) {
     const s = await getSettings(pool, ctx.userId), p = parseParts(new Date(), s.timezone), t = shiftCivil(p.year, p.month, p.day, -1), c = civilDate(t.year, t.month, t.day);
-    return telegramApi("sendMessage", { chat_id: ctx.chatId, text: TITLE + "\n\n" + heading(ctx.lang === "fa" ? "دیروز" : "Yesterday") + "\n\n" + line(ctx.lang === "fa" ? "شمسی" : "Persian", formatPersian(c, ctx.lang, s.timezone)) + "\n" + line(ctx.lang === "fa" ? "میلادی" : "Gregorian", formatGregorian(c, ctx.lang, s.timezone)) + "\n" + line(ctx.lang === "fa" ? "قمری" : "Lunar", islamicFull(c, ctx.lang)) + "\n\n" + SEP, reply_markup: backKeyboard() });
+    return sendDateMessage({ chat_id: ctx.chatId, text: TITLE + "\n\n" + heading(ctx.lang === "fa" ? "دیروز" : "Yesterday") + "\n\n" + line(ctx.lang === "fa" ? "شمسی" : "Persian", formatPersian(c, ctx.lang, s.timezone)) + "\n" + line(ctx.lang === "fa" ? "میلادی" : "Gregorian", formatGregorian(c, ctx.lang, s.timezone)) + "\n" + line(ctx.lang === "fa" ? "قمری" : "Lunar", islamicFull(c, ctx.lang)) + "\n\n" + SEP, reply_markup: backKeyboard() });
   }
   if (["تقویم", "calendar"].includes(sub)) {
     const s = await getSettings(pool, ctx.userId), p = parseParts(new Date(), s.timezone), j = gregorianToJalali(p.year, p.month, p.day)!;
     const c = renderCalendar(ctx, j.year, j.month);
-    return telegramApi("sendMessage", { chat_id: ctx.chatId, text: c.text, reply_markup: c.markup });
+    return sendDateMessage({ chat_id: ctx.chatId, text: c.text, reply_markup: c.markup });
   }
   const conversion = sub.replace(/^(?:تبدیل|convert)\s+/, "");
   if (conversion !== sub || /^\d{4}[\/-]\d{1,2}[\/-]\d{1,2}$/.test(sub)) {
@@ -706,7 +838,7 @@ export async function openDateCenterFromCommand(pool: Pool, ctx: DateCtx, args: 
         line("شمسی", faNum(parsed.j.year) + "/" + faNum(String(parsed.j.month).padStart(2, "0")) + "/" + faNum(String(parsed.j.day).padStart(2, "0"))) + "\n" +
         line("میلادی", parsed.g.year + "/" + String(parsed.g.month).padStart(2, "0") + "/" + String(parsed.g.day).padStart(2, "0")) + "\n" +
         line("قمری", parsed.kind === "islamic" ? faNum(parsed.i.year) + "/" + faNum(String(parsed.i.month).padStart(2, "0")) + "/" + faNum(String(parsed.i.day).padStart(2, "0")) : faNum(islamicParts(dt).year) + "/" + faNum(String(islamicParts(dt).month).padStart(2, "0")) + "/" + faNum(String(islamicParts(dt).day).padStart(2, "0"))) ;
-      return telegramApi("sendMessage", { chat_id: ctx.chatId, text: TITLE + "\n\n" + heading(ctx.lang === "fa" ? "تبدیل تاریخ" : "Date conversion") + "\n\n" + body + "\n\n" + SEP, reply_markup: backKeyboard() });
+      return sendDateMessage({ chat_id: ctx.chatId, text: TITLE + "\n\n" + heading(ctx.lang === "fa" ? "تبدیل تاریخ" : "Date conversion") + "\n\n" + body + "\n\n" + SEP, reply_markup: backKeyboard() });
     }
   }
   return home(ctx, pool);
@@ -737,7 +869,7 @@ export async function handleDateTextInput(pool: Pool, msg: any) {
     flows.delete(uid);
     const p = parseDateOnly(value);
     if (!p) {
-      await telegramApi("sendMessage", { chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("تبدیل تاریخ") + "\n\n" + line("وضعیت", "✗ تاریخ نامعتبر است") + "\n" + line("فرمت", "۱۴۰۵/۰۷/۰۹ یا 2026/10/01") + "\n\n" + SEP, reply_markup: backKeyboard() });
+      await sendDateMessage({ chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("تبدیل تاریخ") + "\n\n" + line("وضعیت", "✗ تاریخ نامعتبر است") + "\n" + line("فرمت", "۱۴۰۵/۰۷/۰۹ یا 2026/10/01") + "\n\n" + SEP, reply_markup: backKeyboard() });
       return true;
     }
     const dt = civilDate(p.g.year, p.g.month, p.g.day), ip = islamicParts(dt);
@@ -746,7 +878,7 @@ export async function handleDateTextInput(pool: Pool, msg: any) {
       line("میلادی", p.g.year + "/" + String(p.g.month).padStart(2, "0") + "/" + String(p.g.day).padStart(2, "0")) + "\n" +
       line("قمری", p.kind === "islamic" && p.i ? faNum(p.i.year) + "/" + faNum(String(p.i.month).padStart(2, "0")) + "/" + faNum(String(p.i.day).padStart(2, "0")) : faNum(ip.year) + "/" + faNum(String(ip.month).padStart(2, "0")) + "/" + faNum(String(ip.day).padStart(2, "0")) ) + "\n" +
       line("روز هفته", WEEK_FA[weekdayIndex(p.g.year, p.g.month, p.g.day)]);
-    await telegramApi("sendMessage", { chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("نتیجه تبدیل") + "\n\n" + out + "\n\n" + SEP, reply_markup: backKeyboard() });
+    await sendDateMessage({ chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("نتیجه تبدیل") + "\n\n" + out + "\n\n" + SEP, reply_markup: backKeyboard() });
     return true;
   }
 
@@ -754,10 +886,10 @@ export async function handleDateTextInput(pool: Pool, msg: any) {
     flows.delete(uid);
     const r = parseDifference(value, s.timezone);
     if (!r) {
-      await telegramApi("sendMessage", { chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("اختلاف تاریخ") + "\n\n" + line("وضعیت", "✗ ورودی نامعتبر") + "\n" + line("فرمت", "۱۴۰۵/۰۷/۰۱ تا ۱۴۰۵/۰۷/۳۰") + "\n\n" + SEP, reply_markup: backKeyboard() });
+      await sendDateMessage({ chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("اختلاف تاریخ") + "\n\n" + line("وضعیت", "✗ ورودی نامعتبر") + "\n" + line("فرمت", "۱۴۰۵/۰۷/۰۱ تا ۱۴۰۵/۰۷/۳۰") + "\n\n" + SEP, reply_markup: backKeyboard() });
       return true;
     }
-    await telegramApi("sendMessage", { chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("اختلاف تاریخ") + "\n\n" +
+    await sendDateMessage({ chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("اختلاف تاریخ") + "\n\n" +
       line("تاریخ اول", formatPersian(r.a.date, "fa", s.timezone)) + "\n" +
       line("تاریخ دوم", formatPersian(r.b.date, "fa", s.timezone)) + "\n" +
       line("اختلاف روز", faNum(r.days)) + "\n" +
@@ -770,10 +902,10 @@ export async function handleDateTextInput(pool: Pool, msg: any) {
     flows.delete(uid);
     const r = calculateDate(value, s.timezone);
     if (!r) {
-      await telegramApi("sendMessage", { chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("محاسبه تاریخ") + "\n\n" + line("وضعیت", "✗ قالب نامعتبر") + "\n" + line("مثال", "۱۴۰۵/۰۷/۰۹ + ۳۰ روز") + "\n\n" + SEP, reply_markup: backKeyboard() });
+      await sendDateMessage({ chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("محاسبه تاریخ") + "\n\n" + line("وضعیت", "✗ قالب نامعتبر") + "\n" + line("مثال", "۱۴۰۵/۰۷/۰۹ + ۳۰ روز") + "\n\n" + SEP, reply_markup: backKeyboard() });
       return true;
     }
-    await telegramApi("sendMessage", { chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("نتیجه محاسبه") + "\n\n" +
+    await sendDateMessage({ chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("نتیجه محاسبه") + "\n\n" +
       line("شمسی", formatPersian(r.date, "fa", s.timezone)) + "\n" +
       line("میلادی", formatGregorian(r.date, "fa", s.timezone)) + "\n" +
       line("قمری", islamicFull(r.date, "fa")) + "\n\n" + SEP, reply_markup: backKeyboard() });
@@ -784,11 +916,11 @@ export async function handleDateTextInput(pool: Pool, msg: any) {
     flows.delete(uid);
     const r = parseDateTime(value, s.timezone);
     if (!r) {
-      await telegramApi("sendMessage", { chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("شمارش معکوس") + "\n\n" + line("وضعیت", "✗ تاریخ/ساعت نامعتبر") + "\n" + line("فرمت", "۱۴۰۵/۰۸/۰۱ ۲۰:۳۰") + "\n\n" + SEP, reply_markup: backKeyboard() });
+      await sendDateMessage({ chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("شمارش معکوس") + "\n\n" + line("وضعیت", "✗ تاریخ/ساعت نامعتبر") + "\n" + line("فرمت", "۱۴۰۵/۰۸/۰۱ ۲۰:۳۰") + "\n\n" + SEP, reply_markup: backKeyboard() });
       return true;
     }
     const diff = r.date.getTime() - Date.now();
-    await telegramApi("sendMessage", { chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("شمارش معکوس") + "\n\n" +
+    await sendDateMessage({ chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("شمارش معکوس") + "\n\n" +
       line("مقصد", formatPersian(r.date, "fa", s.timezone)) + "\n" +
       line("باقی‌مانده", diff >= 0 ? formatDuration(diff, "fa") : "تاریخ سپری شده است") + "\n" +
       line("ثانیه باقی‌مانده", diff >= 0 ? faNum(Math.floor(diff / 1000)) : "۰") + "\n\n" + SEP, reply_markup: backKeyboard() });
@@ -799,19 +931,19 @@ export async function handleDateTextInput(pool: Pool, msg: any) {
     flows.delete(uid);
     const p = parseDateOnly(value);
     if (!p) {
-      await telegramApi("sendMessage", { chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("تاریخ تولد") + "\n\n" + line("وضعیت", "✗ تاریخ تولد نامعتبر") + "\n" + line("فرمت", "۱۳۹۰/۰۵/۱۲ یا 2011/08/03") + "\n\n" + SEP, reply_markup: backKeyboard() });
+      await sendDateMessage({ chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("تاریخ تولد") + "\n\n" + line("وضعیت", "✗ تاریخ تولد نامعتبر") + "\n" + line("فرمت", "۱۳۹۰/۰۵/۱۲ یا 2011/08/03") + "\n\n" + SEP, reply_markup: backKeyboard() });
       return true;
     }
     const nowP = parseParts(new Date(), s.timezone), current = gregorianToJalali(nowP.year, nowP.month, nowP.day)!;
     if (f.flow === "age") {
       const a = ageValue(p.j, current);
-      await telegramApi("sendMessage", { chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("محاسبه سن") + "\n\n" +
+      await sendDateMessage({ chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("محاسبه سن") + "\n\n" +
         line("تاریخ تولد", faNum(p.j.year) + "/" + faNum(String(p.j.month).padStart(2, "0")) + "/" + faNum(String(p.j.day).padStart(2, "0"))) + "\n" +
         line("سن", faNum(a.years) + " سال و " + faNum(a.months) + " ماه و " + faNum(a.days) + " روز") + "\n\n" + SEP, reply_markup: backKeyboard() });
       return true;
     }
     const next = nextBirthday(p.j, current, s.timezone);
-    await telegramApi("sendMessage", { chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("تولد بعدی") + "\n\n" +
+    await sendDateMessage({ chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("تولد بعدی") + "\n\n" +
       line("تاریخ", next ? formatPersian(next, "fa", s.timezone) : "—") + "\n" +
       line("باقی‌مانده", next ? formatDuration(next.getTime() - Date.now(), "fa") : "—") + "\n\n" + SEP, reply_markup: backKeyboard() });
     return true;
@@ -821,11 +953,11 @@ export async function handleDateTextInput(pool: Pool, msg: any) {
     flows.delete(uid);
     const tz = value.trim();
     if (!isValidTimeZone(tz)) {
-      await telegramApi("sendMessage", { chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("منطقه زمانی") + "\n\n" + line("وضعیت", "✗ منطقه زمانی معتبر نیست") + "\n" + line("مثال", "Asia/Tehran") + "\n\n" + SEP, reply_markup: backKeyboard() });
+      await sendDateMessage({ chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("منطقه زمانی") + "\n\n" + line("وضعیت", "✗ منطقه زمانی معتبر نیست") + "\n" + line("مثال", "Asia/Tehran") + "\n\n" + SEP, reply_markup: backKeyboard() });
       return true;
     }
     await setSetting(pool, uid, "timezone", tz);
-    await telegramApi("sendMessage", { chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("منطقه زمانی") + "\n\n" + line("وضعیت", "✓ ذخیره شد") + "\n" + line("منطقه جدید", tz) + "\n\n" + SEP, reply_markup: backKeyboard() });
+    await sendDateMessage({ chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("منطقه زمانی") + "\n\n" + line("وضعیت", "✓ ذخیره شد") + "\n" + line("منطقه جدید", tz) + "\n\n" + SEP, reply_markup: backKeyboard() });
     return true;
   }
 
@@ -834,28 +966,28 @@ export async function handleDateTextInput(pool: Pool, msg: any) {
     f.flow = "event_datetime";
     f.expires = Date.now() + FLOW_TTL;
     flows.set(uid, f);
-    await telegramApi("sendMessage", { chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("ثبت رویداد") + "\n\n" + line("عنوان", f.data.title) + "\n" + line("مرحله بعد", "تاریخ و ساعت را وارد کنید.") + "\n" + line("فرمت", "۱۴۰۵/۰۷/۱۵ ۲۰:۳۰") + "\n\n" + SEP, reply_markup: backKeyboard() });
+    await sendDateMessage({ chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("ثبت رویداد") + "\n\n" + line("عنوان", f.data.title) + "\n" + line("مرحله بعد", "تاریخ و ساعت را وارد کنید.") + "\n" + line("فرمت", "۱۴۰۵/۰۷/۱۵ ۲۰:۳۰") + "\n\n" + SEP, reply_markup: backKeyboard() });
     return true;
   }
 
   if (f.flow === "event_datetime") {
     const p = parseDateTime(value, s.timezone);
     if (!p || p.date.getTime() <= Date.now()) {
-      await telegramApi("sendMessage", { chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("ثبت رویداد") + "\n\n" + line("وضعیت", "✗ تاریخ نامعتبر یا گذشته است") + "\n" + line("فرمت", "۱۴۰۵/۰۷/۱۵ ۲۰:۳۰") + "\n\n" + SEP });
+      await sendDateMessage({ chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("ثبت رویداد") + "\n\n" + line("وضعیت", "✗ تاریخ نامعتبر یا گذشته است") + "\n" + line("فرمت", "۱۴۰۵/۰۷/۱۵ ۲۰:۳۰") + "\n\n" + SEP });
       return true;
     }
     f.data.eventAt = p.date.toISOString();
     f.flow = "event_remind";
     f.expires = Date.now() + FLOW_TTL;
     flows.set(uid, f);
-    await telegramApi("sendMessage", { chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("یادآوری رویداد") + "\n\n" + line("عنوان", f.data.title) + "\n" + line("زمان", formatPersian(p.date, "fa", s.timezone)) + "\n" + line("مرحله بعد", "چند دقیقه قبل یادآوری شود؟") + "\n" + line("مثال", "۳۰ یا ۶۰ یا ۱۴۴۰") + "\n" + line("صفر", "بدون یادآوری") + "\n\n" + SEP });
+    await sendDateMessage({ chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("یادآوری رویداد") + "\n\n" + line("عنوان", f.data.title) + "\n" + line("زمان", formatPersian(p.date, "fa", s.timezone)) + "\n" + line("مرحله بعد", "چند دقیقه قبل یادآوری شود؟") + "\n" + line("مثال", "۳۰ یا ۶۰ یا ۱۴۴۰") + "\n" + line("صفر", "بدون یادآوری") + "\n\n" + SEP });
     return true;
   }
 
   if (f.flow === "event_remind") {
     const raw = normalizeDigits(value).trim();
     if (!/^\d+$/.test(raw)) {
-      await telegramApi("sendMessage", { chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("یادآوری رویداد") + "\n\n" + line("وضعیت", "✗ تعداد دقیقه نامعتبر") + "\n\n" + SEP });
+      await sendDateMessage({ chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("یادآوری رویداد") + "\n\n" + line("وضعیت", "✗ تعداد دقیقه نامعتبر") + "\n\n" + SEP });
       return true;
     }
     const mins = Math.min(10080, Math.max(0, Number(raw)));
@@ -866,7 +998,7 @@ export async function handleDateTextInput(pool: Pool, msg: any) {
       [scope, String(chatId), ctx.userId, f.data.title, f.data.eventAt, s.timezone, mins]
     );
     flows.delete(uid);
-    await telegramApi("sendMessage", { chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("رویداد ثبت شد") + "\n\n" +
+    await sendDateMessage({ chat_id: ctx.chatId, text: TITLE + "\n\n" + heading("رویداد ثبت شد") + "\n\n" +
       line("عنوان", f.data.title) + "\n" +
       line("نوع", scope === "group" ? "گروهی" : "شخصی") + "\n" +
       line("زمان", formatPersian(new Date(f.data.eventAt), "fa", s.timezone)) + "\n" +
@@ -987,7 +1119,7 @@ export async function runDateReminders(pool: Pool) {
   )).rows;
   for (const row of rows) {
     const target = String(row.scope) === "personal" ? String(row.creator_id) : String(row.chat_id);
-    const sent = await telegramApi("sendMessage", {
+    const sent = await sendDateMessage({
       chat_id: Number(target),
       text: TITLE + "\n\n" + heading("یادآوری رویداد") + "\n\n" +
         line("رویداد", row.title) + "\n" +
