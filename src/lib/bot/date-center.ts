@@ -282,7 +282,7 @@ function formatDuration(ms: number, lang: Lang) {
   return [days ? faNum(days) + " روز" : "", hours ? faNum(hours) + " ساعت" : "", minutes ? faNum(minutes) + " دقیقه" : "", seconds ? faNum(seconds) + " ثانیه" : ""].filter(Boolean).join(" ") || "۰ ثانیه";
 }
 
-async function ensureDateSchema(pool: Pool) {
+export async function ensureDateSchema(pool: Pool) {
   await pool.query(
     "CREATE TABLE IF NOT EXISTS bot_date_user_settings (" +
     "user_id BIGINT PRIMARY KEY, timezone TEXT NOT NULL DEFAULT 'Asia/Tehran'," +
