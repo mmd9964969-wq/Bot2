@@ -17,6 +17,7 @@ import { handleDateTextInput, handleDateCallback } from "../src/lib/bot/date-cen
 import { handleSpecialBulkCallback, handleSpecialBulkCommand, handleSpecialBulkTextInput } from "../src/lib/bot/special-bulk.ts";
 import { handleMemberControlCallback, handleMemberControlTextInput, renderMemberControl } from "../src/lib/bot/member-control.ts";
 import { trackMessageAndActivity, handleMessageToolsText, handleMessageToolsCallback } from "../src/lib/bot/message-tools.ts";
+import { ensureStatsCenterSchema, handleStatsTextInput, handleStatsCallback } from "../src/lib/bot/stats-center.ts";
 import { executeRuntimeAction, isRuntimeMaintenance } from "./runtime-control.ts";
 import {
   ensurePanelSessionSchema,
@@ -379,6 +380,10 @@ async function isGroupAdmin(chatId:number,uid:number){
 }
 function mainOwnerMessage(){return "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Oᴡɴᴇʀ Cᴏɴᴛʀᴏʟ\n\n⛂ - سطح دسترسی : OWNER\n⛂ - وضعیت هسته : فعال\n⛂ - وضعیت پنل : آماده\n\nمرکز کنترل مالک برای مدیریت مشتریان، لایسنس‌ها، گروه‌ها، Runtime و Audit.";};
 function mainCustomerMessage(){return "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Gʀᴏᴜᴘ Cᴏɴᴛʀᴏʟ\n\n⛂ - دسترسی : مدیر گروه\n⛂ - هسته قفل : آماده\n⛂ - موتور کنترل : فعال\n\nمرکز کنترل عملیاتی گروه از همین پنل در دسترس است.";};
+async function renderStatsEntry(pool:Pool,chatId:number,messageId:number,actorId:number){
+  return handleStatsCallback(pool,{id:"internal",from:{id:actorId},message:{message_id:messageId,chat:{id:chatId,type:"supergroup"}},data:"sx:home"},process.env.OWNER_IDS?.split(/[,\\s]+/).filter(Boolean)??[]);
+}
+
 
 async function ownerStats(pool:Pool){
   const [customers,active,expired,groups,cmd24,cmd7,warn,kick]=await Promise.all([
@@ -2888,15 +2893,8 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   }
 
   if(data==="c:analytics"){
-    const [events,warnings,commands,schedules]=await Promise.all([
-      pool.query("SELECT COUNT(*)::int n FROM supervision_events WHERE group_id=$1 AND created_at>=CURRENT_DATE",[groupId]),
-      pool.query("SELECT COUNT(*)::int n FROM warning_events WHERE group_id=$1 AND created_at>=DATE_TRUNC('month',NOW())",[groupId]),
-      pool.query("SELECT COUNT(*)::int n FROM bot_group_commands WHERE group_id=$1 AND enabled=TRUE",[groupId]),
-      pool.query("SELECT COUNT(*)::int n FROM bot_schedules WHERE group_id=$1 AND enabled=TRUE",[groupId])
-    ]);
-    return edit(msg.chat.id,msg.message_id,panelTitle("تحلیل و آمار",
-      "⛂ - رویدادهای امروز : "+Number(events.rows[0]?.n||0)+"\n⛂ - اخطارهای این ماه : "+Number(warnings.rows[0]?.n||0)+"\n⛂ - دستورات فعال : "+Number(commands.rows[0]?.n||0)+"\n⛂ - زمان‌بندی‌های فعال : "+Number(schedules.rows[0]?.n||0)
-    ),menu([[["بروزرسانی","c:analytics"],["‹ بازگشت","c:home"]]]));
+    await ensureStatsCenterSchema(pool);
+    return renderStatsEntry(pool,msg.chat.id,msg.message_id,cb.from.id);
   }
 
   if(data==="c:permissions"){
@@ -3348,7 +3346,9 @@ export async function dispatchPanelMessage(pool:Pool,msg:TgMessage,ownerIds:stri
     // Panel throttling must never consume group messages; content-lock
     // enforcement needs to see every message, including rapid photo bursts.
     if(msg.chat.type==="private" && !allowed(msg.from.id))return false;
+    await ensureStatsCenterSchema(pool);
     await trackMessageAndActivity(pool,msg);
+    if(await handleStatsTextInput(pool,msg))return true;
     if(await handleMessageToolsText(pool,msg,ownerIds))return true;
     if(await handleGroupConfigInput(pool,msg))return true;
     if(await handleGroupConfigMessage(pool,msg,ownerIds))return true;
@@ -3400,6 +3400,7 @@ export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:str
     // customer/owner navigation callback reaches its dedicated controller.
     if(data.startsWith("o:") || data.startsWith("og:")) return ownerCallback(pool,cb,ownerIds);
     if(data.startsWith("date:")) return handleDateCallback(pool,cb);
+    if(data.startsWith("sx:")) return handleStatsCallback(pool,cb,ownerIds);
     if(data.startsWith("c:")) return customerCallback(pool,cb,ownerIds);
     if(data.startsWith("link:")) return handleInviteLinkCallback(pool,cb as any);
     if(data.startsWith("cfg:")) return handleGroupConfigCallback(pool,cb as any);
