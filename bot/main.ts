@@ -24,6 +24,7 @@ import { handleWorldCallback, handleWorldText } from "../src/lib/bot/game-world.
 import { handleFrontierExpansionCallback } from "../src/lib/bot/frontier-expansion.ts";
 import { renderGameText } from "../src/lib/bot/game-emoji.ts";
 import { ensureCleanupSchema, trackCleanupMessage, handleCleanupText, handleCleanupCallback } from "../src/lib/bot/cleanup-engine.ts";
+import { ensureOwnerGroupSchema, upsertOwnerGroupFromChat, touchOwnerGroupActivity } from "../src/lib/bot/owner-groups.ts";
 
 const TOKEN = process.env.BOT_TOKEN ?? "";
 if (!TOKEN) { console.error("BOT_TOKEN is missing"); process.exit(1); }
@@ -47,6 +48,12 @@ let panelCommands: PanelCommand[] = [];
 
 async function upsertWarningGroup(chat: TgChat) {
   if (!process.env.DATABASE_URL || chat.type === "private") return;
+  try {
+    studioPool ??= new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
+    await touchOwnerGroupActivity(studioPool, chat);
+  } catch (error) {
+    console.error("[owner-groups] activity registry update failed:", error);
+  }
   try {
     studioPool ??= new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
     await studioPool.query(
@@ -1421,6 +1428,11 @@ async function handleMyChatMember(update: TgChatMemberUpdate) {
   await upsertWarningGroup(update.chat);
   const status = update.new_chat_member?.status;
   if (!status) return;
+  if (studioPool && update.chat.type !== "private") {
+    await upsertOwnerGroupFromChat(studioPool, update.chat, status).catch((error) => {
+      console.error("[owner-groups] membership sync failed:", error);
+    });
+  }
   console.log("my_chat_member: chat=" + update.chat.id + " title=" + (update.chat.title ?? "unknown") + " status=" + status);
 }
 
@@ -1456,6 +1468,11 @@ const groupMessageQueues = new Map<number, Promise<void>>();
 
 async function handleMessage(msg:TgMessage, edited=false){
   if(msg.chat.type==="private") return processMessage(msg,edited);
+  if (studioPool && msg.chat.type !== "private") {
+    void touchOwnerGroupActivity(studioPool, msg.chat).catch((error) => {
+      console.error("[owner-groups] message activity update failed:", error);
+    });
+  }
   const groupId=msg.chat.id;
   const previous=groupMessageQueues.get(groupId)??Promise.resolve();
   const current=previous.then(()=>processMessage(msg,edited));
@@ -1480,6 +1497,7 @@ async function poll() {
     await ensureInviteLinkSchema(studioPool);
     await ensureSpecialUsersSchema(studioPool);
     await ensureGroupInfoSchema(studioPool);
+    await ensureOwnerGroupSchema(studioPool);
   }
   setInterval(() => void refreshStudio(), 5000);
   setInterval(() => { if (studioPool) void tickSchedules(studioPool).catch(error => console.error("[scheduler]", error)); }, 5000);
