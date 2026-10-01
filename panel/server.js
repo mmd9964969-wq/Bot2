@@ -1,5 +1,6 @@
 const http = require("http");
 const zlib = require("zlib");
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { checkConnection, query } = require("./backend/database");
@@ -10,6 +11,143 @@ const { ensureInstallationsSchema, installationsApi } = require("./backend/insta
 const PORT = process.env.PORT || 3000;
 let schemaReady = false;
 let schemaInitError = null;
+
+const SESSION_COOKIE = "pbs_owner_session";
+const SESSION_TTL_SECONDS = 12 * 60 * 60;
+const SESSION_SECRET = process.env.OWNER_WEB_SESSION_SECRET || crypto.randomBytes(32).toString("hex");
+
+function configuredOwnerEmails() {
+  return String(process.env.OWNER_WEB_EMAILS || "")
+    .split(",")
+    .map(v => v.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function timingSafeText(a, b) {
+  const aa = Buffer.from(String(a));
+  const bb = Buffer.from(String(b));
+  return aa.length === bb.length && crypto.timingSafeEqual(aa, bb);
+}
+
+function verifyOwnerPassword(password) {
+  if (process.env.OWNER_WEB_PASSWORD_HASH) {
+    const parts = String(process.env.OWNER_WEB_PASSWORD_HASH).split("$");
+    if (parts.length !== 6 || parts[0] !== "scrypt") return false;
+    const N = Number(parts[1]), r = Number(parts[2]), p = Number(parts[3]);
+    if (![N,r,p].every(Number.isInteger)) return false;
+    try {
+      const derived = crypto.scryptSync(String(password), parts[4], 64, {N, r, p});
+      return timingSafeText(derived.toString("hex"), parts[5].toLowerCase());
+    } catch {
+      return false;
+    }
+  }
+  return Boolean(process.env.OWNER_WEB_PASSWORD) &&
+    timingSafeText(password, process.env.OWNER_WEB_PASSWORD);
+}
+
+function authConfigured() {
+  return configuredOwnerEmails().length > 0 &&
+    (Boolean(process.env.OWNER_WEB_PASSWORD_HASH) || Boolean(process.env.OWNER_WEB_PASSWORD));
+}
+
+function readCookie(req, name) {
+  const header = String(req.headers.cookie || "");
+  for (const part of header.split(";")) {
+    const i = part.indexOf("=");
+    if (i < 0) continue;
+    if (part.slice(0, i).trim() === name) return decodeURIComponent(part.slice(i + 1).trim());
+  }
+  return "";
+}
+
+function sessionSignature(payload) {
+  return crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
+}
+
+function createOwnerSession(email) {
+  const exp = Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS;
+  const payload = Buffer.from(JSON.stringify({email, exp}), "utf8").toString("base64url");
+  return payload + "." + sessionSignature(payload);
+}
+
+function currentOwnerSession(req) {
+  const token = readCookie(req, SESSION_COOKIE);
+  const split = token.lastIndexOf(".");
+  if (!token || split <= 0) return null;
+  const payload = token.slice(0, split);
+  const signature = token.slice(split + 1);
+  if (!timingSafeText(sessionSignature(payload), signature)) return null;
+  try {
+    const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    const email = String(data.email || "").toLowerCase();
+    const exp = Number(data.exp);
+    if (!email || !Number.isFinite(exp) || exp <= Math.floor(Date.now() / 1000)) return null;
+    if (!configuredOwnerEmails().includes(email)) return null;
+    return {email, exp};
+  } catch {
+    return null;
+  }
+}
+
+function ownerCookie(token, maxAge) {
+  return `${SESSION_COOKIE}=${encodeURIComponent(token)}; Max-Age=${maxAge}; Path=/; HttpOnly; Secure; SameSite=Strict`;
+}
+
+function requireOwner(req, res) {
+  const session = currentOwnerSession(req);
+  if (!session) {
+    send(res, 401, JSON.stringify({error:"Owner authentication required", authenticated:false}));
+    return null;
+  }
+  return session;
+}
+
+async function authApi(req, res, url) {
+  if (url.pathname === "/api/auth/me" && req.method === "GET") {
+    const session = currentOwnerSession(req);
+    return send(res, 200, JSON.stringify({
+      authenticated: Boolean(session),
+      role: session ? "OWNER" : null,
+      email: session?.email || null,
+      configured: authConfigured()
+    }));
+  }
+
+  if (url.pathname === "/api/auth/login" && req.method === "POST") {
+    if (!authConfigured()) {
+      return send(res, 503, JSON.stringify({
+        error:"Owner authentication is not configured",
+        code:"OWNER_AUTH_NOT_CONFIGURED"
+      }));
+    }
+    const body = await readBody(req);
+    const email = String(body.email || "").trim().toLowerCase();
+    const password = String(body.password || "");
+    if (!configuredOwnerEmails().includes(email) || !verifyOwnerPassword(password)) {
+      return send(res, 401, JSON.stringify({error:"ایمیل یا رمز عبور صحیح نیست."}));
+    }
+    return send(
+      res,
+      200,
+      JSON.stringify({authenticated:true, role:"OWNER", email}),
+      "application/json; charset=utf-8",
+      {"Set-Cookie": ownerCookie(createOwnerSession(email), SESSION_TTL_SECONDS)}
+    );
+  }
+
+  if (url.pathname === "/api/auth/logout" && req.method === "POST") {
+    return send(
+      res,
+      200,
+      JSON.stringify({success:true}),
+      "application/json; charset=utf-8",
+      {"Set-Cookie": ownerCookie("", 0)}
+    );
+  }
+
+  return null;
+}
 
 async function ensureBaseSchema() {
   const statements = [
@@ -555,11 +693,21 @@ const server = http.createServer(async (req,res) => {
       }));
     }
 
+    if (url.pathname.startsWith("/api/auth")) {
+      const handled = await authApi(req, res, url);
+      if (handled !== null) return handled;
+    }
+
     if (url.pathname.startsWith("/api/") && url.pathname !== "/api/health" && !schemaReady) {
       return send(res, 503, JSON.stringify({
         error: schemaInitError ? "Database initialization failed" : "Panel is initializing",
         ready: false
       }));
+    }
+
+    if (url.pathname.startsWith("/api/") && url.pathname !== "/api/health") {
+      const owner = requireOwner(req, res);
+      if (!owner) return;
     }
 
     if (url.pathname.startsWith("/api/settings")) { const handled = await settingsApi(req,res,url); if (handled !== null) return handled; }
@@ -586,6 +734,15 @@ const server = http.createServer(async (req,res) => {
 
     if (url.pathname.startsWith("/api/")) {
       return send(res,404,JSON.stringify({error:"API route not found"}));
+    }
+
+    if ((url.pathname === "/" || url.pathname === "/index.html") && !currentOwnerSession(req)) {
+      const loginPath = path.join(FRONTEND, "login.html");
+      fs.readFile(loginPath, (error, data) => {
+        if (error) return send(res, 500, JSON.stringify({error:"Login page unavailable"}));
+        sendStatic(res, req, 200, data, "text/html; charset=utf-8", true);
+      });
+      return;
     }
 
     const requestPath = url.pathname === "/" ? "/index.html" : url.pathname;
