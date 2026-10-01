@@ -119,6 +119,110 @@ export function renderStudioTemplate(template: string, values: Record<string, st
   return String(template ?? "").replace(/\{\{\s*([a-z0-9_]+)\s*\}\}/gi, (_, key) => values[String(key)] ?? "—");
 }
 
+
+
+function markdownToRichText(input: string): any {
+  const source = String(input ?? "");
+  const token = /(\*\*([^*]+)\*\*|~~([^~]+)~~|\|\|([^|]+)\|\||==([^=]+)==|`([^`]+)`|[([^]]+)]((https?://[^)s]+)))/g;
+  const out: any[] = [];
+  let last = 0;
+  let match: RegExpExecArray | null;
+  while ((match = token.exec(source))) {
+    if (match.index > last) out.push(source.slice(last, match.index));
+    if (match[2] !== undefined) out.push({ type: "bold", text: markdownToRichText(match[2]) });
+    else if (match[3] !== undefined) out.push({ type: "strikethrough", text: markdownToRichText(match[3]) });
+    else if (match[4] !== undefined) out.push({ type: "spoiler", text: markdownToRichText(match[4]) });
+    else if (match[5] !== undefined) out.push({ type: "marked", text: markdownToRichText(match[5]) });
+    else if (match[6] !== undefined) out.push({ type: "code", text: match[6] });
+    else if (match[7] !== undefined) out.push({ type: "url", text: markdownToRichText(match[7]), url: match[8] });
+    last = token.lastIndex;
+  }
+  if (last < source.length) out.push(source.slice(last));
+  return out.length === 1 ? out[0] : out;
+}
+
+const MEDIA_TYPES = new Set(["photo", "video", "audio", "document", "animation", "voice_note"]);
+
+function normalizeBlock(block: RichBlock): RichBlock {
+  const next: RichBlock = { ...block };
+  if (next.type === "blockquote" && Array.isArray(next.blocks) === false && next.text !== undefined) {
+    next.blocks = [{ type: "paragraph", text: next.text }];
+    delete next.text;
+  }
+  if (next.type === "list" && Array.isArray(next.items)) {
+    const style = String(next.style || "bullet");
+    next.items = next.items.map((item: any, index: number) => {
+      const row = { ...item };
+      if (style === "checklist") {
+        row.has_checkbox = true;
+        row.is_checked = row.is_checked === true;
+      } else if (style === "ordered") {
+        row.type = "1";
+        row.value = index + 1;
+      }
+      delete row.style;
+      return row;
+    });
+    delete next.style;
+    delete next.ordered;
+    delete next.checklist;
+  }
+  if (next.type === "buttons" && Array.isArray(next.buttons)) {
+    next.buttons = next.buttons.slice(0, 8).map((button: any) => {
+      const b = { ...button };
+      if (b.url && b.style === "link") b.style = "primary";
+      return b;
+    });
+  }
+  if (Array.isArray(next.blocks)) next.blocks = next.blocks.map(normalizeBlock);
+  if (Array.isArray(next.items)) {
+    next.items = next.items.map((item: any) => ({
+      ...item,
+      ...(Array.isArray(item.blocks) ? { blocks: item.blocks.map(normalizeBlock) } : {}),
+    }));
+  }
+  if (Array.isArray(next.cells)) {
+    next.cells = next.cells.map((row: any[]) => row.map((cell: any) => {
+      if (!cell || typeof cell !== "object") return { text: String(cell ?? "") };
+      return { ...cell };
+    }));
+  }
+  return next;
+}
+
+function compileBlock(block: RichBlock): RichBlock {
+  const next = normalizeBlock(block);
+  const richTextFields = ["text", "caption", "summary", "credit"];
+  for (const key of richTextFields) {
+    if (typeof next[key] === "string" && key !== "text" && next.type === "buttons") continue;
+    if (typeof next[key] === "string") next[key] = markdownToRichText(next[key]);
+  }
+  if (next.type === "buttons" && Array.isArray(next.buttons)) {
+    next.buttons = next.buttons.map((button: any) => ({ ...button, text: typeof button.text === "string" ? button.text : button.text }));
+  }
+  if (next.type === "table" && Array.isArray(next.cells)) {
+    next.cells = next.cells.map((row: any[]) => row.map((cell: any) => {
+      const item = { ...cell };
+      if (typeof item.text === "string") item.text = markdownToRichText(item.text);
+      return item;
+    }));
+  }
+  if (Array.isArray(next.blocks)) next.blocks = next.blocks.map(compileBlock);
+  if (Array.isArray(next.items)) next.items = next.items.map((item: any) => ({
+    ...item,
+    ...(Array.isArray(item.blocks) ? { blocks: item.blocks.map(compileBlock) } : {}),
+  }));
+  return next;
+}
+
+export function prepareRichDocument(doc: RichDocument): RichDocument {
+  return {
+    version: 1,
+    is_rtl: doc.is_rtl,
+    blocks: (doc.blocks || []).map(compileBlock),
+  };
+}
+
 type RichStats = { blocks: number; chars: number; media: number; maxColumns: number; maxDepth: number };
 
 function inspectValue(value: any, depth: number, stats: RichStats) {
@@ -132,7 +236,7 @@ function inspectValue(value: any, depth: number, stats: RichStats) {
     return;
   }
   if (!value || typeof value !== "object") return;
-  if (value.type && String(value.type).toLowerCase().includes("photo")) stats.media += 1;
+  if (value.type && MEDIA_TYPES.has(String(value.type).toLowerCase())) stats.media += 1;
   for (const item of Object.values(value)) inspectValue(item, depth + 1, stats);
 }
 
@@ -169,6 +273,12 @@ export function validateRichDocument(doc: RichDocument) {
     }
     if (block?.type === "buttons" && (!Array.isArray(block.buttons) || block.buttons.length < 1 || block.buttons.length > 8)) {
       errors.push("هر ردیف دکمه باید ۱ تا ۸ دکمه داشته باشد.");
+    }
+    if (block?.type === "buttons" && Array.isArray(block.buttons)) {
+      for (const button of block.buttons) {
+        if (button?.callback_data && new TextEncoder().encode(String(button.callback_data)).length > 64) errors.push("callback_data هر دکمه نباید بیش از ۶۴ بایت باشد.");
+        if (button?.url && button?.style === "link") errors.push("سبک link فقط برای دکمه‌های callback مجاز است.");
+      }
     }
     if (block?.type === "media") errors.push("بلوک media عمومی پشتیبانی نمی‌شود؛ از photo/video/document/audio استفاده کنید.");
   }
