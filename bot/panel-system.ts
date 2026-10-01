@@ -8,7 +8,7 @@ import { SUBSCRIPTION_PLANS, createGroupSubscription, renewGroupSubscription, ca
 import { glassKeyboard, styledGlassButton } from "../src/lib/bot/panel-design.ts";
 import { getGroupLanguage, setGroupLanguage, ensureGroupLanguageSchema, normalizeBotLang, languageNative, languageButtonLabel, SUPPORTED_LANGUAGES, type BotLang } from "../src/lib/bot/i18n.ts";
 import { prepareRichDocument, validateRichDocument } from "../src/lib/bot/rich-message.ts";
-import { ensureOwnerSudoSchema, ownerSudoCallback, assignOwnerSudo, sendOwnerSudoCenter, type SudoLevel } from "../src/lib/bot/owner-sudo.ts";
+import { ensureOwnerSudoSchema, ownerSudoCallback, handleOwnerSudoTextInput } from "../src/lib/bot/owner-sudo.ts";
 import { AUTOMATION_ACTIONS } from "../src/lib/bot/automation-engine.ts";
 import { getGroupStats } from "../src/lib/bot/runtime.ts";
 import { ensureOwnerGroupSchema, listOwnerGroups, ownerGroupOverview, getOwnerGroup, getOwnerGroupLogs, setOwnerGroupEnabled, leaveOwnerGroup, resetOwnerGroup, sendMessageToOwnerGroup, syncAllOwnerGroups } from "../src/lib/bot/owner-groups.ts";
@@ -827,20 +827,7 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
   await ensureOwnerSudoSchema(pool);
   await customerEnsure(pool,uid,msg.from!);
   const inputText=String(msg.text||"").trim();
-  const sudoSession=getSession(uid);
-  if(sudoSession?.flow==="owner_sudo_assign"){
-    const target=Number(raw);
-    const level=String(sudoSession.data.level||"") as SudoLevel;
-    if(!/^\\d{5,20}$/.test(raw)||!Number.isSafeInteger(target)||target<=0||!["low","medium","pro","security"].includes(level)){
-      await send(msg.chat.id,"شناسه عددی معتبر ارسال کنید.");
-      return true;
-    }
-    const result=await assignOwnerSudo(pool,uid,target,level,ownerIds);
-    clearSession(uid);
-    if(!result.ok){await send(msg.chat.id,result.message);return true;}
-    await sendOwnerSudoCenter(msg.chat.id);
-    return true;
-  }
+  if(await handleOwnerSudoTextInput(pool,uid,msg.chat.id,inputText,ownerIds))return true;
   if(["owner","مالک"].includes(raw)){
     await audit(pool,String(uid),"owner_panel_opened",String(uid));await renderOwner(pool,uid,msg.chat.id);return true;
   }
