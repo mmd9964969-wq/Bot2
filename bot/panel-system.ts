@@ -820,13 +820,13 @@ function customerUsernameForDisplay(username:unknown,id:number){const value=Stri
 
 async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
   const uid=msg.from!.id;
-  setCurrentPanelKind("owner");
   const raw=(msg.text||"").trim().replace(/^[/!]/,"").toLowerCase();
   if(["owner","مالک"].includes(raw)&&!await isOwner(pool,uid,ownerIds)){
     await send(msg.chat.id,"شما دسترسی به پنل مالک را ندارید.");
     return true;
   }
   if(!await isOwner(pool,uid,ownerIds))return false;
+  setCurrentPanelKind("owner");
   await customerEnsure(pool,uid,msg.from!);
   const inputText=String(msg.text||"").trim();
   if(["owner","مالک"].includes(raw)){
