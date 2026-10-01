@@ -8,6 +8,7 @@ import { SUBSCRIPTION_PLANS, createGroupSubscription, renewGroupSubscription, ca
 import { glassKeyboard, styledGlassButton } from "../src/lib/bot/panel-design.ts";
 import { getGroupLanguage, setGroupLanguage, ensureGroupLanguageSchema, normalizeBotLang, languageNative, languageButtonLabel, SUPPORTED_LANGUAGES, type BotLang } from "../src/lib/bot/i18n.ts";
 import { prepareRichDocument, validateRichDocument } from "../src/lib/bot/rich-message.ts";
+import { ensureOwnerSudoSchema, ownerSudoCallback, assignOwnerSudo, sendOwnerSudoCenter, type SudoLevel } from "../src/lib/bot/owner-sudo.ts";
 import { AUTOMATION_ACTIONS } from "../src/lib/bot/automation-engine.ts";
 import { getGroupStats } from "../src/lib/bot/runtime.ts";
 import { ensureOwnerGroupSchema, listOwnerGroups, ownerGroupOverview, getOwnerGroup, getOwnerGroupLogs, setOwnerGroupEnabled, leaveOwnerGroup, resetOwnerGroup, sendMessageToOwnerGroup, syncAllOwnerGroups } from "../src/lib/bot/owner-groups.ts";
@@ -95,7 +96,8 @@ const K={
     [["امنیت و دسترسی","o:security"],["پشتیبان‌گیری و بازیابی","o:backup"]],
     [["تنظیمات پیشرفته","o:settings"],["وضعیت سرور و منابع","o:server"]],
     [["فهرست سیاه مشتریان","o:blacklist"],["مدیریت قابلیت‌ها","o:features"]],
-    [["مرکز هوش مصنوعی","o:ai"],["خروج از پنل مالک","o:exit"]]
+    [["مدیریت سودو","os:center"],["مرکز هوش مصنوعی","o:ai"]],
+    [["خروج از پنل مالک","o:exit"]]
   ],
   customerMain:[
     [["وضعیت و نمای کلی","c:status"],["مرکز قفل و فیلتر","c:locks"]],
@@ -822,8 +824,23 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
   }
   if(!await isOwner(pool,uid,ownerIds))return false;
   setCurrentPanelKind("owner");
+  await ensureOwnerSudoSchema(pool);
   await customerEnsure(pool,uid,msg.from!);
   const inputText=String(msg.text||"").trim();
+  const sudoSession=getSession(uid);
+  if(sudoSession?.flow==="owner_sudo_assign"){
+    const target=Number(raw);
+    const level=String(sudoSession.data.level||"") as SudoLevel;
+    if(!/^\\d{5,20}$/.test(raw)||!Number.isSafeInteger(target)||target<=0||!["low","medium","pro","security"].includes(level)){
+      await send(msg.chat.id,"شناسه عددی معتبر ارسال کنید.");
+      return true;
+    }
+    const result=await assignOwnerSudo(pool,uid,target,level,ownerIds);
+    clearSession(uid);
+    if(!result.ok){await send(msg.chat.id,result.message);return true;}
+    await sendOwnerSudoCenter(msg.chat.id);
+    return true;
+  }
   if(["owner","مالک"].includes(raw)){
     await audit(pool,String(uid),"owner_panel_opened",String(uid));await renderOwner(pool,uid,msg.chat.id);return true;
   }
@@ -1142,6 +1159,7 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   const uid=cb.from.id;if(!await isOwner(pool,uid,ownerIds))return;
   // CallbackQuery is acknowledged once by dispatchPanelCallback().
   const data=String(cb.data||"");const msg=cb.message;if(!msg)return;
+  if(data.startsWith("os:"))return ownerSudoCallback(pool,msg.chat.id,msg.message_id,uid,data,ownerIds);
   if(data==="o:subscriptions"){
     const [active,expiring,expired,lifetime]=await Promise.all([
       pool.query("SELECT COUNT(*)::int n FROM bot_group_subscriptions WHERE status='ACTIVE'"),
