@@ -1576,7 +1576,7 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   }
 
   if(data.startsWith("og:confirm:disable:")){
-    const gid=Number(data.slice(19));const s=getSession(uid);if(!s||s.flow!=="owner_group_confirm"||s.data.action!=="disable"||Number(s.data.gid)!==gid)return;
+    const gid=Number(data.slice(18));const s=getSession(uid);if(!s||s.flow!=="owner_group_confirm"||s.data.action!=="disable"||Number(s.data.gid)!==gid)return;
     s.data.step=2;session(uid,s.flow,s.data);
     return edit(msg.chat.id,msg.message_id,panelTitle("تأیید نهایی",[
       "⚠ - عملیات : غیرفعال‌سازی",
@@ -1588,7 +1588,7 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   }
 
   if(data.startsWith("og:execute:disable:")){
-    const gid=Number(data.slice(19));const s=getSession(uid);if(!s||s.flow!=="owner_group_confirm"||s.data.action!=="disable"||Number(s.data.gid)!==gid||Number(s.data.step)!==2)return;
+    const gid=Number(data.slice(18));const s=getSession(uid);if(!s||s.flow!=="owner_group_confirm"||s.data.action!=="disable"||Number(s.data.gid)!==gid||Number(s.data.step)!==2)return;
     clearSession(uid);await setOwnerGroupEnabled(pool,uid,gid,false);
     return edit(msg.chat.id,msg.message_id,"✓ سرویس گروه غیرفعال شد.",menu([[["› مشاهده گروه","og:view:"+gid]],[["‹ بازگشت","o:groups"]]]));
   }
@@ -1658,7 +1658,7 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   }
 
   if(data.startsWith("og:confirm:leave:")){
-    const gid=Number(data.slice(18));const s=getSession(uid);if(!s||s.flow!=="owner_group_confirm"||s.data.action!=="leave"||Number(s.data.gid)!==gid)return;
+    const gid=Number(data.slice(17));const s=getSession(uid);if(!s||s.flow!=="owner_group_confirm"||s.data.action!=="leave"||Number(s.data.gid)!==gid)return;
     s.data.step=2;session(uid,s.flow,s.data);
     return edit(msg.chat.id,msg.message_id,panelTitle("تأیید نهایی خروج",[
       "⚠ - گروه : "+gid,
@@ -1670,7 +1670,7 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   }
 
   if(data.startsWith("og:execute:leave:")){
-    const gid=Number(data.slice(18));const s=getSession(uid);if(!s||s.flow!=="owner_group_confirm"||s.data.action!=="leave"||Number(s.data.gid)!==gid||Number(s.data.step)!==2)return;
+    const gid=Number(data.slice(17));const s=getSession(uid);if(!s||s.flow!=="owner_group_confirm"||s.data.action!=="leave"||Number(s.data.gid)!==gid||Number(s.data.step)!==2)return;
     clearSession(uid);
     try{
       await leaveOwnerGroup(pool,uid,gid);
