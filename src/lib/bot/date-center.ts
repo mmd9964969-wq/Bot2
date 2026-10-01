@@ -679,7 +679,7 @@ export async function openDateCenterFromCommand(pool: Pool, ctx: DateCtx, args: 
       const body = line("ورودی", raw) + "\n" +
         line("شمسی", faNum(parsed.j.year) + "/" + faNum(String(parsed.j.month).padStart(2, "0")) + "/" + faNum(String(parsed.j.day).padStart(2, "0"))) + "\n" +
         line("میلادی", parsed.g.year + "/" + String(parsed.g.month).padStart(2, "0") + "/" + String(parsed.g.day).padStart(2, "0")) + "\n" +
-        line("قمری", parsed.kind === "islamic" ? faNum(parsed.i.year) + "/" + faNum(String(parsed.i.month).padStart(2, "0")) + "/" + faNum(String(parsed.i.day).padStart(2, "0")) : faNum(islamicParts(dt).year) + "/" + faNum(String(islamicParts(dt).month).padStart(2, "0")) + "/" + faNum(String(islamicParts(dt).day).padStart(2, "0"));
+        line("قمری", parsed.kind === "islamic" ? faNum(parsed.i.year) + "/" + faNum(String(parsed.i.month).padStart(2, "0")) + "/" + faNum(String(parsed.i.day).padStart(2, "0")) : faNum(islamicParts(dt).year) + "/" + faNum(String(islamicParts(dt).month).padStart(2, "0")) + "/" + faNum(String(islamicParts(dt).day).padStart(2, "0"))) ;
       return telegramApi("sendMessage", { chat_id: ctx.chatId, text: TITLE + "\n\n" + heading(ctx.lang === "fa" ? "تبدیل تاریخ" : "Date conversion") + "\n\n" + body + "\n\n" + SEP, reply_markup: backKeyboard() });
     }
   }
