@@ -380,8 +380,8 @@ async function isGroupAdmin(chatId:number,uid:number){
 }
 function mainOwnerMessage(){return "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Oᴡɴᴇʀ Cᴏɴᴛʀᴏʟ\n\n⛂ - سطح دسترسی : OWNER\n⛂ - وضعیت هسته : فعال\n⛂ - وضعیت پنل : آماده\n\nمرکز کنترل مالک برای مدیریت مشتریان، لایسنس‌ها، گروه‌ها، Runtime و Audit.";};
 function mainCustomerMessage(){return "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Gʀᴏᴜᴘ Cᴏɴᴛʀᴏʟ\n\n⛂ - دسترسی : مدیر گروه\n⛂ - هسته قفل : آماده\n⛂ - موتور کنترل : فعال\n\nمرکز کنترل عملیاتی گروه از همین پنل در دسترس است.";};
-async function renderStatsEntry(pool:Pool,chatId:number,messageId:number,actorId:number){
-  return handleStatsCallback(pool,{id:"internal",from:{id:actorId},message:{message_id:messageId,chat:{id:chatId,type:"supergroup"}},data:"sx:home"},process.env.OWNER_IDS?.split(/[,\\s]+/).filter(Boolean)??[]);
+async function renderStatsEntry(pool:Pool,chatId:number,messageId:number,actorId:number,ownerIds:string[]){
+  return handleStatsCallback(pool,{id:"internal",from:{id:actorId},message:{message_id:messageId,chat:{id:chatId,type:"supergroup"}},data:"sx:home"},ownerIds);
 }
 
 
@@ -2894,7 +2894,7 @@ async function customerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
 
   if(data==="c:analytics"){
     await ensureStatsCenterSchema(pool);
-    return renderStatsEntry(pool,msg.chat.id,msg.message_id,cb.from.id);
+    return renderStatsEntry(pool,msg.chat.id,msg.message_id,cb.from.id,ownerIds);
   }
 
   if(data==="c:permissions"){
