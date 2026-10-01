@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="theme-color" content="#07090d">
+<title>PERSIAN BOT STUDIO — Owner Login</title>
+<style>
+:root{--bg:#07090d;--panel:#0e1218;--line:rgba(255,255,255,.08);--text:#e9edf2;--muted:#7d8795;--gold:#d8ad5b;--green:#63df9f;--red:#d97979}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:Vazirmatn,Inter,system-ui,sans-serif;background:radial-gradient(circle at 50% 0%,#151b25 0,#07090d 48%);color:var(--text)}
+body{display:grid;place-items:center;padding:20px}.login{width:min(430px,100%);border:1px solid rgba(216,173,91,.15);border-radius:18px;background:rgba(14,18,24,.94);box-shadow:0 30px 100px rgba(0,0,0,.55);overflow:hidden}
+.top{padding:26px 26px 20px;border-bottom:1px solid var(--line);background:linear-gradient(135deg,rgba(216,173,91,.08),rgba(255,255,255,.015))}
+.mark{width:46px;height:46px;display:grid;place-items:center;border-radius:12px;border:1px solid rgba(216,173,91,.22);background:rgba(216,173,91,.08);color:var(--gold);font:800 16px Inter,sans-serif;letter-spacing:.06em}
+.eyebrow{display:block;margin-top:17px;color:#777f8c;font-size:8px;letter-spacing:.16em;font-weight:800}
+h1{margin:7px 0 0;font-size:24px}p{margin:8px 0 0;color:var(--muted);font-size:10px;line-height:1.8}
+form{padding:24px 26px 26px}label{display:flex;flex-direction:column;gap:7px;color:#89929e;font-size:9px;margin-bottom:14px}
+input{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;background:#0a0e13;color:var(--text);outline:none;font:inherit}input:focus{border-color:rgba(216,173,91,.48);box-shadow:0 0 0 3px rgba(216,173,91,.05)}
+button{width:100%;min-height:45px;border:1px solid rgba(216,173,91,.25);border-radius:10px;background:linear-gradient(120deg,#b89048,#d8ad5b);color:#101217;font:800 10px Vazirmatn,Inter,sans-serif;cursor:pointer}
+button:disabled{opacity:.6;cursor:wait}.status{min-height:20px;margin-top:12px;text-align:center;font-size:9px}.status.error{color:var(--red)}.status.ok{color:var(--green)}
+.secure{padding:13px 16px;border:1px solid rgba(99,223,159,.12);border-radius:10px;background:rgba(99,223,159,.03);color:#7d8795;font-size:8px;line-height:1.8;margin-bottom:16px}.secure b{color:var(--green)}
+.setup{display:none;margin-top:12px;padding:11px;border-radius:9px;background:rgba(216,173,91,.05);border:1px solid rgba(216,173,91,.12);color:#9099a6;font-size:8px;line-height:1.8}
+@media(max-width:500px){body{padding:12px}.top,form{padding-left:20px;padding-right:20px}}
+</style>
+</head>
+<body>
+<main class="login">
+  <div class="top"><div class="mark">PB</div><span class="eyebrow">PERSIAN BOT STUDIO · OWNER ACCESS</span><h1>ورود مالک</h1><p>برای دسترسی کامل به کنترل ربات، گروه‌ها، کاربران، امنیت و تنظیمات، احراز هویت مالک الزامی است.</p></div>
+  <form id="loginForm">
+    <div class="secure"><b>● Secure session</b><br>جلسه ورود با کوکی HttpOnly و امضای سروری محافظت می‌شود.</div>
+    <label>ایمیل مالک<input id="email" name="email" type="email" autocomplete="username" required placeholder="owner@example.com"></label>
+    <label>رمز عبور<input id="password" name="password" type="password" autocomplete="current-password" required placeholder="••••••••••••"></label>
+    <button id="submitBtn" type="submit">ورود به پنل مالک</button>
+    <div id="status" class="status"></div>
+    <div id="setup" class="setup">احراز هویت هنوز روی Railway تنظیم نشده است. متغیرهای <b>OWNER_WEB_EMAILS</b> و <b>OWNER_WEB_PASSWORD_HASH</b> باید روی سرویس پنل تنظیم شوند.</div>
+  </form>
+</main>
+<script>
+const form=document.getElementById("loginForm"),status=document.getElementById("status"),btn=document.getElementById("submitBtn"),setup=document.getElementById("setup");
+(async()=>{try{const r=await fetch("/api/auth/me",{cache:"no-store"}),d=await r.json();if(d.authenticated)location.replace("/");if(!d.configured)setup.style.display="block";}catch{}})();
+form.addEventListener("submit",async e=>{e.preventDefault();status.className="status";status.textContent="";btn.disabled=true;try{
+const r=await fetch("/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:document.getElementById("email").value,password:document.getElementById("password").value})});
+const d=await r.json().catch(()=>({}));
+if(!r.ok)throw new Error(d.error||"ورود ناموفق بود.");
+status.className="status ok";status.textContent="احراز هویت موفق بود؛ ورود به پنل...";
+location.replace("/");
+}catch(err){status.className="status error";status.textContent=err.message||"خطا در ورود";}finally{btn.disabled=false;}});
+</script>
+</body>
+</html>
