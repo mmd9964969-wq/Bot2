@@ -60,7 +60,12 @@ function faDate(value:unknown){
   return new Intl.DateTimeFormat("fa-IR",{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",timeZone:"Asia/Tehran"}).format(d);
 }
 function valueOrDash(value:unknown){const s=String(value??"").trim();return s||"—";}
-function answer(callbackId:string){return telegramApi("answerCallbackQuery",{callback_query_id:callbackId});}
+function answer(callbackId:string){
+  // Telegram only accepts one answerCallbackQuery per callback id.
+  // Treat repeated acknowledgements as harmless so a secondary handler cannot
+  // abort the actual panel action with QUERY_ID_INVALID.
+  return telegramApi("answerCallbackQuery",{callback_query_id:callbackId}).catch(()=>({ok:false}));
+}
 const LICENSE_TYPES:{key:string;label:string;days:number|null}[]=[
   {key:"daily",label:"روزانه",days:1},{key:"monthly",label:"ماهانه",days:30},{key:"quarterly",label:"سه‌ماهه",days:90},
   {key:"halfyear",label:"شش‌ماهه",days:180},{key:"yearly",label:"یک‌ساله",days:365},{key:"lifetime",label:"مادام‌العمر",days:null}
