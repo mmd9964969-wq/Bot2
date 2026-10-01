@@ -116,9 +116,13 @@ function menu(rows:string[][][],extra:string[][][]=[]){return kb([...rows,...ext
 const PANEL_SEPARATOR="─────━━───── ◈ ─────━━─────";
 type PanelMessage={title:string;body:string;is_rtl:true};
 type RichBlock =
-  | {type:"heading";text:string;size:number}
-  | {type:"paragraph";text:string}
-  | {type:"divider"};
+  | {type:"heading";text:any;size?:number}
+  | {type:"paragraph";text:any}
+  | {type:"divider"}
+  | {type:"table";caption?:any;is_bordered?:boolean;is_striped?:boolean;is_compact?:boolean;cells:any[][]}
+  | {type:"list";items:any[];style?:string}
+  | {type:"details";summary:any;is_open?:boolean;blocks:RichBlock[]}
+  | {type:"footer";text:any};
 
 const PANEL_TITLES:Record<string,Partial<Record<BotLang,string>>> = {
   "پیام":{en:"Mᴇssᴀɢᴇ",ar:"رسالة",ru:"Сообщение",tr:"Mesaj",zh:"消息"},
@@ -247,15 +251,6 @@ function buildPanelRichMessage(title:string,body:string,lang:BotLang):{blocks:Ri
   });
   return {blocks,is_rtl:lang==="fa"||lang==="ar"};
 }
-
-type RichBlock =
-  | {type:"heading";text:any;size?:number}
-  | {type:"paragraph";text:any}
-  | {type:"divider"}
-  | {type:"table";caption?:any;is_bordered?:boolean;is_striped?:boolean;is_compact?:boolean;cells:any[][]}
-  | {type:"list";items:any[];style?:string}
-  | {type:"details";summary:any;is_open?:boolean;blocks:RichBlock[]}
-  | {type:"footer";text:any};
 
 function ownerPanelTable(lang:BotLang,title:string,rows:Array<{label:string;value:string}>):RichBlock{
   return {
