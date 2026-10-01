@@ -353,84 +353,90 @@ function buildDateRichMessage(text: string): any {
     .filter(Boolean);
 
   const blocks: any[] = [];
-  const rows: Array<{label: string; value: string}> = [];
+  let currentSection: { title: string; rows: Array<{ label: string; value: string }> } | null = null;
+  let hasBody = false;
 
-  const flushRows = () => {
-    if (!rows.length) return;
+  const table = (title: string, rows: Array<{ label: string; value: string }>) => ({
+    type: "table",
+    caption: title,
+    is_bordered: true,
+    is_striped: true,
+    is_compact: true,
+    cells: [
+      [
+        { text: lang === "fa" ? "عنوان" : "Field", is_header: true, align: "right", valign: "middle" },
+        { text: lang === "fa" ? "مقدار" : "Value", is_header: true, align: "right", valign: "middle" },
+      ],
+      ...rows.map(row => [
+        { text: row.label, align: "right", valign: "middle" },
+        { text: row.value, align: "right", valign: "middle" },
+      ]),
+    ],
+  });
 
-    // Keep the Rich table layout, but split long sections into smaller
-    // visual groups so the content does not become a dense wall of rows.
-    for (let i = 0; i < rows.length; i += 4) {
-      const chunk = rows.slice(i, i + 4);
-      blocks.push({
-        type: "table",
-        is_bordered: true,
-        is_striped: true,
-        is_compact: false,
-        cells: [
-          [
-            { text: lang === "fa" ? "عنوان" : "Field", is_header: true, align: "right", valign: "middle" },
-            { text: lang === "fa" ? "مقدار" : "Value", is_header: true, align: "right", valign: "middle" },
-          ],
-          ...chunk.map(row => [
-            { text: row.label, align: "right", valign: "middle" },
-            { text: row.value, align: "right", valign: "middle" },
-          ]),
-        ],
-      });
-
-      if (i + 4 < rows.length) {
-        blocks.push({ type: "paragraph", text: " " });
-      }
-    }
-    rows.length = 0;
+  const flushSection = () => {
+    if (!currentSection || !currentSection.rows.length) return;
+    blocks.push(table(currentSection.title, currentSection.rows));
+    currentSection = null;
+    hasBody = true;
   };
 
   for (const raw of normalized) {
     if (raw === SEP) {
-      flushRows();
-      blocks.push({ type: "divider" });
+      flushSection();
       continue;
     }
 
     if (raw.startsWith(TITLE)) {
-      flushRows();
+      flushSection();
       blocks.push({
         type: "heading",
         text: lang === "fa" ? "Pᴇʀsɪᴀɴ ᴮᵒᵗ · مرکز تاریخ" : "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Date Center",
         size: 1,
       });
+      blocks.push({
+        type: "paragraph",
+        text: lang === "fa"
+          ? "تاریخ، تقویم و ابزارهای زمانی در قالب Rich Message"
+          : "Date, calendar and time tools in Rich Message format",
+      });
       continue;
     }
 
     if (raw.startsWith("★ - ")) {
-      flushRows();
-      blocks.push({
-        type: "heading",
-        text: raw.slice(4).trim(),
-        size: 2,
-      });
+      flushSection();
+      currentSection = {
+        title: raw.slice(4).trim(),
+        rows: [],
+      };
       continue;
     }
 
     if (raw.startsWith("⛂ - ")) {
       const field = raw.slice("⛂ - ".length);
       const cut = field.indexOf(" : ");
-      rows.push(
-        cut >= 0
-          ? { label: field.slice(0, cut).trim(), value: field.slice(cut + 3).trim() || "—" }
-          : { label: field.trim(), value: "—" },
-      );
+      const row = cut >= 0
+        ? { label: field.slice(0, cut).trim(), value: field.slice(cut + 3).trim() || "—" }
+        : { label: field.trim(), value: "—" };
+
+      if (!currentSection) {
+        currentSection = {
+          title: lang === "fa" ? "اطلاعات" : "Information",
+          rows: [],
+        };
+      }
+      currentSection.rows.push(row);
       continue;
     }
 
-    flushRows();
+    flushSection();
     blocks.push({ type: "paragraph", text: raw });
+    hasBody = true;
   }
 
-  flushRows();
+  flushSection();
 
-  if (!blocks.length) {
+  if (!hasBody) {
     blocks.push({
       type: "paragraph",
       text: lang === "fa" ? "اطلاعاتی برای نمایش وجود ندارد." : "There is no information to display.",
