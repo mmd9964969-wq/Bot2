@@ -45,9 +45,9 @@ function buildIdRichMessage(liveCard:string,lang:"fa"|"en",photoFileId?:string){
         : {label:raw,value:"—"};
     });
 
-  const identity=fieldLines.slice(0,7);
-  const activity=fieldLines.slice(7,12);
-  const moderation=fieldLines.slice(12,16);
+  const identity=fieldLines.slice(0,6);
+  const activity=fieldLines.slice(6,11);
+  const moderation=fieldLines.slice(11,15);
 
   const table=(title:string,rows:any[])=>({
     type:"table",
@@ -83,32 +83,11 @@ function buildIdRichMessage(liveCard:string,lang:"fa"|"en",photoFileId?:string){
         ? "پروفایل و وضعیت این عضو با قالب‌بندی Rich Message"
         : "Profile and member status in Rich Message format",
     },
-    {type:"divider"},
-    {
-      type:"paragraph",
-      text:lang==="fa"
-        ? [{type:"bold",text:"شناسه عددی"}," : ",{type:"code",text:fieldLines[1]?.value??"—"}]
-        : [{type:"bold",text:"Numeric ID"}," : ",{type:"code",text:fieldLines[1]?.value??"—"}],
-    },
     table(lang==="fa"?"مشخصات حساب":"Account Details",identity),
     {type:"divider"},
     table(lang==="fa"?"فعالیت در گروه":"Group Activity",activity),
     {type:"divider"},
-    {
-      type:"heading",
-      text:lang==="fa"?"وضعیت مدیریتی":"Moderation Status",
-      size:3,
-    },
-    {
-      type:"list",
-      items:moderation.map((row:any)=>({
-        blocks:[{type:"paragraph",text:[
-          {type:"bold",text:row.label},
-          " : ",
-          row.value,
-        ]}],
-      })),
-    },
+    table(lang==="fa"?"وضعیت مدیریتی":"Moderation Status",moderation),
     {type:"divider"},
     {
       type:"details",
