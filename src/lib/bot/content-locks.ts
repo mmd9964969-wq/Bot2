@@ -351,39 +351,87 @@ function lockCenterTitle(lang:BotLang){
 function lockCenterRichBlocks(rows:any[],lang:BotLang="fa"){
   const sections=["normal","media","links","advertising","forwarding","files","messages","interactions","advanced","anti_attack","language"];
   const names:any={
-    normal:"قفل‌های حالت عادی",media:"رسانه",links:"لینک‌ها",advertising:"تبلیغات",
-    forwarding:"فوروارد و اشتراک‌گذاری",files:"فایل و سند",messages:"پیام و نرخ ارسال",
-    interactions:"تعامل و هویت",advanced:"محتوای پیشرفته",anti_attack:"امنیت و ضد اتک",language:"قفل زبان"
+    normal:"قفل‌های حالت عادی",
+    media:"رسانه",
+    links:"لینک‌ها",
+    advertising:"تبلیغات",
+    forwarding:"فوروارد و اشتراک‌گذاری",
+    files:"فایل و سند",
+    messages:"پیام و نرخ ارسال",
+    interactions:"تعامل و هویت",
+    advanced:"محتوای پیشرفته",
+    anti_attack:"امنیت و ضداتک",
+    language:"قفل زبان"
   };
+
   const total=rows.length;
   const active=rows.filter((x:any)=>x.enabled).length;
   const status=total===0?"بدون قانون":active===0?"خاموش":active===total?"کامل":"فعال";
-  const statusBlock=[
-    "★ - وضعیت کلی",
-    "⛂ - سیستم قفل : ● فعال",
-    "⛂ - قوانین فعال : "+lockFmt(active)+" / "+lockFmt(total),
-    "⛂ - وضعیت : "+status
-  ].join("\n");
 
-  const sectionLines=sections.map(section=>{
-    const rs=rows.filter((x:any)=>x.section===section);
+  const tableRows:any[][] = sections.map((section) => {
+    const rs=rows.filter((r:any)=>r.section===section);
     const on=rs.filter((r:any)=>r.enabled).length;
     const state=rs.length===0?"—":on===0?"خاموش":on===rs.length?"کامل":"فعال";
-    return "⛂ - "+names[section]+" : "+lockFmt(on)+" / "+lockFmt(rs.length)+" · "+state;
-  }).join("\n");
+    return [
+      {text:names[section]},
+      {text:String(on)},
+      {text:String(rs.length)},
+      {text:state},
+    ];
+  });
+
+  const enabledRules=rows
+    .filter((r:any)=>r.enabled)
+    .slice(0,20)
+    .map((r:any)=>({text:"قانون فعال: "+(LOCK_LABELS[r.rule_key]||r.rule_key)}));
 
   const blocks:any[]=[
-    {type:"heading",text:lockRichPlain(lockCenterTitle(lang)),size:2},
-    {type:"paragraph",text:lockRichPlain(statusBlock)},
-    {type:"paragraph",text:lockRichPlain(LOCK_PANEL_SEPARATOR)},
-    {type:"heading",text:"★ - دسته‌بندی قفل‌ها",size:3},
-    {type:"paragraph",text:lockRichPlain(sectionLines)},
-    {type:"paragraph",text:lockRichPlain(LOCK_PANEL_SEPARATOR)},
-    {type:"paragraph",text:lockRichPlain("⛂ - راهنما : عدد اول قوانین فعال و عدد دوم کل قوانین هر بخش است.")},
+    {type:"heading",text:lockCenterTitle(lang),size:2},
+    {type:"paragraph",text:"مرکز مدیریت قفل محتوا"},
+    {type:"divider"},
+    {
+      type:"table",
+      caption:"وضعیت کلی سیستم",
+      headers:[
+        {text:"بخش"},
+        {text:"فعال"},
+        {text:"کل"},
+        {text:"وضعیت"},
+      ],
+      cells:tableRows,
+    },
+    {type:"divider"},
+    {
+      type:"details",
+      summary:"جزئیات سیستم",
+      blocks:[
+        {
+          type:"list",
+          style:"bullet",
+          items:[
+            {text:"سیستم قفل: "+status},
+            {text:"قوانین فعال: "+String(active)+" از "+String(total)},
+            {text:"قوانین فعال در حافظه: "+String(enabledRules.length)},
+            {text:"استثناها و دامنه‌های مجاز از بخش مربوطه قابل مدیریت هستند."},
+          ],
+        },
+      ],
+    },
+    ...(enabledRules.length
+      ? [
+          {type:"heading",text:"قوانین فعال",size:3},
+          {type:"list",style:"bullet",items:enabledRules},
+        ]
+      : []),
+    {type:"divider"},
+    {
+      type:"paragraph",
+      text:"برای تغییر هر بخش، از دکمه‌های زیر استفاده کنید. دکمه‌ها همان کیبورد شیشه‌ای فعلی ربات هستند.",
+    },
   ];
+
   return {blocks,is_rtl:lang==="fa"||lang==="ar"};
 }
-
 async function sendRichLockCenter(pool:Pool,chatId:number,ownerId?:number,panelKind:"customer"|"command"="customer"){
   const rows=await lockRows(pool,chatId);
   const lang=await getGroupLanguage(pool,chatId,"fa");
