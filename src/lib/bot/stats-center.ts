@@ -364,20 +364,35 @@ function richizeLegacyText(text: string): RichInputBlock[] {
       continue;
     }
     flushTable();
+    const inlineRich = (value: string): any => {
+      const parts: any[] = [];
+      const sourceValue = String(value || "").replace(/[‹›]/gu, "");
+      const re = /【\s*<a href="tg:\/\/user\?id=(\d+)">([^<]+)<\/a>\s*】/gu;
+      let last = 0;
+      let match: RegExpExecArray | null;
+      while ((match = re.exec(sourceValue))) {
+        if (match.index > last) parts.push(sourceValue.slice(last, match.index));
+        parts.push(richInlineUser(Number(match[1]), match[2].startsWith("@") ? match[2] : undefined, match[2].startsWith("@") ? undefined : match[2]));
+        last = re.lastIndex;
+      }
+      if (last < sourceValue.length) parts.push(sourceValue.slice(last));
+      if (!parts.length) return sourceValue.replace(/[【】]/gu, "");
+      return parts;
+    };
+
     if (/^[𝟬-𝟵]{3}\s*[·|]/u.test(line)) {
-      const cleaned = line.replace(/[‹›]/gu, "").replace(/\s*·\s*/gu, "  ");
-      blocks.push(richParagraph(cleaned));
+      blocks.push(richParagraph(inlineRich(line.replace(/\s*·\s*/gu, "  "))));
       continue;
     }
     if (/^[●○■]/u.test(line)) {
-      blocks.push(richStatus(line.replace(/^[●○■]\s*/u, ""), line.startsWith("●") ? "success" : line.startsWith("■") ? "warning" : "normal"));
+      blocks.push(richStatus(line.replace(/^[●○■]\s*/u, "").replace(/[【】]/gu, ""), line.startsWith("●") ? "success" : line.startsWith("■") ? "warning" : "normal"));
       continue;
     }
     if (/^⛂\s*-/.test(line)) {
-      blocks.push(richParagraph(line.replace(/^⛂\s*-\s*/u, "")));
+      blocks.push(richParagraph(inlineRich(line.replace(/^⛂\s*-\s*/u, "").replace(/[【】]/gu, ""))));
       continue;
     }
-    blocks.push(richParagraph(line));
+    blocks.push(richParagraph(inlineRich(line)));
   }
 
   flushTable();
@@ -2261,7 +2276,6 @@ export async function handleStatsCallback(pool: Pool, cb: StatsCallback, ownerId
     const maybe=p[3] || "today";
     if(/^\d{4}-\d{2}-\d{2}$/.test(maybe))return renderHours(pool,chatId,mid,scope,maybe, p[4]?Number(p[4]):undefined);
     const period=maybe as StatsPeriod;
-    const day=toDateInput(new Date());
     return renderHours(pool,chatId,mid,scope,period,p[4]?Number(p[4]):undefined);
   }
 
