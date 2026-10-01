@@ -255,9 +255,11 @@ function richInlineUser(userId: number, username?: string | null, firstName?: st
 function richButtonStyle(label: string, callbackData: string) {
   const text = String(label || "").trim();
   const data = String(callbackData || "");
-  if (/(?:^|:)back(?:$|:)/i.test(data) || /بازگشت/u.test(text)) return "primary";
-  if (/(?:^|:)(?:on|enable)(?::|$)/i.test(data)) return "success";
-  if (/(?:^|:)(?:off|disable)(?::|$)/i.test(data)) return "danger";
+  if (/✓/u.test(text)) return "primary";
+  if (/^(?:آمار چت|آمار اقدامات|رتبه‌بندی اصلی|۲۴ ساعت|آمار کامل|جزئیات روز)$/u.test(text)) return "primary";
+  if (/^(?:بروزرسانی|ثبت|اعمال)$/u.test(text)) return "success";
+  if (/(?:^|:)back(?:$|:)/i.test(data) || /^(?:بازگشت|لغو)$/u.test(text)) return "link";
+  if (/(?:^|:)(?:off|disable)(?::|$)/i.test(data) || /^(?:حذف|پاک‌سازی|توقف)$/u.test(text)) return "danger";
   return "link";
 }
 
@@ -1359,11 +1361,11 @@ function periodButtons(scope: StatsScope, targetUserId?: number) {
 function moreButtons(targetUserId?: number) {
   const id = targetUserId ? ":" + targetUserId : "";
   return [
-    [["‹ آمار ادمین","sx:scope:admins"],["‹ آمار اعضا","sx:scope:members"]],
-    [["‹ آمار کاربر","sx:scope:user"+(targetUserId ? id : "")],["‹ آمار کلی","sx:scope:group"]],
-    [["‹ مقایسه بازه‌ها","sx:compare:group"],["‹ گزارش آماری","sx:report:group"]],
-    [["‹ رشد گروه","sx:growth:group"],["‹ شاخص وضعیت","sx:status:group"]],
-    [["‹ بازگشت","sx:home"]],
+    [["مرکز ادمین","sx:scope:admins"],["مرکز ممبر","sx:scope:members"]],
+    [["آمار کاربر","sx:scope:user"+(targetUserId ? id : "")],["آمار گروه","sx:scope:group"]],
+    [["مقایسه بازه‌ها","sx:compare:group"],["گزارش آماری","sx:report:group"]],
+    [["رشد گروه","sx:growth:group"],["شاخص وضعیت","sx:status:group"]],
+    [["بازگشت","sx:home"]],
   ];
 }
 
@@ -1379,6 +1381,449 @@ function summaryNav(scope: StatsScope, targetUserId?: number) {
 
 function statusLine(label: string, value: string) {
   return "⛂ - " + label + " : " + value;
+}
+
+
+function shiftDateKey(day: string, delta: number) {
+  const d = new Date(String(day) + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
+
+function currentWeekDays() {
+  const today = toDateInput(new Date());
+  const weekday = new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    timeZone: TZ,
+  }).format(new Date(today + "T12:00:00Z"));
+  const index: Record<string, number> = {
+    Sat: 0, Sun: 1, Mon: 2, Tue: 3, Wed: 4, Thu: 5, Fri: 6,
+  };
+  const offset = index[weekday] ?? 0;
+  const start = shiftDateKey(today, -offset);
+  return Array.from({ length: 7 }, (_, i) => shiftDateKey(start, i));
+}
+
+function weekdayShortLabel(day: string) {
+  const map: Record<string, string> = {
+    "شنبه": "شنبه",
+    "یکشنبه": "یکشنبه",
+    "دوشنبه": "دوشنبه",
+    "سه‌شنبه": "سه‌شنبه",
+    "چهارشنبه": "چهارشنبه",
+    "پنجشنبه": "پنجشنبه",
+    "جمعه": "جمعه",
+  };
+  return map[faDayName(day)] || faDayName(day);
+}
+
+async function chatDayData(pool: Pool, chatId: number, day: string) {
+  const [messages, joins, leaves, security] = await Promise.all([
+    pool.query<any>(
+      `SELECT
+        COUNT(*)::int total,
+        COUNT(DISTINCT user_id)::int active_users,
+        COUNT(*) FILTER(WHERE has_link)::int links,
+        COUNT(*) FILTER(WHERE reply_to_user_id IS NOT NULL)::int replies,
+        COUNT(*) FILTER(WHERE kind IN('photo','video','audio','document','animation','sticker','voice','video_note'))::int media,
+        COUNT(*) FILTER(WHERE kind='text')::int text_count
+       FROM bot_message_records m
+       WHERE m.chat_id=$1 AND ${rawDayExpression("m")}=$2::date`,
+      [chatId, day],
+    ),
+    pool.query<any>(
+      `SELECT COUNT(*)::int n
+       FROM bot_member_join_events
+       WHERE group_id=$1 AND (joined_at AT TIME ZONE '${TZ}')::date=$2::date`,
+      [chatId, day],
+    ).catch(() => ({ rows: [] })),
+    pool.query<any>(
+      `SELECT COUNT(*)::int n
+       FROM bot_member_leave_events
+       WHERE group_id=$1 AND (left_at AT TIME ZONE '${TZ}')::date=$2::date`,
+      [chatId, day],
+    ).catch(() => ({ rows: [] })),
+    pool.query<any>(
+      `SELECT
+        (SELECT COUNT(*)::int FROM content_lock_logs WHERE group_id=$1 AND (created_at AT TIME ZONE '${TZ}')::date=$2::date) violations,
+        (SELECT COUNT(*)::int FROM warning_events WHERE group_id=$1 AND action_type='warning' AND (created_at AT TIME ZONE '${TZ}')::date=$2::date) warnings,
+        (SELECT COUNT(*)::int FROM warning_penalties WHERE group_id=$1 AND (created_at AT TIME ZONE '${TZ}')::date=$2::date) penalties`,
+      [chatId, day],
+    ).catch(() => ({ rows: [] })),
+  ]);
+  return {
+    ...(messages.rows[0] || {}),
+    joins: number(joins.rows[0]?.n),
+    leaves: number(leaves.rows[0]?.n),
+    violations: number(security.rows[0]?.violations),
+    warnings: number(security.rows[0]?.warnings),
+    penalties: number(security.rows[0]?.penalties),
+  };
+}
+
+async function chatHourData(pool: Pool, chatId: number, day: string, hour: number) {
+  const r = await pool.query<any>(
+    `SELECT
+      COUNT(*)::int total,
+      COUNT(DISTINCT user_id)::int active_users,
+      COUNT(*) FILTER(WHERE has_link)::int links,
+      COUNT(*) FILTER(WHERE reply_to_user_id IS NOT NULL)::int replies,
+      COUNT(*) FILTER(WHERE kind IN('photo','video','audio','document','animation','sticker','voice','video_note'))::int media
+     FROM bot_message_records m
+     WHERE m.chat_id=$1
+       AND ${rawDayExpression("m")}=$2::date
+       AND ${rawHourExpression("m")}=$3`,
+    [chatId, day, hour],
+  );
+  return r.rows[0] || {};
+}
+
+async function chatDayContent(pool: Pool, chatId: number, day: string) {
+  const r = await pool.query<any>(
+    `SELECT m.kind,COUNT(*)::int n
+     FROM bot_message_records m
+     WHERE m.chat_id=$1 AND ${rawDayExpression("m")}=$2::date
+     GROUP BY m.kind ORDER BY n DESC`,
+    [chatId, day],
+  ).catch(() => ({ rows: [] }));
+  return r.rows.map((x: any) => ({ kind: String(x.kind), count: number(x.n) }));
+}
+
+function chatWeekButtonRows() {
+  return currentWeekDays().reduce((rows: string[][][], day, index) => {
+    const label = weekdayShortLabel(day) + " " + faDate(day);
+    const rowIndex = Math.floor(index / 2);
+    if (!rows[rowIndex]) rows[rowIndex] = [];
+    rows[rowIndex].push([label, "sx:chat:day:" + day]);
+    return rows;
+  }, []).concat([[["جمعه " + faDate(currentWeekDays()[6]), "sx:chat:day:" + currentWeekDays()[6]]]]);
+}
+
+function hourButtonRows(day: string) {
+  const rows: string[][][] = [];
+  for (let start = 0; start < 24; start += 6) {
+    rows.push(
+      Array.from({ length: Math.min(6, 24 - start) }, (_, i) => {
+        const hour = start + i;
+        return [
+          String(hour).padStart(2, "0") + ":00",
+          "sx:chat:hour:" + day + ":" + hour,
+        ];
+      })
+    );
+  }
+  return rows;
+}
+
+function chatStatsNavigation(day?: string) {
+  const selected = day || toDateInput(new Date());
+  return [
+    [["رتبه‌بندی اصلی","sx:chat:rank:" + selected]],
+    [["۲۴ ساعت","sx:chat:hours:" + selected],["آمار تکمیلی","sx:chat:details:" + selected]],
+    [["روز انتخاب‌شده","sx:chat:day:" + selected],["بروزرسانی","sx:chat:home"]],
+  ];
+}
+
+async function renderChatStatsHub(pool: Pool, chatId: number, messageId: number, backCallback = "sx:more") {
+  const d = await groupOverviewData(pool, chatId);
+  const days = currentWeekDays();
+  const today = toDateInput(new Date());
+  const blocks: RichInputBlock[] = [
+    richHeading("Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴛᴀᴛs Cᴇɴᴛᴇʀ", 1),
+    richHeading("آمار چت", 2),
+    richTable(["شاخص","مقدار"],[
+      ["پیام امروز",d.messagesToday],
+      ["پیام ۷ روز اخیر",d.messagesWeek],
+      ["اعضای فعلی",d.memberCount],
+      ["فعال در ۲۴ ساعت",d.active24h],
+      ["فعال‌ترین ساعت",d.busiestHour == null ? "ثبت نشده" : String(d.busiestHour).padStart(2,"0")+":00 · "+d.busiestHourCount],
+    ]),
+    richDivider(),
+    richHeading("انتخاب روز", 3),
+    richParagraph("هفته جاری · شنبه تا جمعه"),
+  ];
+  if (messageId) {
+    return editRichPanel(chatId, messageId, blocks, [
+      ...chatWeekButtonRows().slice(0,4),
+      [[
+        "رتبه‌بندی اصلی","sx:chat:rank:"+today
+      ]],
+      [["۲۴ ساعت","sx:chat:hours:"+today],["آمار تکمیلی","sx:chat:details:"+today]],
+      [["بازگشت",backCallback]],
+    ]);
+  }
+  return sendRichPanel(chatId, blocks, [
+    ...chatWeekButtonRows().slice(0,4),
+    [["رتبه‌بندی اصلی","sx:chat:rank:"+today]],
+    [["۲۴ ساعت","sx:chat:hours:"+today],["آمار تکمیلی","sx:chat:details:"+today]],
+    [["بازگشت",backCallback]],
+  ]);
+}
+
+async function renderChatDay(pool: Pool, chatId: number, messageId: number, day: string, backCallback = "sx:chat:home") {
+  const d = await chatDayData(pool, chatId, day);
+  const blocks: RichInputBlock[] = [
+    richHeading("آمار چت", 1),
+    richHeading(weekdayShortLabel(day) + " · " + faDate(day), 2),
+    richTable(["شاخص","مقدار"],[
+      ["کل پیام‌ها",number(d.total)],
+      ["کاربران فعال",number(d.active_users)],
+      ["رسانه",number(d.media)],
+      ["لینک",number(d.links)],
+      ["پاسخ / ریپلای",number(d.replies)],
+      ["ورود",number(d.joins)],
+      ["خروج",number(d.leaves)],
+      ["اخطار",number(d.warnings)],
+      ["جریمه",number(d.penalties)],
+      ["تخلف ثبت‌شده",number(d.violations)],
+    ]),
+    richDivider(),
+    richDetails("ساعت‌های شبانه‌روز",[
+      richParagraph("برای مشاهده آمار هر ساعت، «۲۴ ساعت» را باز کنید و ساعت موردنظر را انتخاب کنید.")
+    ]),
+  ];
+  return editRichPanel(chatId,messageId,blocks,[
+    [["رتبه‌بندی اصلی","sx:chat:rank:"+day]],
+    [["۲۴ ساعت","sx:chat:hours:"+day],["آمار تکمیلی","sx:chat:details:"+day]],
+    ...chatWeekButtonRows().slice(0,4),
+    [["بازگشت",backCallback]],
+  ]);
+}
+
+async function renderChatHours(pool: Pool, chatId: number, messageId: number, day: string) {
+  const rows = hourButtonRows(day);
+  const blocks: RichInputBlock[] = [
+    richHeading("آمار چت", 1),
+    richHeading("۲۴ ساعت · " + faDate(day), 2),
+    richParagraph("یک ساعت را انتخاب کنید تا آمار دقیق همان ساعت نمایش داده شود."),
+  ];
+  return editRichPanel(chatId,messageId,blocks,[
+    ...rows,
+    [["بازگشت به روز","sx:chat:day:"+day]],
+  ]);
+}
+
+async function renderChatHour(pool: Pool, chatId: number, messageId: number, day: string, hour: number) {
+  const d = await chatHourData(pool,chatId,day,hour);
+  const blocks: RichInputBlock[] = [
+    richHeading("آمار ساعتی", 1),
+    richHeading(weekdayShortLabel(day) + " · " + faDate(day), 2),
+    richTable(["شاخص","مقدار"],[
+      ["بازه",String(hour).padStart(2,"0")+":00 تا "+String(hour+1).padStart(2,"0")+":00"],
+      ["پیام‌ها",number(d.total)],
+      ["کاربران فعال",number(d.active_users)],
+      ["رسانه",number(d.media)],
+      ["لینک",number(d.links)],
+      ["پاسخ / ریپلای",number(d.replies)],
+    ]),
+  ];
+  return editRichPanel(chatId,messageId,blocks,[
+    [["ساعت‌های دیگر","sx:chat:hours:"+day]],
+    [["رتبه‌بندی این ساعت","sx:chat:rankhour:"+day+":"+hour],["آمار روز","sx:chat:day:"+day]],
+    [["بازگشت","sx:chat:day:"+day]],
+  ]);
+}
+
+async function renderChatRanking(pool: Pool, chatId: number, messageId: number, day: string, hour?: number) {
+  const users = hour == null
+    ? await dailyUsers(pool,chatId,day,10)
+    : await dailyUsersForHour(pool,chatId,day,hour,10);
+  const title = hour == null ? "رتبه‌بندی اصلی · " + faDate(day) : "رتبه‌بندی ساعت · " + String(hour).padStart(2,"0") + ":00";
+  const blocks: RichInputBlock[] = [
+    richHeading("Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴛᴀᴛs Cᴇɴᴛᴇʀ",1),
+    richHeading(title,2),
+    users.length
+      ? richTable(["رتبه","کاربر","پیام"],users.map((u:any,i:number)=>[
+          String(i+1).padStart(3,"0"),
+          richInlineUser(u.userId,u.username,u.firstName),
+          number(u.count),
+        ]))
+      : richParagraph("برای این بازه داده‌ای ثبت نشده است."),
+  ];
+  return editRichPanel(chatId,messageId,blocks,[
+    [["۲۴ ساعت","sx:chat:hours:"+day],["آمار روز","sx:chat:day:"+day]],
+    hour == null
+      ? [["آمار تکمیلی","sx:chat:details:"+day]]
+      : [["ساعت موردنظر","sx:chat:hour:"+day+":"+hour]],
+    [["بازگشت","sx:chat:home"]],
+  ]);
+}
+
+async function dailyUsersForHour(pool: Pool, chatId: number, day: string, hour: number, limit = 10) {
+  const r = await pool.query<any>(
+    `SELECT m.user_id,MAX(m.username) username,MAX(m.first_name) first_name,COUNT(*)::int n
+     FROM bot_message_records m
+     WHERE m.chat_id=$1
+       AND m.user_id IS NOT NULL
+       AND ${rawDayExpression("m")}=$2::date
+       AND ${rawHourExpression("m")}=$3
+     GROUP BY m.user_id
+     ORDER BY n DESC,m.user_id
+     LIMIT ${Math.max(1,Math.min(limit,20))}`,
+    [chatId,day,hour],
+  ).catch(() => ({rows:[]}));
+  return r.rows.map((x:any)=>({
+    userId:number(x.user_id),
+    username:x.username,
+    firstName:x.first_name,
+    count:number(x.n),
+  }));
+}
+
+async function renderChatDetails(pool: Pool, chatId: number, messageId: number, day: string) {
+  const d = await chatDayData(pool,chatId,day);
+  const content = await chatDayContent(pool,chatId,day);
+  const blocks: RichInputBlock[] = [
+    richHeading("آمار تکمیلی",1),
+    richHeading(faDate(day),2),
+    richTable(["شاخص","مقدار"],[
+      ["متن",number(content.find(x=>x.kind==="text")?.count)],
+      ["رسانه",number(d.media)],
+      ["لینک",number(d.links)],
+      ["پاسخ",number(d.replies)],
+      ["کاربران فعال",number(d.active_users)],
+    ]),
+    richDivider(),
+    richHeading("تفکیک محتوا",3),
+    content.length
+      ? richTable(["نوع","تعداد"],content.map(x=>[x.kind,number(x.count)]))
+      : richParagraph("داده‌ای ثبت نشده است."),
+    richDetails("رویدادهای مدیریتی همان روز",[
+      richTable(["شاخص","تعداد"],[
+        ["اخطار",number(d.warnings)],
+        ["جریمه",number(d.penalties)],
+        ["تخلف ثبت‌شده",number(d.violations)],
+      ])
+    ]),
+  ];
+  return editRichPanel(chatId,messageId,blocks,[
+    [["رتبه‌بندی اصلی","sx:chat:rank:"+day],["۲۴ ساعت","sx:chat:hours:"+day]],
+    [["بازگشت به روز","sx:chat:day:"+day]],
+  ]);
+}
+
+async function renderAdminHub(pool: Pool, chatId: number, messageId: number) {
+  const blocks: RichInputBlock[]=[
+    richHeading("Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴛᴀᴛs Cᴇɴᴛᴇʀ",1),
+    richHeading("مرکز آمار ادمین",2),
+    richParagraph("دو مرکز مستقل برای تحلیل گفت‌وگوها و اقدامات مدیریتی."),
+  ];
+  return editRichPanel(chatId,messageId,blocks,[
+    [["آمار چت","sx:adminchat"],["آمار اقدامات","sx:adminactions:today"]],
+    [["بازگشت","sx:more"]],
+  ]);
+}
+
+async function renderMemberHub(pool: Pool, chatId: number, messageId: number) {
+  const blocks: RichInputBlock[]=[
+    richHeading("Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴛᴀᴛs Cᴇɴᴛᴇʀ",1),
+    richHeading("مرکز آمار ممبر",2),
+    richParagraph("آمار ممبر در این بخش بر پایه فعالیت و گفت‌وگوی گروه ارائه می‌شود."),
+  ];
+  return editRichPanel(chatId,messageId,blocks,[
+    [["آمار چت","sx:memberchat"]],
+    [["بازگشت","sx:more"]],
+  ]);
+}
+
+async function adminActionBreakdown(pool: Pool, chatId: number, period: StatsPeriod) {
+  const d=await adminStats(pool,chatId,period);
+  const warningEvents=await pool.query<any>(
+    `SELECT action_type,COUNT(*)::int n
+     FROM warning_events
+     WHERE group_id=$1 AND created_at >=
+       CASE
+         WHEN $2='today' THEN CURRENT_DATE
+         WHEN $2='7d' THEN NOW()-INTERVAL '6 days'
+         WHEN $2='30d' THEN NOW()-INTERVAL '29 days'
+         WHEN $2='month' THEN date_trunc('month',NOW())
+         WHEN $2='prevmonth' THEN date_trunc('month',NOW())-INTERVAL '1 month'
+         ELSE TIMESTAMPTZ 'epoch'
+       END
+       AND ($2 <> 'prevmonth' OR created_at < date_trunc('month',NOW()))
+     GROUP BY action_type
+     ORDER BY n DESC`,
+    [chatId,period],
+  ).catch(() => ({rows:[]}));
+  return {d,warningEvents:warningEvents.rows};
+}
+
+async function renderAdminActions(pool: Pool, chatId: number, messageId: number, period: StatsPeriod="today") {
+  const {d}=await adminActionBreakdown(pool,chatId,period);
+  const blocks:RichInputBlock[]=[
+    richHeading("Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴛᴀᴛs Cᴇɴᴛᴇʀ",1),
+    richHeading("آمار اقدامات",2),
+    richParagraph("بازه · " + periodLabel(period)),
+    richTable(["شاخص","تعداد"],[
+      ["اقدامات مدیریتی",d.actions],
+      ["اخطارها",d.warnings],
+      ["جریمه‌ها",d.penalties],
+      ["خطا / رویداد بحرانی",d.failed],
+    ]),
+    richDivider(),
+    richDetails("مسیرهای تحلیل",[
+      richParagraph("تفکیک نوع اقدام، مدیران فعال، اخطار و جریمه و سوابق ممیزی در دکمه‌های زیر قرار دارند.")
+    ]),
+  ];
+  return editRichPanel(chatId,messageId,blocks,[
+    [["امروز","sx:adminactions:today"],["۷ روز اخیر","sx:adminactions:7d"]],
+    [["۳۰ روز اخیر","sx:adminactions:30d"],["این ماه","sx:adminactions:month"]],
+    [["تفکیک اقدامات","sx:adminactions:breakdown:"+period],["مدیران فعال","sx:adminactions:admins:"+period]],
+    [["اخطار و جریمه","sx:adminactions:cases:"+period],["سوابق ممیزی","sx:adminactions:audit:"+period]],
+    [["بازگشت","sx:scope:admins"]],
+  ]);
+}
+
+async function renderAdminActionBreakdown(pool: Pool, chatId: number, messageId: number, period: StatsPeriod) {
+  const {d,warningEvents}=await adminActionBreakdown(pool,chatId,period);
+  return editRichPanel(chatId,messageId,[
+    richHeading("تفکیک اقدامات",1),
+    richParagraph("بازه · " + periodLabel(period)),
+    richTable(["نوع","تعداد"],[
+      ["کل اقدامات مدیریتی",d.actions],
+      ["اخطار",d.warnings],
+      ["جریمه",d.penalties],
+      ["خطا / رویداد بحرانی",d.failed],
+    ]),
+    richDivider(),
+    richHeading("ثبت در سامانه اخطار",3),
+    warningEvents.length
+      ? richTable(["نوع","تعداد"],warningEvents.map((x:any)=>[String(x.action_type),number(x.n)]))
+      : richParagraph("رویداد اخطاری در این بازه ثبت نشده است."),
+  ],[
+    [["آمار اقدامات","sx:adminactions:"+period],["بازگشت","sx:adminactions:"+period]],
+  ]);
+}
+
+async function renderAdminActive(pool: Pool, chatId: number, messageId: number, period: StatsPeriod) {
+  const d=await adminStats(pool,chatId,period);
+  const admins=d.topAdmins||[];
+  return editRichPanel(chatId,messageId,[
+    richHeading("مدیران فعال",1),
+    richParagraph("بازه · " + periodLabel(period)),
+    admins.length
+      ? richTable(["رتبه","مدیر","اقدام"],admins.map((u:any,i:number)=>[
+          String(i+1).padStart(3,"0"),
+          richInlineUser(u.userId),
+          number(u.count),
+        ]))
+      : richParagraph("اقدام مدیریتی ثبت‌شده‌ای در این بازه وجود ندارد."),
+  ],[
+    [["آمار اقدامات","sx:adminactions:"+period],["سوابق ممیزی","sx:adminactions:audit:"+period]],
+  ]);
+}
+
+async function renderAdminCases(pool: Pool, chatId: number, messageId: number, period: StatsPeriod) {
+  const {warningEvents}=await adminActionBreakdown(pool,chatId,period);
+  return editRichPanel(chatId,messageId,[
+    richHeading("اخطار و جریمه",1),
+    richParagraph("بازه · " + periodLabel(period)),
+    warningEvents.length
+      ? richTable(["نوع رویداد","تعداد"],warningEvents.map((x:any)=>[String(x.action_type),number(x.n)]))
+      : richParagraph("هیچ رویداد اخطار یا جریمه‌ای ثبت نشده است."),
+  ],[
+    [["آمار اقدامات","sx:adminactions:"+period],["بازگشت","sx:adminactions:"+period]],
+  ]);
 }
 
 async function renderGroupOverview(pool: Pool, chatId: number, messageId?: number) {
@@ -2195,9 +2640,49 @@ export async function handleStatsCallback(pool: Pool, cb: StatsCallback, ownerId
 
   if(data==="sx:home")return renderGroupOverview(pool,chatId,mid);
   if(data==="sx:more")return renderMore(pool,chatId,mid);
-  if(data==="sx:scope:admins")return renderAdminPeriod(pool,chatId,mid,"today");
-  if(data==="sx:scope:members")return renderMemberPeriod(pool,chatId,mid,"today");
-  if(data==="sx:scope:group")return renderGroupPeriod(pool,chatId,mid,"today");
+  if(data==="sx:scope:admins")return renderAdminHub(pool,chatId,mid);
+  if(data==="sx:scope:members")return renderMemberHub(pool,chatId,mid);
+  if(data==="sx:adminchat")return renderChatStatsHub(pool,chatId,mid,"sx:scope:admins");
+  if(data==="sx:memberchat")return renderChatStatsHub(pool,chatId,mid,"sx:scope:members");
+  if(data.startsWith("sx:adminactions:")) {
+    const actionPeriod=(data.split(":")[2]||"today") as StatsPeriod;
+    if(actionPeriod==="breakdown" || actionPeriod==="admins" || actionPeriod==="cases" || actionPeriod==="audit") {
+      return renderAdminActions(pool,chatId,mid,"today");
+    }
+    return renderAdminActions(pool,chatId,mid,actionPeriod);
+  }
+  if(data.startsWith("sx:chat:day:"))return renderChatDay(pool,chatId,mid,data.slice("sx:chat:day:".length),"sx:chat:home");
+  if(data.startsWith("sx:chat:hours:"))return renderChatHours(pool,chatId,mid,data.slice("sx:chat:hours:".length));
+  if(data.startsWith("sx:chat:details:"))return renderChatDetails(pool,chatId,mid,data.slice("sx:chat:details:".length));
+  if(data.startsWith("sx:chat:hour:")) {
+    const parts=data.split(":");
+    return renderChatHour(pool,chatId,mid,parts[3],Number(parts[4]));
+  }
+  if(data.startsWith("sx:chat:rankhour:")) {
+    const parts=data.split(":");
+    return renderChatRanking(pool,chatId,mid,parts[3],Number(parts[4]));
+  }
+  if(data.startsWith("sx:chat:rank:"))return renderChatRanking(pool,chatId,mid,data.slice("sx:chat:rank:".length));
+  if(data==="sx:chat:home")return renderChatStatsHub(pool,chatId,mid,"sx:more");
+  if(data.startsWith("sx:adminactions:breakdown:"))return renderAdminActionBreakdown(pool,chatId,mid,data.slice("sx:adminactions:breakdown:".length) as StatsPeriod);
+  if(data.startsWith("sx:adminactions:admins:"))return renderAdminActive(pool,chatId,mid,data.slice("sx:adminactions:admins:".length) as StatsPeriod);
+  if(data.startsWith("sx:adminactions:cases:"))return renderAdminCases(pool,chatId,mid,data.slice("sx:adminactions:cases:".length) as StatsPeriod);
+  if(data.startsWith("sx:adminactions:audit:")) {
+    const period=(data.slice("sx:adminactions:audit:".length)||"today") as StatsPeriod;
+    const admins=await auditAdminDirectory(pool,chatId);
+    return editRichPanel(chatId,mid,[
+      richHeading("سوابق ممیزی",1),
+      richParagraph("بازه · "+periodLabel(period)),
+      admins.length
+        ? richTable(["رتبه","مدیر","اقدام"],admins.map((u:any,i:number)=>[
+            String(i+1).padStart(3,"0"),
+            richInlineUser(u.userId,u.username,u.firstName),
+            number(u.actions),
+          ]))
+        : richParagraph("سابقه‌ای ثبت نشده است."),
+    ],[[["آمار اقدامات","sx:adminactions:"+period],["بازگشت","sx:scope:admins"]]]);
+  }
+  if(data==="sx:scope:group")return renderChatStatsHub(pool,chatId,mid,"sx:more");
   if(data==="sx:scope:user"){
     return renderUserPeriod(pool,chatId,mid,Number(cb.from.id),"today");
   }
