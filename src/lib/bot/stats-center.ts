@@ -1832,8 +1832,7 @@ async function sendUserCommandCard(pool:Pool,chatId:number,userId:number,user?:T
     "",
     "─────━━───── ◈ ─────━━─────",
     "",
-    "★ - دسترسی سریع",
-    "⛂ - جزئیات این کاربر از مسیر گزینه‌های پایین در دسترس است.",
+    "─────━━───── ◈ ─────━━─────",
   ].join("\n");
   return sendPanel(chatId,text,[
     [["‹ بازه‌های آماری","sx:periods:user:"+userId],["‹ رتبه‌بندی","sx:ranking:user:"+userId]],
