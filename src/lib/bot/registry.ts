@@ -23,6 +23,7 @@ const defs: CommandDef[] = [
   { id:"ping", phase:2, minRank:"admin", aliasesEn:["ping"], aliasesFa:["پینگ"], usageEn:"ping", usageFa:"پینگ", descEn:"System status", descFa:"وضعیت سیستم" },
   { id:"bot", phase:2, minRank:"admin", aliasesEn:["bot"], aliasesFa:["بات"], usageEn:"bot", usageFa:"بات", descEn:"Technical bot information", descFa:"اطلاعات فنی ربات" },
   { id:"status", phase:2, minRank:"admin", aliasesEn:["status"], aliasesFa:["وضعیت"], usageEn:"status", usageFa:"وضعیت", descEn:"Group status", descFa:"وضعیت گروه" },
+  { id:"date", phase:2, minRank:"admin", aliasesEn:["date"], aliasesFa:["تاریخ","تاریخ امروز","تقویم"], usageEn:"date [option]", usageFa:"تاریخ [گزینه]", descEn:"Date, calendar, conversion, events and time center", descFa:"مرکز حرفه‌ای تاریخ، تقویم، تبدیل، رویداد و زمان" },
   { id:"warn", phase:2, minRank:"admin", aliasesEn:["warn","warning"], aliasesFa:["اخطار","هشدار"], usageEn:"warn [user] [reason]", usageFa:"اخطار [کاربر] [دلیل]", descEn:"Issue a warning and apply configured penalties", descFa:"صدور اخطار و اجرای جریمه‌های تنظیم‌شده" },
   { id:"mute", phase:2, minRank:"admin", aliasesEn:["mute"], aliasesFa:["سکوت","محدود"], usageEn:"mute [user] [duration]", usageFa:"سکوت [کاربر] [مدت]", descEn:"Temporarily restrict a member", descFa:"سکوت موقت یک عضو" },
   { id:"perm_mute", phase:2, minRank:"admin", aliasesEn:["permmute","permanentmute"], aliasesFa:["سکوت دائم","محدودیت دائم"], usageEn:"permmute [user]", usageFa:"سکوت دائم [کاربر]", descEn:"Permanently restrict a member", descFa:"سکوت دائمی یک عضو" },
