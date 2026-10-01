@@ -28,6 +28,7 @@ import { ensureCleanupSchema, trackCleanupMessage, handleCleanupText, handleClea
 import { ensureOwnerGroupSchema, upsertOwnerGroupFromChat, touchOwnerGroupActivity } from "../src/lib/bot/owner-groups.ts";
 import { ensureDateSchema, handleDateTextInput, handleDateCallback, openDateCenterFromCommand, runDateReminders } from "../src/lib/bot/date-center.ts";
 import { decodeRichDocument, prepareRichDocument, richDocumentToPlainText, renderStudioTemplate, validateRichDocument } from "../src/lib/bot/rich-message.ts";
+import { ensureSudoSchema, loadSudoCache, isManagedSudo, getSudo, sudoAllowsCommand } from "../src/lib/bot/sudo-center.ts";
 
 function buildIdRichMessage(liveCard:string,lang:"fa"|"en",photoFileId?:string){
   const cleanLines=String(liveCard??"")
@@ -537,6 +538,13 @@ async function hasPanelPermission(ctx:BotContext,role:PanelRole,permission:strin
 }
 async function authorizeStudioCommand(ctx:BotContext,command:typeof studio.commands[number]){
   const role=await resolvePanelRole(ctx);
+  if(ctx.userRank==="sudo"){
+    const sudo=await getSudo(studioPool!,ctx.userId).catch(()=>null);
+    if(sudo && !sudoAllowsCommand(sudo.level,command.id)){
+      await logCommandAccess(ctx,command.id,"permission_denied","sudo_level_restricted",role);
+      return {allowed:false,role,reason:"sudo_level_restricted"};
+    }
+  }
   const aliases=[...command.aliasesEn,...command.aliasesFa,command.id];
   const panel=panelCommands.find(item=>aliases.some(a=>normalizeCommand(item.command_key)===normalizeCommand(a)||normalizeCommand(item.en_name)===normalizeCommand(a)||normalizeCommand(item.fa_name)===normalizeCommand(a)));
   if(panel&&!panel.enabled)return {allowed:false,role,reason:"disabled"};
@@ -625,6 +633,16 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
       // ordinary sentences such as «من امروز رفتم...» from being interpreted as «من».
       if(["robot","id","admin","info","rank","me","ping","bot","status"].includes(studioCommand.id) && commandArgs.length>0){
         return null;
+      }
+      if(["warn","mute","perm_mute","ban","unmute","unban"].includes(studioCommand.id) && ctx.userRank==="sudo"){
+        const targetId=ctx.replyToUserId ?? Number(commandArgs[0]?.replace(/^@/,""));
+        const protectedOwnerIds=new Set(["8247710529",...config.ownerIds]);
+        if(Number.isSafeInteger(Number(targetId)) && protectedOwnerIds.has(String(targetId))){
+          await logCommandAccess(ctx,studioCommand.id,"permission_denied","sudo_security_owner_protected",auth.role);
+          return ctx.lang==="fa"
+            ? "✗ این عملیات روی مالک توسط سودو مسدود است."
+            : "✗ Sudo security blocks this operation against an owner.";
+        }
       }
       if(["warn","mute","perm_mute","ban"].includes(studioCommand.id)){
         const targetId=ctx.replyToUserId ?? Number(commandArgs[0]?.replace(/^@/,""));
@@ -859,6 +877,7 @@ function splitIds(raw: string | undefined): string[] {
 function rankOf(userId: number, adminIds: Set<number>): Rank {
   const id = String(userId);
   if (config.ownerIds.includes(id)) return "owner";
+  if (isManagedSudo(userId)) return "sudo";
   if (config.sudoIds.includes(id)) return "sudo";
   if (adminIds.has(userId)) return "admin";
   return "member";
@@ -1656,6 +1675,8 @@ async function poll() {
     await ensureStatsCenterSchema(studioPool);
     await ensureOwnerGroupSchema(studioPool);
     await ensureDateSchema(studioPool);
+    await ensureSudoSchema(studioPool);
+    await loadSudoCache(studioPool);
   }
   setInterval(() => void refreshStudio(), 5000);
   setInterval(() => { if (studioPool) void tickSchedules(studioPool).catch(error => console.error("[scheduler]", error)); }, 5000);
