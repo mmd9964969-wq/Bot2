@@ -1566,26 +1566,45 @@ async function renderRanking(pool: Pool, chatId: number, messageId: number, scop
 
 
 async function renderHours(pool: Pool, chatId: number, messageId: number, scope: StatsScope, periodOrDay: StatsPeriod|string, targetUserId?: number) {
-  const isDay = /^\d{4}-\d{2}-\d{2}$/.test(String(periodOrDay));
-  const day = isDay ? String(periodOrDay) : toDateInput(new Date());
+  const isDay=/^\d{4}-\d{2}-\d{2}$/.test(String(periodOrDay));
   let rows:any[]=[];
-  if (scope==="user" && targetUserId) rows=await hourlyUser(pool,chatId,targetUserId,isDay?day:undefined);
-  else rows=await hourlyGroup(pool,chatId,day);
-  const counts=new Map<number,number>(rows.map(x=>[number(x.hour),number(x.message_count)]));
-  const top=[...counts.entries()].sort((a,b)=>b[1]-a[1]).slice(0,5);
-  const lines=[
+  const label=isDay?faDate(String(periodOrDay)):periodLabel(periodOrDay as StatsPeriod);
+
+  if(scope==="user"&&targetUserId){
+    if(isDay) rows=await hourlyUser(pool,chatId,targetUserId,String(periodOrDay));
+    else rows=await hourlyUser(pool,chatId,targetUserId);
+  }else{
+    if(isDay) rows=await hourlyGroup(pool,chatId,String(periodOrDay));
+    else rows=await hourlyGroup(pool,chatId,toDateInput(new Date()));
+  }
+
+  const counts=new Map<number,number>();
+  for(const row of rows) counts.set(number(row.hour),number(row.message_count));
+  const top=Array.from(counts.entries()).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const max=Math.max(1,top.length?top[0][1]:0);
+  const lines:string[]=[
     renderHeader(scope==="user"?"آمار ساعتی کاربر":"آمار ساعتی گروه"),
-    statusLine("روز",faDayName(day)+" · "+faDate(day)),
+    statusLine("بازه یا روز",label),
     "",
     "★ - توزیع ۲۴ ساعته",
-    ...Array.from({length:24},(_,hour)=>(
-      "⛂ - "+String(hour).padStart(2,"0")+":00 · "+("█".repeat(Math.min(18,Math.max(0,Math.round((counts.get(hour)||0)/Math.max(1,top[0]?.[1]||1)*18))))+" · "+(counts.get(hour)||0)
-    )),
-    "",
-    "★ - ساعت‌های اوج",
-    ...(top.length?top.map(([h,n],i)=>rankNumber(i+1)+" · "+String(h).padStart(2,"0")+":00 · "+n+" پیام"):["■ داده‌ای ثبت نشده است."]),
-  ].join("\n");
-  return editPanel(chatId,messageId,lines,[
+  ];
+  for(let hour=0;hour<24;hour++){
+    const n=counts.get(hour)||0;
+    const bar="█".repeat(Math.min(18,Math.max(0,Math.round((n/max)*18))));
+    lines.push("⛂ - "+String(hour).padStart(2,"0")+":00 · "+bar+" · "+n);
+  }
+  lines.push("", "★ - ساعت‌های اوج");
+  if(top.length){
+    for(let i=0;i<top.length;i++){
+      const h=top[i][0];
+      const n=top[i][1];
+      lines.push(rankNumber(i+1)+" · "+String(h).padStart(2,"0")+":00 · "+n+" پیام");
+    }
+  }else{
+    lines.push("■ داده‌ای ثبت نشده است.");
+  }
+
+  return editPanel(chatId,messageId,lines.join("\n"),[
     [["‹ رتبه‌بندی","sx:ranking:"+scope+(targetUserId?":"+targetUserId:"")],["‹ بازگشت","sx:periods:"+scope+(targetUserId?":"+targetUserId:"")]],
   ]);
 }
