@@ -43,7 +43,7 @@ const STEP_TRANSITIONS: Record<InstallationSessionStep, InstallationSessionStep[
 const STATUS_TRANSITIONS: Record<InstallationSessionStatus, InstallationSessionStatus[]> = {
   collecting: ["collecting", "confirmed", "checking", "failed"],
   confirmed: ["confirmed", "checking", "preflight_ready", "preflight_blocked", "executing", "failed"],
-  checking: ["checking", "preflight_ready", "preflight_blocked", "failed"],
+  checking: ["checking", "preflight_ready", "preflight_blocked", "executing", "failed"],
   preflight_ready: ["preflight_ready", "checking", "executing", "failed"],
   preflight_blocked: ["preflight_blocked", "checking", "failed"],
   executing: ["executing", "verifying", "failed"],
