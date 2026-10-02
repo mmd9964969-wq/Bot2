@@ -164,8 +164,7 @@ async function listFiles(root: string): Promise<string[]> {
 }
 
 async function searchFiles(root: string, query: string, prefix: string): Promise<string> {
-  const args = ["grep", "-nI", "-F", String(query || "")];
-  args.push(prefix ? "--" + " " + prefix : "--", prefix || ".");
+  const args = ["grep", "-nI", "-F", String(query || ""), "--", prefix || "."];
   try {
     const r = await runCommand(root, "git", args, 60000);
     return clip(r.stdout);
