@@ -37,6 +37,7 @@ export type PreflightReport = {
   blockerCount: number;
   autoFixableCount: number;
   autoFixedCount: number;
+  actionRequiredCount: number;
   generatedAt: string;
 };
 
@@ -544,6 +545,7 @@ export async function runInstallationPreflight(
   const warnings = relevant.filter((item) => item.status === "WARNING");
   const fixables = relevant.filter((item) => item.autoFixable && item.status === "FIXABLE");
   const autoFixed = relevant.filter((item) => item.autoFixed);
+  const actionRequired = relevant.filter((item) => item.status === "ACTION_REQUIRED");
 
   return {
     operation,
@@ -555,6 +557,7 @@ export async function runInstallationPreflight(
     blockerCount: blockers.length,
     autoFixableCount: fixables.length,
     autoFixedCount: autoFixed.length,
+    actionRequiredCount: actionRequired.length,
     generatedAt: new Date().toISOString(),
   };
 }
