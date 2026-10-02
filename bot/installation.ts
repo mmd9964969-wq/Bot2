@@ -1360,7 +1360,6 @@ async function renderCurrentSession(pool: Pool, chat: TgChat, messageId: number)
         );
       }
     }
-  }
   } else {
     await render(chat.id, messageId, operationSelectionDocument(await state(pool, chat.id)));
   }
