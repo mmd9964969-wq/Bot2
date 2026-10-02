@@ -75,6 +75,8 @@ const EXACT_CALLBACKS = new Set([
   "inst:settings:standard",
   "inst:settings:input",
   "inst:summary:back",
+  "inst:version:back",
+  "inst:settings:back",
 ]);
 
 const PREFIX_CALLBACKS = [
