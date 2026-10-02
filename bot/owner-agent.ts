@@ -144,6 +144,21 @@ async function maybeCreateAutopilotJob(pool: Pool, settings: AgentSettings) {
   );
 }
 
+
+async function notifyOwner(text: string) {
+  const token = env("BOT_TOKEN");
+  if (!token) return;
+  try {
+    await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: OWNER_ID, text }),
+    });
+  } catch (error) {
+    console.error("[owner-agent] owner notification failed:", error);
+  }
+}
+
 async function cloneRepository(root: string) {
   await fs.rm(root, { recursive: true, force: true });
   await fs.mkdir(dirname(root), { recursive: true });
@@ -496,8 +511,19 @@ async function processJob(pool: Pool, job: AgentJob) {
         deploymentBad ? "Railway deployment did not report a healthy state." : null,
       ],
     );
+    await notifyOwner(
+      "◈ عامل توسعه\n\n"+
+      "⛂ - کار : #"+job.id+"\n"+
+      "⛂ - وضعیت : "+(deploymentBad?"✗ ناموفق":"✓ موفق")+
+      "\n⛂ - نوع : "+job.task_type+
+      "\n⛂ - شاخه : "+(push.branch || "—")+
+      "\n⛂ - Commit : "+(push.commitSha || "—")+
+      "\n\n"+String(result.summary || "").slice(0,1800)
+    );
   } catch (error: any) {
-    await q(pool, "UPDATE agent_jobs SET status='failed',finished_at=NOW(),error=$2 WHERE id=$1", [job.id, String(error?.message || error)]);
+    const reason = String(error?.message || error);
+    await q(pool, "UPDATE agent_jobs SET status='failed',finished_at=NOW(),error=$2 WHERE id=$1", [job.id, reason]);
+    await notifyOwner("◈ عامل توسعه\n\n⛂ - کار : #"+job.id+"\n⛂ - وضعیت : ✗ ناموفق\n⛂ - خطا : "+reason.slice(0,1600));
   } finally {
     await fs.rm(work, { recursive: true, force: true }).catch(() => {});
   }
