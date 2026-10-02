@@ -46,3 +46,19 @@ test("operation availability is server-side", () => {
   assert.equal(installationOperationAllowed("update", false), false);
   assert.equal(installationOperationAllowed("report", false), true);
 });
+
+
+test("installation UI emits only contract-approved callback data", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../bot/installation.ts", import.meta.url), "utf8");
+  const callbacks = [
+    ...[...source.matchAll(/callback_data:\s*["'`]([^"'`]+)["'`]/g)].map((m) => m[1]),
+    ...[...source.matchAll(/button\(\s*["'`][^"'`]*["'`]\s*,\s*["'`]([^"'`]+)["'`]/g)].map((m) => m[1]),
+  ];
+  const unique = [...new Set(callbacks)];
+  assert.equal(unique.length > 0, true);
+  for (const value of unique) {
+    assert.equal(isKnownInstallationCallback(value), true, "unregistered callback: " + value);
+  }
+  assert.equal(source.includes('data === "inst:uninstall:confirm"'), false);
+});
