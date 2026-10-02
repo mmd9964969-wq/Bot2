@@ -33,6 +33,7 @@ import {
   installationProgressDocument,
   type InstallationProgressSnapshot,
 } from "./installation-progress.ts";
+import { executeInstallationOrchestration, ensureInstallationOrchestratorSchema } from "./installation-orchestrator.ts";
 
 type TgUser = {
   id: number;
@@ -507,6 +508,7 @@ async function ensureSchemaInternal(pool: Pool) {
   );
 
   await ensureInstallationProgressSchema(pool);
+  await ensureInstallationOrchestratorSchema(pool);
 
   await pool.query(
     "CREATE TABLE IF NOT EXISTS bot_installation_sessions (" +
@@ -1549,9 +1551,11 @@ async function executeInstallationOperation(
   chat: TgChat,
   actorId: number,
   session: any,
+  executionId = "",
 ): Promise<{ version: string; permissionSnapshot: Record<string, unknown> }> {
   const operation = String(session.operation) as InstallationOperation;
   const targetVersion = resolveExecutionVersion(session.version);
+
   const permissionSnapshot =
     operation === "uninstall"
       ? {}
@@ -1565,148 +1569,28 @@ async function executeInstallationOperation(
       ["installation:" + String(chat.id)],
     );
 
-    const current = (
-      await client.query(
-        "SELECT * FROM bot_group_installations WHERE group_id=$1 FOR UPDATE",
-        [String(chat.id)],
-      )
-    ).rows[0];
-
-    if (!current) {
-      throw new Error("رکورد نصب گروه پیدا نشد.");
-    }
-
-    const currentlyInstalled = Boolean(current.installed);
-    const patch = operationSettingsPatch(session.settings, operation === "reinstall");
-
-    if (operation === "install") {
-      if (currentlyInstalled) throw new Error("گروه از قبل نصب شده است.");
-
-      await client.query(
-        "UPDATE bot_group_installations SET " +
-          "installed=TRUE,installed_at=NOW(),installed_by=$2," +
-          "uninstalled_at=NULL,uninstalled_by=NULL,installation_version=$3," +
-          "bot_permission_snapshot=$4::jsonb," +
-          "response_policy=COALESCE($5,response_policy)," +
-          "member_message_policy=COALESCE($6,member_message_policy)," +
-          "command_policy=COALESCE($7,command_policy)," +
-          "command_mode=COALESCE($8,command_mode)," +
-          "automation_enabled=COALESCE($9,automation_enabled)," +
-          "security_mode=COALESCE($10,security_mode)," +
-          "audit_enabled=COALESCE($11,audit_enabled)," +
-          "updated_at=NOW() " +
-          "WHERE group_id=$1",
-        [
-          String(chat.id),
-          String(actorId),
-          targetVersion,
-          JSON.stringify(permissionSnapshot),
-          patch.response_policy ?? null,
-          patch.member_message_policy ?? null,
-          patch.command_policy ?? null,
-          patch.command_mode ?? null,
-          patch.automation_enabled ?? null,
-          patch.security_mode ?? null,
-          patch.audit_enabled ?? null,
-        ],
-      );
-    } else if (operation === "update") {
-      if (!currentlyInstalled) throw new Error("برای به‌روزرسانی، گروه باید نصب شده باشد.");
-
-      await client.query(
-        "UPDATE bot_group_installations SET " +
-          "installation_version=$2,bot_permission_snapshot=$3::jsonb," +
-          "response_policy=COALESCE($4,response_policy)," +
-          "member_message_policy=COALESCE($5,member_message_policy)," +
-          "command_policy=COALESCE($6,command_policy)," +
-          "command_mode=COALESCE($7,command_mode)," +
-          "automation_enabled=COALESCE($8,automation_enabled)," +
-          "security_mode=COALESCE($9,security_mode)," +
-          "audit_enabled=COALESCE($10,audit_enabled),updated_at=NOW() " +
-          "WHERE group_id=$1",
-        [
-          String(chat.id),
-          targetVersion,
-          JSON.stringify(permissionSnapshot),
-          patch.response_policy ?? null,
-          patch.member_message_policy ?? null,
-          patch.command_policy ?? null,
-          patch.command_mode ?? null,
-          patch.automation_enabled ?? null,
-          patch.security_mode ?? null,
-          patch.audit_enabled ?? null,
-        ],
-      );
-    } else if (operation === "repair") {
-      if (!currentlyInstalled) throw new Error("برای تعمیر، گروه باید نصب شده باشد.");
-
-      await client.query(
-        "UPDATE bot_group_installations SET " +
-          "installed=TRUE,installation_version=COALESCE(NULLIF(installation_version,''),$2)," +
-          "bot_permission_snapshot=$3::jsonb," +
-          "response_policy=COALESCE(response_policy,'standard')," +
-          "member_message_policy=COALESCE(member_message_policy,'silent')," +
-          "command_policy=COALESCE(command_policy,'enabled')," +
-          "command_mode=COALESCE(command_mode,'plain')," +
-          "automation_enabled=COALESCE(automation_enabled,FALSE)," +
-          "security_mode=COALESCE(security_mode,'standard')," +
-          "audit_enabled=COALESCE(audit_enabled,TRUE),updated_at=NOW() " +
-          "WHERE group_id=$1",
-        [
-          String(chat.id),
-          targetVersion,
-          JSON.stringify(permissionSnapshot),
-        ],
-      );
-    } else if (operation === "reinstall") {
-      if (!currentlyInstalled) throw new Error("برای نصب مجدد، گروه باید نصب شده باشد.");
-
-      await client.query(
-        "UPDATE bot_group_installations SET " +
-          "installed=TRUE,installed_at=NOW(),installed_by=$2," +
-          "uninstalled_at=NULL,uninstalled_by=NULL,installation_version=$3," +
-          "bot_permission_snapshot=$4::jsonb," +
-          "response_policy=$5,member_message_policy=$6,command_policy=$7," +
-          "command_mode=$8,automation_enabled=$9,security_mode=$10,audit_enabled=$11," +
-          "updated_at=NOW() " +
-          "WHERE group_id=$1",
-        [
-          String(chat.id),
-          String(actorId),
-          targetVersion,
-          JSON.stringify(permissionSnapshot),
-          patch.response_policy ?? "standard",
-          patch.member_message_policy ?? "silent",
-          patch.command_policy ?? "enabled",
-          patch.command_mode ?? "plain",
-          patch.automation_enabled ?? false,
-          patch.security_mode ?? "standard",
-          patch.audit_enabled ?? true,
-        ],
-      );
-    } else if (operation === "uninstall") {
-      if (!currentlyInstalled) throw new Error("گروه از قبل حذف نصب شده است.");
-
-      await client.query(
-        "UPDATE bot_group_installations SET " +
-          "installed=FALSE,uninstalled_at=NOW(),uninstalled_by=$2," +
-          "command_policy='disabled',automation_enabled=FALSE,updated_at=NOW() " +
-          "WHERE group_id=$1",
-        [String(chat.id), String(actorId)],
-      );
-    } else {
-      throw new Error("این عملیات در موتور اجرا پشتیبانی نمی‌شود.");
-    }
+    const result = await executeInstallationOrchestration(client, {
+      groupId: chat.id,
+      actorId,
+      operation,
+      targetVersion,
+      permissionSnapshot,
+      session,
+      executionId,
+    });
 
     await client.query("COMMIT");
+
+    return {
+      version: result.version,
+      permissionSnapshot: result.permissionSnapshot,
+    };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
     throw error;
   } finally {
     client.release();
   }
-
-  return { version: targetVersion, permissionSnapshot };
 }
 
 async function verifyInstallationOperation(
