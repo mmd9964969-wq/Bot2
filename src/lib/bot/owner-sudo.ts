@@ -1,6 +1,6 @@
 import type { Pool } from "pg";
 import { telegramApi } from "../telegram/api.ts";
-import { prepareRichDocument, validateRichDocument, richDocumentToPlainText, type RichDocument } from "./rich-message.ts";
+import { prepareRichDocument, validateRichDocument, type RichDocument } from "./rich-message.ts";
 
 export type SudoLevel = "low" | "medium" | "pro" | "security";
 
@@ -42,11 +42,11 @@ const LEVELS:Record<SudoLevel,{title:string;summary:string;capabilities:string[]
   },
 };
 
-function button(text:string,callback_data:string,style:"primary"|"success"|"danger"|"link"="primary"){
-  return {text,callback_data,style};
+function button(text:string,callback_data:string,style?:"primary"|"success"|"danger"){
+  return style ? {text,callback_data,style} : {text,callback_data};
 }
 
-function buttons(items:Array<{text:string;callback_data:string;style?:"primary"|"success"|"danger"|"link"}>,align:"left"|"center"|"right"="center"){
+function buttons(items:Array<{text:string;callback_data:string;style?:"primary"|"success"|"danger"}>,align:"left"|"center"|"right"="center"){
   return {type:"buttons",align,buttons:items};
 }
 
@@ -84,24 +84,8 @@ function validate(docValue:RichDocument){
   return docValue;
 }
 
-function richReplyMarkup(document:RichDocument){
-  const rows=document.blocks
-    .filter(block=>block?.type==="buttons" && Array.isArray(block.buttons))
-    .map(block=>(block.buttons as any[])
-      .filter(button=>button?.callback_data || button?.url)
-      .map(button=>button?.url
-        ? {text:String(button.text??"—"),url:String(button.url)}
-        : {text:String(button.text??"—"),callback_data:String(button.callback_data)}
-      )
-    )
-    .filter(row=>row.length>0);
-  return rows.length ? {inline_keyboard:rows} : undefined;
-}
-
 async function render(chatId:number,messageId:number|undefined,document:RichDocument){
   const rich=validate(document);
-  const plain=richDocumentToPlainText(rich);
-  const reply_markup=richReplyMarkup(rich);
 
   try{
     const richResult=messageId
@@ -109,31 +93,18 @@ async function render(chatId:number,messageId:number|undefined,document:RichDocu
           chat_id:chatId,
           message_id:messageId,
           rich_message:rich,
-          ...(reply_markup?{reply_markup}:{}),
         })
       : await telegramApi("sendRichMessage",{
           chat_id:chatId,
           rich_message:rich,
-          ...(reply_markup?{reply_markup}:{}),
         });
     if((richResult as any)?.ok===true)return richResult;
-    console.warn("[owner-sudo] Rich Message unavailable; falling back to native keyboard");
+    console.warn("[owner-sudo] Rich Message render failed; no duplicate keyboard will be sent");
   }catch(error){
-    console.warn("[owner-sudo] Rich Message failed; falling back to native keyboard",error);
+    console.warn("[owner-sudo] Rich Message render failed; no duplicate keyboard will be sent",error);
   }
 
-  return messageId
-    ? telegramApi("editMessageText",{
-        chat_id:chatId,
-        message_id:messageId,
-        text:plain,
-        ...(reply_markup?{reply_markup}:{}),
-      })
-    : telegramApi("sendMessage",{
-        chat_id:chatId,
-        text:plain,
-        ...(reply_markup?{reply_markup}:{}),
-      });
+  return null;
 }
 
 function normalizeDigits(value:string){
@@ -277,18 +248,18 @@ export async function sendOwnerSudoCenter(chatId:number,messageId?:number){
       {type:"paragraph",text:"تمام اعطا، تغییر و لغو دسترسی در ممیزی امنیتی ثبت می‌شود."},
     ]},
     buttons([
-      button("سودو پایین","os:level:low","primary"),
-      button("سودو متوسط","os:level:medium","primary"),
-      button("سودو حرفه‌ای","os:level:pro","primary"),
-      button("سودو امنیتی","os:level:security","danger"),
+      button("سودو پایین","os:level:low"),
+      button("سودو متوسط","os:level:medium"),
+      button("سودو حرفه‌ای","os:level:pro"),
+      button("سودو امنیتی","os:level:security"),
     ]),
     buttons([
-      button("تعریف سودو","os:assign","success"),
-      button("فهرست سودوها","os:list","primary"),
+      button("تعریف سودو","os:assign"),
+      button("فهرست سودوها","os:list"),
     ]),
     buttons([
-      button("قوانین امنیتی","os:security","danger"),
-      button("‹ بازگشت","o:home","link"),
+      button("قوانین امنیتی","os:security"),
+      button("‹ بازگشت","o:home","primary"),
     ]),
     {type:"footer",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ · Mᴀɴᴀɢᴇᴅ Sᴜᴅᴏ"},
   ]);
@@ -310,8 +281,8 @@ export function sudoLevelDocument(level:SudoLevel){
     {type:"divider"},
     {type:"paragraph",text:level==="security"?"این سطح برای سخت‌سازی دسترسی است و نباید به‌عنوان جایگزین مالکیت استفاده شود.":"این سطح فقط در محدوده تعریف‌شده توسط مالک فعالیت می‌کند."},
     buttons([
-      button("انتخاب این سطح","os:choose:"+level,"success"),
-      button("‹ بازگشت","os:center","link"),
+      button("انتخاب این سطح","os:choose:"+level),
+      button("‹ بازگشت","os:center","primary"),
     ]),
     {type:"footer",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ · Mᴀɴᴀɢᴇᴅ Sᴜᴅᴏ"},
   ]);
@@ -326,12 +297,12 @@ export async function ownerSudoCallback(pool:Pool,chatId:number,messageId:number
       ...baseBlocks("تعریف سودو","ابتدا سطح دسترسی را انتخاب کنید؛ سپس شناسه عددی کاربر را دریافت می‌کنیم."),
       {type:"paragraph",text:"هیچ سودویی به‌صورت خودکار مالک نمی‌شود و سطح انتخاب‌شده قابل ارتقا توسط خود سودو نیست."},
       buttons([
-        button("سودو پایین","os:choose:low","primary"),
-        button("سودو متوسط","os:choose:medium","primary"),
-        button("سودو حرفه‌ای","os:choose:pro","primary"),
-        button("سودو امنیتی","os:choose:security","danger"),
+        button("سودو پایین","os:choose:low"),
+        button("سودو متوسط","os:choose:medium"),
+        button("سودو حرفه‌ای","os:choose:pro"),
+        button("سودو امنیتی","os:choose:security"),
       ]),
-      buttons([button("‹ بازگشت","os:center","link")]),
+      buttons([button("‹ بازگشت","os:center","primary")]),
       {type:"footer",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ · Mᴀɴᴀɢᴇᴅ Sᴜᴅᴏ"},
     ]));
   }
@@ -352,7 +323,7 @@ export async function ownerSudoCallback(pool:Pool,chatId:number,messageId:number
         ["حالت امنیتی",level==="security"?"فعال":"استاندارد"],
       ]),
       {type:"paragraph",text:"پس از دریافت شناسه، دسترسی ثبت و در ممیزی امنیتی ذخیره می‌شود."},
-      buttons([button("لغو","os:center","link")]),
+      buttons([button("لغو","os:center")]),
       {type:"footer",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ · Mᴀɴᴀɢᴇᴅ Sᴜᴅᴏ"},
     ]));
   }
@@ -363,12 +334,12 @@ export async function ownerSudoCallback(pool:Pool,chatId:number,messageId:number
       blocks.push(table("دسترسی‌های فعال",rows.map(x=>[String(x.user_id),levelTitle(x.level)+(x.security_mode?" · امنیتی":"")])) as any);
       for(const row of rows){
         blocks.push(buttons([
-          button("لغو "+row.user_id,"os:revoke:"+row.user_id,"danger"),
-          button("تغییر سطح","os:level_for:"+row.user_id,"primary"),
+          button("لغو "+row.user_id,"os:revoke:"+row.user_id),
+          button("تغییر سطح","os:level_for:"+row.user_id),
         ]));
       }
     }
-    blocks.push(buttons([button("‹ بازگشت","os:center","link")]));
+    blocks.push(buttons([button("‹ بازگشت","os:center","primary")]));
     blocks.push({type:"footer",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ · Mᴀɴᴀɢᴇᴅ Sᴜᴅᴏ"});
     return render(chatId,messageId,doc(blocks));
   }
@@ -383,12 +354,12 @@ export async function ownerSudoCallback(pool:Pool,chatId:number,messageId:number
       ...baseBlocks("تغییر سطح سودو","سطح جدید را انتخاب کنید."),
       {type:"paragraph",text:"شناسه کاربر: "+target},
       buttons([
-        button("پایین","os:set:"+target+":low","primary"),
-        button("متوسط","os:set:"+target+":medium","primary"),
-        button("حرفه‌ای","os:set:"+target+":pro","primary"),
-        button("امنیتی","os:set:"+target+":security","danger"),
+        button("پایین","os:set:"+target+":low"),
+        button("متوسط","os:set:"+target+":medium"),
+        button("حرفه‌ای","os:set:"+target+":pro"),
+        button("امنیتی","os:set:"+target+":security"),
       ]),
-      buttons([button("‹ بازگشت","os:list","link")]),
+      buttons([button("‹ بازگشت","os:list","primary")]),
       {type:"footer",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ · Mᴀɴᴀɢᴇᴅ Sᴜᴅᴏ"},
     ]));
   }
@@ -400,7 +371,7 @@ export async function ownerSudoCallback(pool:Pool,chatId:number,messageId:number
     return render(chatId,messageId,doc([
       ...baseBlocks(result.ok?"دسترسی ثبت شد":"ثبت دسترسی انجام نشد",result.message),
       table("نتیجه",[["شناسه",String(target)],["سطح",LEVELS[level].title],["وضعیت",result.ok?"فعال":"رد شده"]]),
-      buttons([button("فهرست سودوها","os:list","primary"),button("مرکز سودو","os:center","link")]),
+      buttons([button("فهرست سودوها","os:list"),button("مرکز سودو","os:center")]),
       {type:"footer",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ · Mᴀɴᴀɢᴇᴅ Sᴜᴅᴏ"},
     ]));
   }
@@ -416,7 +387,7 @@ export async function ownerSudoCallback(pool:Pool,chatId:number,messageId:number
         "لغو دسترسی از سمت مالک فوری است.",
         "عملیات حساس باید در محدوده سطح تعیین‌شده باقی بماند.",
       ]),
-      buttons([button("تعریف سودو امنیتی","os:choose:security","danger"),button("‹ بازگشت","os:center","link")]),
+      buttons([button("تعریف سودو امنیتی","os:choose:security"),button("‹ بازگشت","os:center","primary")]),
       {type:"footer",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴇᴄᴜʀɪᴛʏ Sᴜᴅᴏ"},
     ]));
   }
@@ -434,7 +405,7 @@ export async function handleOwnerSudoTextInput(pool:Pool,actor:number,chatId:num
   if(!/^\d{5,20}$/.test(clean)){
     await render(chatId,undefined,doc([
       ...baseBlocks("ثبت سودو","شناسه عددی معتبر ارسال کنید."),
-      buttons([button("لغو","os:center","link")]),
+      buttons([button("لغو","os:center")]),
       {type:"footer",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ · Mᴀɴᴀɢᴇᴅ Sᴜᴅᴏ"},
     ]));
     return true;
@@ -452,8 +423,8 @@ export async function handleOwnerSudoTextInput(pool:Pool,actor:number,chatId:num
       ["وضعیت",result.ok?"فعال":"رد شده"],
     ]),
     buttons([
-      button("فهرست سودوها","os:list","primary"),
-      button("مرکز سودو","os:center","link"),
+      button("فهرست سودوها","os:list"),
+      button("مرکز سودو","os:center"),
     ]),
     {type:"footer",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ · Mᴀɴᴀɢᴇᴅ Sᴜᴅᴏ"},
   ]));
