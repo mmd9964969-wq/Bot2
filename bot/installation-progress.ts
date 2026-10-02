@@ -146,20 +146,31 @@ async function insertEvent(
   stepId?: string | null,
   progress?: number | null,
 ) {
-  await pool.query(
-    "INSERT INTO bot_installation_progress_events(" +
-      "execution_id,group_id,actor_id,event_type,step_id,progress,metadata" +
-      ") VALUES($1,$2,$3,$4,$5,$6,$7::jsonb)",
-    [
-      executionId,
-      String(groupId),
-      String(actorId),
-      eventType,
-      stepId ?? null,
-      progress ?? null,
-      JSON.stringify(metadata),
-    ],
-  );
+  try {
+    await pool.query(
+      "INSERT INTO bot_installation_progress_events(" +
+        "execution_id,group_id,actor_id,event_type,step_id,progress,metadata" +
+        ") VALUES($1,$2,$3,$4,$5,$6,$7::jsonb)",
+      [
+        executionId,
+        String(groupId),
+        String(actorId),
+        eventType,
+        stepId ?? null,
+        progress ?? null,
+        JSON.stringify(metadata),
+      ],
+    );
+    return true;
+  } catch (error) {
+    console.error("[installation-progress] event log failed:", {
+      execution_id: executionId,
+      event_type: eventType,
+      step_id: stepId ?? null,
+      error: String((error as any)?.message ?? error),
+    });
+    return false;
+  }
 }
 
 async function rowToSnapshot(row: any): Promise<InstallationProgressSnapshot> {
