@@ -1259,7 +1259,7 @@ async function processMessage(msg: TgMessage, edited = false) {
       ].join("\n"),
       reply_markup: {
         inline_keyboard: [
-          [{ text: "ورود به پنل مالکیت", callback_data: "o:home" }]
+          [{ text: "ورود به پنل مالکیت", callback_data: "o:home", style: "success" }]
         ]
       }
     });
