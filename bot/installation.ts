@@ -2703,6 +2703,13 @@ export async function handleInstallationCallback(
     }
 
     if (data === "inst:operations") {
+      const session = await getSession(pool, chat.id);
+      if (session && Number(session.actor_id) !== cb.from.id) {
+        notice = "نشست نصب این گروه توسط کاربر دیگری در حال استفاده است";
+        await renderCurrentSession(pool, chat, cb.message.message_id);
+        return true;
+      }
+      if (session) await clearSession(pool, chat.id, cb.from.id);
       await render(
         chat.id,
         cb.message.message_id,
@@ -2872,6 +2879,17 @@ export async function handleInstallationCallback(
       return true;
     }
 
+    if (data === "inst:version:back") {
+      const session = await getSession(pool, chat.id);
+      if (!session || Number(session.actor_id) !== cb.from.id || String(session.step) !== "version") {
+        notice = "نشست نسخه معتبر نیست";
+        return true;
+      }
+      await transitionSession(pool, chat.id, cb.from.id, "install_type", "collecting");
+      await render(chat.id, cb.message.message_id, installTypeDocument(String(session.operation) as InstallationOperation));
+      return true;
+    }
+
     if (data === "inst:version:latest" || data === "inst:version:current") {
       const session = await getSession(pool, chat.id);
       if (
@@ -2926,7 +2944,7 @@ export async function handleInstallationCallback(
             ["نمونه", "v1.2.3"],
             ["آخرین نسخه", "latest"],
           ]),
-          buttons([button("‹ بازگشت", "inst:version", "primary")]),
+          buttons([button("‹ بازگشت", "inst:version:back", "primary")]),
           { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Vᴇʀsɪᴏɴ Iɴᴘᴜᴛ" },
         ]),
       );
@@ -3041,10 +3059,21 @@ export async function handleInstallationCallback(
             text: '{ "response_policy": "standard", "security_mode": "strict" }',
             language: "json",
           },
-          buttons([button("‹ بازگشت", "inst:settings", "primary")]),
+          buttons([button("‹ بازگشت", "inst:settings:back", "primary")]),
           { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴇᴛᴛɪɴɢ Iɴᴘᴜᴛ" },
         ]),
       );
+      return true;
+    }
+
+    if (data === "inst:settings:back") {
+      const session = await getSession(pool, chat.id);
+      if (!session || Number(session.actor_id) !== cb.from.id || String(session.step) !== "settings") {
+        notice = "نشست تنظیمات معتبر نیست";
+        return true;
+      }
+      await transitionSession(pool, chat.id, cb.from.id, "environment", "collecting");
+      await render(chat.id, cb.message.message_id, environmentDocument());
       return true;
     }
 
@@ -3127,6 +3156,19 @@ export async function handleInstallationCallback(
     }
 
     if (data === "inst:preflight:recheck") {
+      const session = await getSession(pool, chat.id);
+      if (!session || Number(session.actor_id) !== cb.from.id) {
+        notice = "نشست بررسی معتبر نیست";
+        return true;
+      }
+
+      if (String(session.step) === "failed" && String(session.status) === "failed") {
+        await transitionSession(pool, chat.id, cb.from.id, "preflight", "checking");
+      } else if (String(session.step) !== "preflight") {
+        notice = "بررسی مجدد فقط در نشست بررسی یا پس از خطا مجاز است";
+        return true;
+      }
+
       await runPreflightForCurrentSession(
         pool,
         chat,
