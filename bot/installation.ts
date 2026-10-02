@@ -35,6 +35,13 @@ import {
 } from "./installation-progress.ts";
 import { executeInstallationOrchestration, ensureInstallationOrchestratorSchema } from "./installation-orchestrator.ts";
 import { diagnoseInstallation, installationDiagnosticDocument } from "./installation-diagnostics.ts";
+import {
+  assertInstallationSessionTransition,
+  installationOperationAllowed,
+  isKnownInstallationCallback,
+  type InstallationSessionStep,
+  type InstallationSessionStatus,
+} from "./installation-state.ts";
 
 type TgUser = {
   id: number;
@@ -432,16 +439,17 @@ function userFacingInstallationError(error: unknown) {
   return "اجرای عملیات با یک خطای داخلی متوقف شد. جزئیات فنی در گزارش عملیات ثبت شده است.";
 }
 
-async function installationEffectAlreadyApplied(
+async async function installationEffectAlreadyApplied(
   pool: Pool,
   chatId: number,
   session: any,
   targetVersion: string,
+  executionId: string,
 ) {
   const operation = String(session.operation) as InstallationOperation;
   const row = (
     await pool.query(
-      "SELECT installed,installation_version,response_policy,member_message_policy,command_policy,command_mode,automation_enabled,security_mode,audit_enabled " +
+      "SELECT installed,installation_version,command_policy " +
         "FROM bot_group_installations WHERE group_id=$1 LIMIT 1",
       [String(chatId)],
     )
@@ -449,25 +457,34 @@ async function installationEffectAlreadyApplied(
 
   if (!row) return false;
 
+  const runtime = (
+    await pool.query(
+      "SELECT status,version,execution_id FROM bot_installation_runtime WHERE group_id=$1 LIMIT 1",
+      [String(chatId)],
+    )
+  ).rows[0];
+
+  // Idempotency is tied to the same execution id. A fresh Update/Repair
+  // therefore never becomes a decorative no-op merely because the requested
+  // version already matches the installed version.
+  if (String(runtime?.execution_id ?? "") !== String(executionId)) {
+    return false;
+  }
+
   if (operation === "uninstall") {
-    return !Boolean(row.installed) && String(row.command_policy) === "disabled";
+    return (
+      !Boolean(row.installed) &&
+      String(row.command_policy) === "disabled" &&
+      String(runtime?.status ?? "") === "DETACHED"
+    );
   }
 
-  if (!Boolean(row.installed)) return false;
-  if (String(row.installation_version) !== targetVersion) return false;
-
-  if (operation === "repair") return true;
-
-  const patch = operationSettingsPatch(session.settings, operation === "reinstall");
-  for (const [key, value] of Object.entries(patch)) {
-    if (typeof value === "boolean") {
-      if (Boolean(row[key]) !== value) return false;
-    } else if (String(row[key] ?? "") !== String(value)) {
-      return false;
-    }
-  }
-
-  return true;
+  return (
+    Boolean(row.installed) &&
+    String(row.installation_version) === targetVersion &&
+    String(runtime?.status ?? "") === "HEALTHY" &&
+    String(runtime?.version ?? "") === targetVersion
+  );
 }
 
 async function ensureSchemaInternal(pool: Pool) {
@@ -639,8 +656,93 @@ async function saveSession(
   );
 }
 
-async function clearSession(pool: Pool, groupId: number) {
+async function clearSession(pool: Pool, groupId: number, actorId?: number) {
+  if (actorId !== undefined) {
+    await pool.query(
+      "DELETE FROM bot_installation_sessions WHERE group_id=$1 AND actor_id=$2",
+      [String(groupId), String(actorId)],
+    );
+    return;
+  }
   await pool.query("DELETE FROM bot_installation_sessions WHERE group_id=$1", [String(groupId)]);
+}
+
+async function transitionSession(
+  pool: Pool,
+  groupId: number,
+  actorId: number,
+  nextStep: InstallationSessionStep,
+  nextStatus: InstallationSessionStatus,
+  patch: {
+    version?: string | null;
+    environment?: string | null;
+    settings?: Record<string, unknown>;
+    preflight?: PreflightReport | Record<string, unknown> | null;
+    confirmed?: boolean;
+  } = {},
+) {
+  const current = await getSession(pool, groupId);
+  if (!current) {
+    const error = new Error("نشست نصب پیدا نشد.");
+    (error as any).code = "INSTALLATION_SESSION_NOT_FOUND";
+    throw error;
+  }
+  if (Number(current.actor_id) !== actorId) {
+    const error = new Error("این نشست توسط کاربر دیگری در حال استفاده است.");
+    (error as any).code = "INSTALLATION_SESSION_FORBIDDEN";
+    throw error;
+  }
+
+  assertInstallationSessionTransition(
+    String(current.step),
+    String(current.status),
+    nextStep,
+    nextStatus,
+  );
+
+  const sets = ["step=$1", "status=$2", "updated_at=NOW()", "expires_at=NOW()+INTERVAL '15 minutes'"];
+  const values: unknown[] = [nextStep, nextStatus];
+
+  const addValue = (column: string, value: unknown, cast = "") => {
+    values.push(value);
+    sets.push(column + "=$" + values.length + cast);
+  };
+
+  if (Object.prototype.hasOwnProperty.call(patch, "version")) {
+    addValue("version", patch.version ?? null);
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "environment")) {
+    addValue("environment", patch.environment ?? null);
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "settings")) {
+    addValue("settings", JSON.stringify(patch.settings ?? {}), "::jsonb");
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "preflight")) {
+    addValue("preflight", JSON.stringify(patch.preflight ?? {}), "::jsonb");
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "confirmed")) {
+    addValue("confirmed", Boolean(patch.confirmed));
+  }
+
+  const groupParam = values.length + 1;
+  const actorParam = values.length + 2;
+  const result = await pool.query(
+    "UPDATE bot_installation_sessions SET " +
+      sets.join(",") +
+      " WHERE group_id=$" +
+      groupParam +
+      " AND actor_id=$" +
+      actorParam,
+    [...values, String(groupId), String(actorId)],
+  );
+
+  if (result.rowCount !== 1) {
+    const error = new Error("نشست نصب همزمان تغییر کرده است.");
+    (error as any).code = "INSTALLATION_SESSION_CONFLICT";
+    throw error;
+  }
+
+  return getSession(pool, groupId);
 }
 
 async function logInstallEvent(
@@ -1232,8 +1334,16 @@ async function beginOperation(
   const activeProgress = await getActiveInstallationProgress(pool, chat.id);
   if (activeProgress) return "active_execution";
 
-  if (operation === "install" && installed) return "installed";
-  if (["update", "repair", "reinstall", "uninstall"].includes(operation) && !installed) return "not_installed";
+  if (!installationOperationAllowed(operation, installed)) {
+    if (operation === "install" && installed) return "installed";
+    if (["update", "repair", "reinstall", "uninstall"].includes(operation) && !installed) return "not_installed";
+    return "not_allowed";
+  }
+
+  const existingSession = await getSession(pool, chat.id);
+  if (existingSession && Number(existingSession.actor_id) !== actorId) {
+    return "session_owned_by_other";
+  }
 
   const session = defaultSession(operation, actorId);
 
@@ -1822,9 +1932,12 @@ async function executeConfirmedInstallationOperation(
     stopHeartbeat = startInstallationHeartbeat(pool, progress.execution_id);
     if (!existingExecutionId) {
       executionStage = "session_update";
-      await pool.query(
-        "UPDATE bot_installation_sessions SET status='executing',step='executing',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
-        [String(chat.id), String(actorId)],
+      await transitionSession(
+        pool,
+        chat.id,
+        actorId,
+        "executing",
+        "executing",
       ).catch((error) => {
         console.error("[installation] execution session state update failed:", {
           execution_id: progress.execution_id,
@@ -1909,6 +2022,7 @@ async function executeConfirmedInstallationOperation(
           chat.id,
           session,
           targetVersion,
+          progress.execution_id,
         );
 
         if (!alreadyApplied) {
@@ -1939,9 +2053,12 @@ async function executeConfirmedInstallationOperation(
       }
     }
 
-    await pool.query(
-      "UPDATE bot_installation_sessions SET status='verifying',step='verifying',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
-      [String(chat.id), String(actorId)],
+    await transitionSession(
+      pool,
+      chat.id,
+      actorId,
+      "verifying",
+      "verifying",
     );
 
     progress =
@@ -1981,9 +2098,12 @@ async function executeConfirmedInstallationOperation(
           { technical_detail: verification.detail },
         )) ?? progress;
 
-        await pool.query(
-          "UPDATE bot_installation_sessions SET status='failed',step='failed',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
-          [String(chat.id), String(actorId)],
+        await transitionSession(
+          pool,
+          chat.id,
+          actorId,
+          "failed",
+          "failed",
         );
 
         await logInstallEvent(pool, chat.id, actorId, "operation_verification_failed", {
@@ -2016,9 +2136,12 @@ async function executeConfirmedInstallationOperation(
     if (!completed.has("finalize")) {
       await runStep("finalize", 0, "RUNNING", "نهایی‌سازی نتیجهٔ عملیات آغاز شد.");
 
-      await pool.query(
-        "UPDATE bot_installation_sessions SET status='completed',step='completed',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
-        [String(chat.id), String(actorId)],
+      await transitionSession(
+        pool,
+        chat.id,
+        actorId,
+        "completed",
+        "completed",
       );
 
       await runStep("finalize", 100, "COMPLETED", "نتیجهٔ عملیات ثبت و نهایی شد.");
@@ -2063,9 +2186,12 @@ async function executeConfirmedInstallationOperation(
       String((error as any)?.code ?? "INSTALLATION_FAILED").slice(0, 80) ||
       "INSTALLATION_FAILED";
 
-    await pool.query(
-      "UPDATE bot_installation_sessions SET status='failed',step='failed',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
-      [String(chat.id), String(actorId)],
+    await transitionSession(
+      pool,
+      chat.id,
+      actorId,
+      "failed",
+      "failed",
     ).catch((sessionError) => {
       console.error("[installation] failed-session update error:", sessionError);
     });
@@ -2244,9 +2370,12 @@ async function runPreflightForCurrentSession(
   const installationState = await state(pool, chat.id);
   const operation = String(session.operation) as InstallationOperation;
 
-  await pool.query(
-    "UPDATE bot_installation_sessions SET status='checking',step='preflight',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
-    [String(chat.id), String(actorId)],
+  await transitionSession(
+    pool,
+    chat.id,
+    actorId,
+    "preflight",
+    "checking",
   );
 
   const report = await runInstallationPreflight({
@@ -2266,16 +2395,13 @@ async function runPreflightForCurrentSession(
   const nextStatus =
     report.overall === "READY" ? "preflight_ready" : "preflight_blocked";
 
-  await pool.query(
-    "UPDATE bot_installation_sessions " +
-      "SET preflight=$1::jsonb,step='preflight',status=$2,updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' " +
-      "WHERE group_id=$3 AND actor_id=$4",
-    [
-      JSON.stringify(report),
-      nextStatus,
-      String(chat.id),
-      String(actorId),
-    ],
+  await transitionSession(
+    pool,
+    chat.id,
+    actorId,
+    "preflight",
+    nextStatus,
+    { preflight: report },
   );
 
   await logInstallEvent(pool, chat.id, actorId, "preflight_completed", {
@@ -2468,6 +2594,11 @@ export async function handleInstallationCallback(
     return true;
   }
 
+  if (!isKnownInstallationCallback(data)) {
+    await answer(cb.id, "این گزینه دیگر فعال نیست");
+    return true;
+  }
+
   await ensureSchema(pool);
   await ensureGroup(pool, cb.message.chat);
 
@@ -2489,7 +2620,14 @@ export async function handleInstallationCallback(
         return true;
       }
 
-      await clearSession(pool, chat.id);
+      const activeSession = await getSession(pool, chat.id);
+      if (activeSession && Number(activeSession.actor_id) !== cb.from.id) {
+        notice = "این نشست توسط کاربر دیگری در حال استفاده است";
+        await renderCurrentSession(pool, chat, cb.message.message_id);
+        return true;
+      }
+
+      await clearSession(pool, chat.id, cb.from.id);
       await render(
         chat.id,
         cb.message.message_id,
@@ -2520,7 +2658,14 @@ export async function handleInstallationCallback(
     }
 
     if (data === "inst:manage") {
-      await clearSession(pool, chat.id);
+      const activeSession = await getSession(pool, chat.id);
+      if (activeSession && Number(activeSession.actor_id) !== cb.from.id) {
+        notice = "این نشست توسط کاربر دیگری در حال استفاده است";
+        await renderCurrentSession(pool, chat, cb.message.message_id);
+        return true;
+      }
+
+      await clearSession(pool, chat.id, cb.from.id);
       await render(
         chat.id,
         cb.message.message_id,
@@ -2579,6 +2724,11 @@ export async function handleInstallationCallback(
           operationSelectionDocument(await state(pool, chat.id)),
         );
         notice = "این عملیات برای وضعیت فعلی قابل اجرا نیست";
+        return true;
+      }
+
+      if (result === "session_owned_by_other") {
+        notice = "نشست نصب این گروه توسط کاربر دیگری در حال استفاده است";
         return true;
       }
 
@@ -2641,18 +2791,25 @@ export async function handleInstallationCallback(
 
     if (data === "inst:version:latest" || data === "inst:version:current") {
       const version = data.endsWith(":current") ? VERSION : "latest";
-      await pool.query(
-        "UPDATE bot_installation_sessions SET version=$1,step='environment',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$2 AND actor_id=$3",
-        [version, String(chat.id), String(cb.from.id)],
+      await transitionSession(
+        pool,
+        chat.id,
+        cb.from.id,
+        "environment",
+        "collecting",
+        { version },
       );
       await render(chat.id, cb.message.message_id, environmentDocument());
       return true;
     }
 
     if (data === "inst:version:input") {
-      await pool.query(
-        "UPDATE bot_installation_sessions SET step='version',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
-        [String(chat.id), String(cb.from.id)],
+      await transitionSession(
+        pool,
+        chat.id,
+        cb.from.id,
+        "version",
+        String((await getSession(pool, chat.id))?.status ?? "collecting") as InstallationSessionStatus,
       );
       await render(
         chat.id,
@@ -2685,9 +2842,13 @@ export async function handleInstallationCallback(
         return true;
       }
 
-      await pool.query(
-        "UPDATE bot_installation_sessions SET environment=$1,step='settings',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$2 AND actor_id=$3",
-        [environment, String(chat.id), String(cb.from.id)],
+      await transitionSession(
+        pool,
+        chat.id,
+        cb.from.id,
+        "settings",
+        "collecting",
+        { environment },
       );
       await render(chat.id, cb.message.message_id, settingsDocument());
       return true;
@@ -2699,9 +2860,13 @@ export async function handleInstallationCallback(
     }
 
     if (data === "inst:settings:standard") {
-      await pool.query(
-        "UPDATE bot_installation_sessions SET settings='{}'::jsonb,step='summary',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
-        [String(chat.id), String(cb.from.id)],
+      await transitionSession(
+        pool,
+        chat.id,
+        cb.from.id,
+        "summary",
+        "collecting",
+        { settings: {} },
       );
       const session = await getSession(pool, chat.id);
       if (session) {
@@ -2715,9 +2880,12 @@ export async function handleInstallationCallback(
     }
 
     if (data === "inst:settings:input") {
-      await pool.query(
-        "UPDATE bot_installation_sessions SET step='settings',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
-        [String(chat.id), String(cb.from.id)],
+      await transitionSession(
+        pool,
+        chat.id,
+        cb.from.id,
+        "settings",
+        String((await getSession(pool, chat.id))?.status ?? "collecting") as InstallationSessionStatus,
       );
       await render(
         chat.id,
@@ -2867,9 +3035,13 @@ export async function handleInstallationCallback(
         return true;
       }
 
-      await pool.query(
-        "UPDATE bot_installation_sessions SET step='confirmed',status='confirmed',confirmed=TRUE,preflight='{}'::jsonb,updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
-        [String(chat.id), String(cb.from.id)],
+      await transitionSession(
+        pool,
+        chat.id,
+        cb.from.id,
+        "confirmed",
+        "confirmed",
+        { confirmed: true, preflight: {} },
       );
 
       await logInstallEvent(pool, chat.id, cb.from.id, "stage3_confirmed", {
