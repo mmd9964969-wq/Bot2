@@ -898,6 +898,7 @@ function preflightSummaryDocument(
 ) {
   const statusTextValue = report.overall === "READY" ? "● آماده" : "■ مسدود";
   const canContinue =
+    String(session?.operation ?? "") !== "report" &&
     report.overall === "READY" &&
     ["confirmed", "preflight_ready", "preflight_blocked", "ready"].includes(String(session?.status ?? ""));
 
