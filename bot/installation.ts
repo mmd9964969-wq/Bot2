@@ -1554,6 +1554,11 @@ async function executeInstallationOperation(
   executionId = "",
 ): Promise<{ version: string; permissionSnapshot: Record<string, unknown> }> {
   const operation = String(session.operation) as InstallationOperation;
+  if (operation === "report") {
+    throw new Error("این عملیات در موتور اجرای نصب پشتیبانی نمی‌شود.");
+  }
+  const orchestratorOperation =
+    operation as Exclude<InstallationOperation, "report">;
   const targetVersion = resolveExecutionVersion(session.version);
 
   const permissionSnapshot =
@@ -1572,7 +1577,7 @@ async function executeInstallationOperation(
     const result = await executeInstallationOrchestration(client, {
       groupId: chat.id,
       actorId,
-      operation,
+      operation: orchestratorOperation,
       targetVersion,
       permissionSnapshot,
       session,
