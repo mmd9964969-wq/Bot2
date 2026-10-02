@@ -32,7 +32,7 @@ const STEP_TRANSITIONS: Record<InstallationSessionStep, InstallationSessionStep[
   environment: ["settings", "environment", "version"],
   settings: ["summary", "settings", "environment"],
   summary: ["confirmed", "summary", "install_type", "operation"],
-  confirmed: ["preflight", "confirmed", "operation"],
+  confirmed: ["preflight", "confirmed", "executing", "operation"],
   preflight: ["preflight", "executing", "failed", "summary", "confirmed"],
   executing: ["executing", "verifying", "failed"],
   verifying: ["verifying", "completed", "failed"],
