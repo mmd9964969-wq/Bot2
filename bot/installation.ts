@@ -541,6 +541,9 @@ async function ensureSchemaInternal(pool: Pool) {
       "status TEXT NOT NULL DEFAULT 'collecting'," +
       "preflight JSONB NOT NULL DEFAULT '{}'::jsonb," +
       "confirmed BOOLEAN NOT NULL DEFAULT FALSE," +
+      "state_version INTEGER NOT NULL DEFAULT 1," +
+      "last_action TEXT," +
+      "last_error_code TEXT," +
       "updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()," +
       "expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '15 minutes')" +
       ")",
@@ -559,6 +562,21 @@ async function ensureSchemaInternal(pool: Pool) {
   await pool.query(
     "ALTER TABLE bot_installation_sessions " +
       "ADD COLUMN IF NOT EXISTS confirmed BOOLEAN NOT NULL DEFAULT FALSE",
+  );
+
+  await pool.query(
+    "ALTER TABLE bot_installation_sessions " +
+      "ADD COLUMN IF NOT EXISTS state_version INTEGER NOT NULL DEFAULT 1",
+  );
+
+  await pool.query(
+    "ALTER TABLE bot_installation_sessions " +
+      "ADD COLUMN IF NOT EXISTS last_action TEXT",
+  );
+
+  await pool.query(
+    "ALTER TABLE bot_installation_sessions " +
+      "ADD COLUMN IF NOT EXISTS last_error_code TEXT",
   );
 }
 
@@ -633,12 +651,13 @@ async function saveSession(
 ) {
   await pool.query(
     "INSERT INTO bot_installation_sessions(" +
-      "group_id,actor_id,operation,install_type,version,environment,settings,step,status,preflight,confirmed,updated_at,expires_at" +
-      ") VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10::jsonb,$11,NOW(),NOW()+INTERVAL '15 minutes') " +
+      "group_id,actor_id,operation,install_type,version,environment,settings,step,status,preflight,confirmed,state_version,last_action,last_error_code,updated_at,expires_at" +
+      ") VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10::jsonb,$11,1,$8 || ':' || $9,NULL,NOW(),NOW()+INTERVAL '15 minutes') " +
       "ON CONFLICT(group_id) DO UPDATE SET " +
       "actor_id=EXCLUDED.actor_id,operation=EXCLUDED.operation,install_type=EXCLUDED.install_type," +
       "version=EXCLUDED.version,environment=EXCLUDED.environment,settings=EXCLUDED.settings," +
-      "step=EXCLUDED.step,status=EXCLUDED.status,preflight=EXCLUDED.preflight,confirmed=EXCLUDED.confirmed,updated_at=NOW()," +
+      "step=EXCLUDED.step,status=EXCLUDED.status,preflight=EXCLUDED.preflight,confirmed=EXCLUDED.confirmed," +
+      "state_version=bot_installation_sessions.state_version+1,last_action=EXCLUDED.step || ':' || EXCLUDED.status,last_error_code=NULL,updated_at=NOW()," +
       "expires_at=NOW()+INTERVAL '15 minutes'",
     [
       String(groupId),
@@ -700,8 +719,15 @@ async function transitionSession(
     nextStatus,
   );
 
-  const sets = ["step=$1", "status=$2", "updated_at=NOW()", "expires_at=NOW()+INTERVAL '15 minutes'"];
-  const values: unknown[] = [nextStep, nextStatus];
+  const sets = [
+    "step=$1",
+    "status=$2",
+    "state_version=state_version+1",
+    "last_action=$3",
+    "updated_at=NOW()",
+    "expires_at=NOW()+INTERVAL '15 minutes'",
+  ];
+  const values: unknown[] = [nextStep, nextStatus, nextStep + ":" + nextStatus];
 
   const addValue = (column: string, value: unknown, cast = "") => {
     values.push(value);
