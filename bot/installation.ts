@@ -2559,6 +2559,29 @@ export async function handleInstallationInput(
   return "ignored";
 }
 
+export async function sweepExpiredInstallationSessions(pool: Pool) {
+  const result = await pool.query(
+    "DELETE FROM bot_installation_sessions s " +
+      "WHERE s.expires_at <= NOW() " +
+      "AND NOT EXISTS (" +
+        "SELECT 1 FROM bot_installation_progress p " +
+        "WHERE p.group_id=s.group_id " +
+        "AND p.status IN ('PENDING','RUNNING','VERIFYING','RECOVERING','STALE')" +
+      ") " +
+      "RETURNING group_id,actor_id,operation",
+  );
+  for (const row of result.rows) {
+    await logInstallEvent(
+      pool,
+      Number(row.group_id),
+      Number(row.actor_id),
+      "session_expired",
+      { operation: String(row.operation) },
+    ).catch(() => {});
+  }
+  return result.rowCount ?? 0;
+}
+
 export async function ensureInstallationSchema(pool: Pool) {
   await ensureSchema(pool);
 }
