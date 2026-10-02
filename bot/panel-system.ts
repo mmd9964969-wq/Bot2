@@ -9,6 +9,7 @@ import { glassKeyboard, styledGlassButton } from "../src/lib/bot/panel-design.ts
 import { getGroupLanguage, setGroupLanguage, ensureGroupLanguageSchema, normalizeBotLang, languageNative, languageButtonLabel, SUPPORTED_LANGUAGES, type BotLang } from "../src/lib/bot/i18n.ts";
 import { prepareRichDocument, validateRichDocument } from "../src/lib/bot/rich-message.ts";
 import { ensureOwnerSudoSchema, ownerSudoCallback, handleOwnerSudoTextInput, sendOwnerSudoCenter } from "../src/lib/bot/owner-sudo.ts";
+import { ownerLicenseCallback, handleOwnerLicenseTextInput } from "../src/lib/bot/owner-license.ts";
 import { AUTOMATION_ACTIONS } from "../src/lib/bot/automation-engine.ts";
 import { getGroupStats } from "../src/lib/bot/runtime.ts";
 import { ensureOwnerGroupSchema, listOwnerGroups, ownerGroupOverview, getOwnerGroup, getOwnerGroupLogs, setOwnerGroupEnabled, leaveOwnerGroup, resetOwnerGroup, sendMessageToOwnerGroup, syncAllOwnerGroups } from "../src/lib/bot/owner-groups.ts";
@@ -830,6 +831,7 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
   await customerEnsure(pool,uid,msg.from!);
   const inputText=String(msg.text||"").trim();
   if(await handleOwnerSudoTextInput(pool,uid,msg.chat.id,inputText,ownerIds))return true;
+  if(await handleOwnerLicenseTextInput(pool,uid,msg.chat.id,inputText,ownerIds))return true;
   if(["owner","مالک"].includes(raw)){
     await audit(pool,String(uid),"owner_panel_opened",String(uid));await renderOwner(pool,uid,msg.chat.id);return true;
   }
@@ -1152,6 +1154,7 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   // CallbackQuery is acknowledged once by dispatchPanelCallback().
   const data=String(cb.data||"");const msg=cb.message;if(!msg)return;
   if(data.startsWith("os:"))return ownerSudoCallback(pool,msg.chat.id,msg.message_id,uid,data,ownerIds);
+  if(data==="o:licenses" || data.startsWith("o:lic_") || data.startsWith("lic:"))return ownerLicenseCallback(pool,msg.chat.id,msg.message_id,uid,data,ownerIds);
   if(data==="o:subscriptions"){
     const [active,expiring,expired,lifetime]=await Promise.all([
       pool.query("SELECT COUNT(*)::int n FROM bot_group_subscriptions WHERE status='ACTIVE'"),
@@ -1398,11 +1401,6 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
       menu([[["‹ بازگشت","o:customers"]]])
     );
   }
-  if(data==="o:licenses")return edit(msg.chat.id,msg.message_id,"◈ مدیریت لایسنس‌ها",menu([[["ایجاد لایسنس جدید","o:lic_create"],["لایسنس‌های فعال","o:lic_active"]],[["در حال انقضا","o:lic_expiring"],["منقضی‌شده","o:lic_expired"]],[["محدودیت گروه هر نوع","o:lic_limits"],["‹ بازگشت","o:home"]]]));
-  if(data==="o:lic_limits"){const r=await pool.query("SELECT license_type,MAX(group_limit)::int max_limit,COUNT(*)::int count FROM bot_licenses GROUP BY license_type ORDER BY license_type");return edit(msg.chat.id,msg.message_id,r.rows.length?r.rows.map((x:any)=>"• "+x.license_type+" · سقف "+x.max_limit+" · "+x.count+" لایسنس").join("\n"):"هنوز لایسنسی ثبت نشده است.",menu([[["‹ بازگشت","o:licenses"]] ]));}
-  if(data==="o:lic_create"){session(uid,"owner_license_create",{step:1});return edit(msg.chat.id,msg.message_id,"نوع لایسنس را انتخاب کنید.",menu(LICENSE_TYPES.map(x=>[[x.label,"o:lic_type:"+x.key]]).concat([[["‹ بازگشت","o:licenses"]]])));} 
-  if(data.startsWith("o:lic_type:")){const t=LICENSE_TYPES.find(x=>x.key===data.slice(11));if(!t)return;session(uid,"owner_license_create",{step:2,type:t});return edit(msg.chat.id,msg.message_id,"نوع «"+t.label+"» انتخاب شد.\n\nحداکثر تعداد گروه این لایسنس را به عدد ارسال کنید.");}
-  if(data==="o:lic_active"||data==="o:lic_expiring"||data==="o:lic_expired"){const where=data==="o:lic_active"?"status='active' AND (expires_at IS NULL OR expires_at>NOW())":data==="o:lic_expiring"?"status='active' AND expires_at>NOW() AND expires_at<=NOW()+INTERVAL '7 days'":"status='active' AND expires_at IS NOT NULL AND expires_at<=NOW()";const r=await pool.query("SELECT code,customer_id,license_type,group_limit,expires_at FROM bot_licenses WHERE "+where+" ORDER BY expires_at NULLS LAST LIMIT 30");const lines=r.rows.length?r.rows.map((x:any)=>"• "+x.code+" · "+x.customer_id+" · "+x.license_type+" · "+(x.expires_at?faDate(x.expires_at):"∞")).join("\n"):"موردی ثبت نشده است.";return edit(msg.chat.id,msg.message_id,"◈ لیست لایسنس‌ها\n\n"+lines,menu([[["‹ بازگشت","o:licenses"]]]));}
   if(data==="o:languages"){
     await ensureGroupLanguageSchema(pool);
     const rows=await pool.query(`
@@ -3594,6 +3592,7 @@ export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:str
     // Sudo owner-center callbacks use the os: namespace and must be routed
     // before the generic owner/customer callback dispatch.
     if(data.startsWith("os:")) return ownerCallback(pool,cb,ownerIds);
+    if(data.startsWith("lic:")) return ownerCallback(pool,cb,ownerIds);
     // Route panel callbacks before secondary feature handlers so every main
     // customer/owner navigation callback reaches its dedicated controller.
     if(data.startsWith("o:") || data.startsWith("og:")) return ownerCallback(pool,cb,ownerIds);
