@@ -1906,7 +1906,7 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     ].join("\n")),menu([
       job.status==="queued"? [["لغو این کار","o:agent:cancel:"+job.id]]:[],
       [["تاریخچه اجراها","o:agent:jobs"],["‹ بازگشت","o:agent"]]
-    ].filter((row:any[])=>row.length));
+    ].filter((row:any[])=>row.length)));
   }
   if(data==="o:agent:cancel_pick"){
     return edit(msg.chat.id,msg.message_id,panelTitle("لغو کار","یک کار در صف را از تاریخچه انتخاب کنید."),menu([[["تاریخچه اجراها","o:agent:jobs"],["‹ بازگشت","o:agent"]]]));
