@@ -3591,6 +3591,9 @@ export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:str
     // through the message throttle. The old shared throttle could silently drop
     // panel clicks arriving shortly after a panel-opening message or another click.
     const data=String(cb.data||"");
+    // Sudo owner-center callbacks use the os: namespace and must be routed
+    // before the generic owner/customer callback dispatch.
+    if(data.startsWith("os:")) return ownerCallback(pool,cb,ownerIds);
     // Route panel callbacks before secondary feature handlers so every main
     // customer/owner navigation callback reaches its dedicated controller.
     if(data.startsWith("o:") || data.startsWith("og:")) return ownerCallback(pool,cb,ownerIds);
