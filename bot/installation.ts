@@ -2262,6 +2262,100 @@ async function executeConfirmedInstallationOperation(
 
     return { ok: true, reason: "completed" as const };
   } catch (error) {
+    // Progress UI must never become a hard dependency for the real installation.
+    // If the failure happened before a confirmed execution result was persisted,
+    // retry the actual operation once through the orchestrator and then verify.
+    try {
+      const currentRow = await state(pool, chat.id);
+      const canFallback =
+        !Boolean(currentRow?.installed) &&
+        ["install", "update", "repair", "reinstall"].includes(operation);
+
+      if (canFallback) {
+        const alreadyApplied = await installationEffectAlreadyApplied(
+          pool,
+          chat.id,
+          session,
+          targetVersion,
+          progress.execution_id,
+        );
+
+        if (!alreadyApplied) {
+          await executeInstallationOperation(
+            pool,
+            chat,
+            actorId,
+            session,
+            progress.execution_id,
+          );
+        }
+
+        const verification = await verifyInstallationOperation(
+          pool,
+          chat,
+          session,
+          targetVersion,
+        );
+
+        if (verification.ok) {
+          await transitionSession(
+            pool,
+            chat.id,
+            actorId,
+            "completed",
+            "completed",
+          ).catch(() => {});
+
+          await setInstallationPhase(
+            pool,
+            progress.execution_id,
+            "COMPLETED",
+            "COMPLETED",
+            {
+              operation,
+              target_version: targetVersion,
+              recovery: "direct_orchestrator_fallback",
+            },
+          ).catch(() => {});
+
+          await render(
+            chat.id,
+            messageId,
+            doc([
+              ...base(
+                "Oᴘᴇʀᴀᴛɪᴏɴ Cᴏᴍᴘʟᴇᴛᴇᴅ",
+                "عملیات واقعی با موفقیت اجرا شد.",
+              ),
+              table("نتیجه", [
+                ["گروه", chat.title || "گروه بدون نام"],
+                ["عملیات", operationLabel(operation)],
+                ["نسخه", targetVersion],
+                ["وضعیت", "● فعال"],
+              ]),
+              { type: "divider" },
+              {
+                type: "paragraph",
+                text: "اجرای نصب با موفقیت ثبت و اعتبارسنجی شد.",
+              },
+              buttons([button("بررسی سلامت نصب", "inst:health")]),
+              buttons([button("‹ بازگشت", "inst:home", "primary")]),
+              {
+                type: "footer",
+                text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Oᴘᴇʀᴀᴛɪᴏɴ Eɴɢɪɴᴇ",
+              },
+            ]),
+          );
+
+          return { ok: true, reason: "completed_fallback" as const };
+        }
+      }
+    } catch (recoveryError) {
+      console.error("[installation] direct execution fallback failed:", {
+        execution_id: progress?.execution_id ?? null,
+        error: String((recoveryError as any)?.message ?? recoveryError),
+      });
+    }
+
     const technicalDetail = String(
       (error as any)?.message ?? error ?? "Unknown installation error",
     );
