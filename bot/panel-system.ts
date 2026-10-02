@@ -1122,14 +1122,14 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
   if(await handleOwnerSudoTextInput(pool,uid,msg.chat.id,inputText,ownerIds))return true;
   if(await handleOwnerLicenseTextInput(pool,uid,msg.chat.id,inputText,ownerIds))return true;
   if(["agent","ایجنت","عامل"].includes(raw)){
-    if(!isPrivate)return send(msg.chat.id,"عامل توسعه فقط در گفت‌وگوی خصوصی مالک قابل استفاده است.")&&true;
+    if(msg.chat.type!=="private")return send(msg.chat.id,"عامل توسعه فقط در گفت‌وگوی خصوصی مالک قابل استفاده است.")&&true;
     const overview=await ownerAgentOverview(pool);
     await audit(pool,String(uid),"owner_agent_opened",String(uid));
     return send(msg.chat.id,ownerAgentText(overview),ownerAgentMarkup(overview))&&true;
   }
 
   if(["owner","مالک"].includes(raw)){
-    if(!isPrivate)return send(msg.chat.id,"پنل مالک فقط در گفت‌وگوی خصوصی ربات قابل استفاده است.")&&true;
+    if(msg.chat.type!=="private")return send(msg.chat.id,"پنل مالک فقط در گفت‌وگوی خصوصی ربات قابل استفاده است.")&&true;
     await audit(pool,String(uid),"owner_panel_opened",String(uid));await renderOwner(pool,uid,msg.chat.id);return true;
   }
   if(raw==="سودو"){
