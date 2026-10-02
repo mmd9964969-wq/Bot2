@@ -3064,6 +3064,16 @@ export async function handleInstallationCallback(
         return true;
       }
 
+      if (operation === "uninstall") {
+        await executeDirectUninstallOperation(
+          pool,
+          chat,
+          cb.from.id,
+          cb.message.message_id,
+        );
+        return true;
+      }
+
       const result = await beginOperation(pool, chat, cb.from.id, operation);
 
       if (result === "installed") {
