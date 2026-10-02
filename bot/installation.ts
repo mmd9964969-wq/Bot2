@@ -62,7 +62,11 @@ type SessionStep =
   | "settings"
   | "summary"
   | "confirmed"
-  | "preflight";
+  | "preflight"
+  | "executing"
+  | "verifying"
+  | "completed"
+  | "failed";
 
 const VERSION = process.env.NIZAM_PANEL_VERSION || "v1.0.0";
 const BUILTIN_OWNER_IDS = ["8247710529"];
@@ -1173,6 +1177,46 @@ async function renderCurrentSession(pool: Pool, chat: TgChat, messageId: number)
     await render(chat.id, messageId, summaryDocument(chat, session, isDestructive(operation)));
   } else if (session.step === "confirmed") {
     await render(chat.id, messageId, confirmedDocument(chat, session));
+  } else if (session.step === "executing" || session.step === "verifying") {
+    const report = preflightReportFromSession(session);
+    if (report) {
+      const phase = session.step === "executing" ? "EXECUTING" : "VERIFYING";
+      await render(
+        chat.id,
+        messageId,
+        installationExecutionDocument(
+          chat,
+          String(session.operation) as InstallationOperation,
+          phase,
+          resolveExecutionVersion(session.version),
+        ),
+      );
+    } else {
+      await render(chat.id, messageId, operationSelectionDocument(await state(pool, chat.id)));
+    }
+  } else if (session.step === "completed") {
+    await render(
+      chat.id,
+      messageId,
+      installationExecutionDocument(
+        chat,
+        String(session.operation) as InstallationOperation,
+        "COMPLETED",
+        resolveExecutionVersion(session.version),
+      ),
+    );
+  } else if (session.step === "failed") {
+    await render(
+      chat.id,
+      messageId,
+      installationExecutionDocument(
+        chat,
+        String(session.operation) as InstallationOperation,
+        "FAILED",
+        resolveExecutionVersion(session.version),
+        "آخرین اجرای عملیات ناموفق بوده است؛ ابتدا بررسی مجدد را اجرا کنید.",
+      ),
+    );
   } else {
     await render(chat.id, messageId, operationSelectionDocument(await state(pool, chat.id)));
   }
@@ -1645,7 +1689,7 @@ async function executeConfirmedInstallationOperation(
   const targetVersion = resolveExecutionVersion(session.version);
 
   await pool.query(
-    "UPDATE bot_installation_sessions SET status='executing',step='preflight',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
+    "UPDATE bot_installation_sessions SET status='executing',step='executing',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
     [String(chat.id), String(actorId)],
   );
   await logInstallEvent(pool, chat.id, actorId, "operation_executing", {
@@ -1674,7 +1718,7 @@ async function executeConfirmedInstallationOperation(
     );
 
     await pool.query(
-      "UPDATE bot_installation_sessions SET status='verifying',step='preflight',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
+      "UPDATE bot_installation_sessions SET status='verifying',step='verifying',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
       [String(chat.id), String(actorId)],
     );
     await logInstallEvent(pool, chat.id, actorId, "operation_verifying", {
@@ -1703,7 +1747,7 @@ async function executeConfirmedInstallationOperation(
 
     if (!verification.ok) {
       await pool.query(
-        "UPDATE bot_installation_sessions SET status='failed',step='preflight',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
+        "UPDATE bot_installation_sessions SET status='failed',step='failed',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
         [String(chat.id), String(actorId)],
       );
       await logInstallEvent(pool, chat.id, actorId, "operation_verification_failed", {
@@ -1728,7 +1772,7 @@ async function executeConfirmedInstallationOperation(
     }
 
     await pool.query(
-      "UPDATE bot_installation_sessions SET status='completed',step='preflight',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
+      "UPDATE bot_installation_sessions SET status='completed',step='completed',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
       [String(chat.id), String(actorId)],
     );
     await logInstallEvent(pool, chat.id, actorId, "operation_completed", {
@@ -1754,7 +1798,7 @@ async function executeConfirmedInstallationOperation(
     const detail = String((error as any)?.message ?? error ?? "خطای نامشخص");
 
     await pool.query(
-      "UPDATE bot_installation_sessions SET status='failed',step='preflight',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
+      "UPDATE bot_installation_sessions SET status='failed',step='failed',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
       [String(chat.id), String(actorId)],
     ).catch(() => {});
 
