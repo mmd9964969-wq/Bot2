@@ -2487,7 +2487,7 @@ export async function handleInstallationInput(
   const value = String(text).trim();
 
   if (["لغو", "لغو نصب", "cancel", "انصراف"].includes(plain(value))) {
-    await clearSession(pool, msg.chat.id);
+    await clearSession(pool, msg.chat.id, msg.from.id);
     await render(
       msg.chat.id,
       undefined,
@@ -2510,9 +2510,13 @@ export async function handleInstallationInput(
       return "handled";
     }
 
-    await pool.query(
-      "UPDATE bot_installation_sessions SET version=$1,step='environment',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$2",
-      [result.value, String(msg.chat.id)],
+    await transitionSession(
+      pool,
+      msg.chat.id,
+      msg.from.id,
+      "environment",
+      "collecting",
+      { version: result.value },
     );
     const fresh = await getSession(pool, msg.chat.id);
     await render(msg.chat.id, undefined, environmentDocument());
@@ -2538,9 +2542,13 @@ export async function handleInstallationInput(
       return "handled";
     }
 
-    await pool.query(
-      "UPDATE bot_installation_sessions SET settings=$1::jsonb,step='summary',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$2",
-      [JSON.stringify(result.value), String(msg.chat.id)],
+    await transitionSession(
+      pool,
+      msg.chat.id,
+      msg.from.id,
+      "summary",
+      "collecting",
+      { settings: result.value },
     );
     const fresh = await getSession(pool, msg.chat.id);
     if (fresh) {
