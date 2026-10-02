@@ -1915,6 +1915,7 @@ async function executeConfirmedInstallationOperation(
             chat,
             actorId,
             session,
+            progress.execution_id,
           );
           if (execution.version !== targetVersion) {
             throw new Error("نسخهٔ هدف پس از اجرا با درخواست نشست یکسان نیست.");
