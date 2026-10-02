@@ -16,7 +16,8 @@ import { startOwnerAgentWorker } from "./owner-agent.ts";
 import { bindPanelMessage } from "../src/lib/bot/panel-session.ts";
 import { ensureSpecialUsersSchema, sweepSpecialUsers } from "../src/lib/bot/special-users.ts";
 import { ensureGroupLanguageSchema, getGroupLanguage, normalizeBotLang, setGroupLanguage, languageChangedText, languagePickerText, SUPPORTED_LANGUAGES } from "../src/lib/bot/i18n.ts";
-import { ensureInstallationSchema, installationGate, handleInstallationCallback, handleInstallationInput } from "./installation.ts";
+import { ensureInstallationSchema, installationGate, handleInstallationCallback, handleInstallationInput, resumeActiveInstallationExecutions } from "./installation.ts";
+import { markStaleInstallationProgress } from "./installation-progress.ts";
 import { ensureModerationSchema, runModerationCommand } from "../src/lib/bot/moderation.ts";
 import { sweepGroupSubscriptions } from "../src/lib/bot/group-subscriptions.ts";
 import { ensureInviteLinkSchema, handleInviteLinkCallback, handleInviteLinkJoinRequest, handleInviteLinkTextInput, handleInviteLinkUsage, openInviteLinkCenter } from "../src/lib/bot/invite-links.ts";
@@ -1718,6 +1719,9 @@ async function poll() {
   if (studioPool) {
     await ensureCleanupSchema(studioPool);
     await ensureInstallationSchema(studioPool);
+    await resumeActiveInstallationExecutions(studioPool).catch((error) => {
+      console.error("[installation-progress] startup recovery failed:", error);
+    });
     await ensureAutomationSchema(studioPool);
     await ensureGroupLanguageSchema(studioPool);
     await ensureModerationSchema(studioPool);
@@ -1733,6 +1737,13 @@ async function poll() {
   setInterval(() => void refreshStudio(), 5000);
   setInterval(() => { if (studioPool) void tickSchedules(studioPool).catch(error => console.error("[scheduler]", error)); }, 5000);
   setInterval(() => { if (studioPool) void runDailyStatsBroadcast(studioPool).catch(error => console.error("[stats-daily]", error)); }, 5000);
+  setInterval(() => {
+    if (studioPool) {
+      void markStaleInstallationProgress(studioPool).catch(error =>
+        console.error("[installation-progress] stale sweep failed:", error),
+      );
+    }
+  }, 30000);
   setInterval(() => { if (studioPool) void sweepGroupSubscriptions(studioPool).catch(error => console.error("[subscriptions]", error)); }, 30000);
   setInterval(() => { if (studioPool) void sweepSpecialUsers(studioPool).catch(error => console.error("[special]", error)); }, 15000);
   setInterval(() => { if (studioPool) void runDateReminders(studioPool).catch(error => console.error("[date]", error)); }, 15000);
