@@ -1910,16 +1910,23 @@ async function executeConfirmedInstallationOperation(
     throw error;
   }
 
-  if (!progress.last_message_id && messageId > 0) {
-    await attachInstallationProgressMessage(pool, progress.execution_id, messageId);
-    progress =
-      (await getInstallationProgress(pool, progress.execution_id)) ?? progress;
-  }
-
-  const stopHeartbeat = startInstallationHeartbeat(pool, progress.execution_id);
   let executionStage = "execution_initialized";
-
   try {
+    if (!progress.last_message_id && messageId > 0) {
+      executionStage = "progress_message_attach";
+      try {
+        await attachInstallationProgressMessage(pool, progress.execution_id, messageId);
+        progress =
+          (await getInstallationProgress(pool, progress.execution_id)) ?? progress;
+      } catch (error) {
+        console.error("[installation] progress message attach failed:", {
+          execution_id: progress.execution_id,
+          error: String((error as any)?.message ?? error),
+        });
+      }
+    }
+
+    const stopHeartbeat = startInstallationHeartbeat(pool, progress.execution_id);
     if (!existingExecutionId) {
       executionStage = "session_update";
       await pool.query(
@@ -1935,9 +1942,8 @@ async function executeConfirmedInstallationOperation(
       });
     }
 
-    executionStage = "progress_schema_check";
-    await ensureInstallationProgressSchema(pool);
-
+    // Progress schema is prepared during startup/preflight. Do not run DDL
+    // in the critical execution path; only read the prepared step records.
     executionStage = "progress_steps_read";
     const steps = await getInstallationProgressStepStatuses(
       pool,
