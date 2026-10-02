@@ -264,6 +264,48 @@ export async function ensureInstallationProgressSchema(pool: Pool) {
       ")",
   );
 
+  // Compatibility migration: older Progress schemas may already exist with
+  // a subset of the current columns. Keep runtime execution independent of
+  // whether the database was created by an older release.
+  await pool.query(
+    "ALTER TABLE bot_installation_progress " +
+      "ADD COLUMN IF NOT EXISTS current_step TEXT," +
+      "ADD COLUMN IF NOT EXISTS current_step_index INTEGER NOT NULL DEFAULT 0," +
+      "ADD COLUMN IF NOT EXISTS total_steps INTEGER NOT NULL DEFAULT 0," +
+      "ADD COLUMN IF NOT EXISTS completed_steps INTEGER NOT NULL DEFAULT 0," +
+      "ADD COLUMN IF NOT EXISTS progress INTEGER NOT NULL DEFAULT 0," +
+      "ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ NOT NULL DEFAULT NOW()," +
+      "ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()," +
+      "ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT NOW()," +
+      "ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ," +
+      "ADD COLUMN IF NOT EXISTS last_message_id BIGINT," +
+      "ADD COLUMN IF NOT EXISTS last_render_at TIMESTAMPTZ," +
+      "ADD COLUMN IF NOT EXISTS last_rendered_progress INTEGER NOT NULL DEFAULT 0," +
+      "ADD COLUMN IF NOT EXISTS error_code TEXT," +
+      "ADD COLUMN IF NOT EXISTS error_message TEXT," +
+      "ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb",
+  );
+
+  await pool.query(
+    "ALTER TABLE bot_installation_progress_steps " +
+      "ADD COLUMN IF NOT EXISTS step_index INTEGER NOT NULL DEFAULT 0," +
+      "ADD COLUMN IF NOT EXISTS label TEXT NOT NULL DEFAULT 'مرحله'," +
+      "ADD COLUMN IF NOT EXISTS weight INTEGER NOT NULL DEFAULT 1," +
+      "ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'NOT_STARTED'," +
+      "ADD COLUMN IF NOT EXISTS progress INTEGER NOT NULL DEFAULT 0," +
+      "ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0," +
+      "ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ," +
+      "ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ," +
+      "ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb",
+  );
+
+  await pool.query(
+    "ALTER TABLE bot_installation_progress_events " +
+      "ADD COLUMN IF NOT EXISTS step_id TEXT," +
+      "ADD COLUMN IF NOT EXISTS progress INTEGER," +
+      "ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb",
+  );
+
   await pool.query(
     "CREATE INDEX IF NOT EXISTS idx_bot_installation_progress_group " +
       "ON bot_installation_progress(group_id,updated_at DESC)",
