@@ -439,7 +439,6 @@ export async function executeInstallationOrchestration(
   await applyConfiguration(
     client,
     groupId,
-    actorId,
     operation,
     targetVersion,
     permissionSnapshot,
