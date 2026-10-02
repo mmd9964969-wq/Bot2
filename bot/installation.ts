@@ -1821,6 +1821,20 @@ async function executeConfirmedInstallationOperation(
   const recovery = Boolean(existingExecutionId);
   const report = preflightReportFromSession(session);
 
+  if (!recovery) {
+    const activeProgress = await getActiveInstallationProgress(pool, chat.id);
+    if (activeProgress) {
+      await renderInstallationProgressSnapshot(
+        pool,
+        chat,
+        activeProgress,
+        "یک اجرای فعال برای این گروه وجود دارد؛ اجرای دوم شروع نشد.",
+        true,
+      );
+      return { ok: false, reason: "active_execution" as const };
+    }
+  }
+
   if (!recovery && (!report || report.overall !== "READY")) {
     await render(
       chat.id,
@@ -2824,6 +2838,19 @@ export async function handleInstallationCallback(
       if (!session || Number(session.actor_id) !== cb.from.id || !report) {
         notice = "گزارش بررسی معتبر نیست";
         await runPreflightForCurrentSession(pool, chat, cb.from.id, cb.message.message_id, false);
+        return true;
+      }
+
+      const activeProgress = await getActiveInstallationProgress(pool, chat.id);
+      if (activeProgress) {
+        await renderInstallationProgressSnapshot(
+          pool,
+          chat,
+          activeProgress,
+          "این عملیات قبلاً شروع شده است؛ اجرای دوم انجام نمی‌شود.",
+          true,
+        );
+        notice = "یک عملیات فعال برای این گروه وجود دارد";
         return true;
       }
 
