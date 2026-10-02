@@ -84,29 +84,70 @@ function validate(docValue:RichDocument){
   return docValue;
 }
 
+function richReplyMarkup(document:RichDocument){
+  const rows=document.blocks
+    .filter((block:any)=>block?.type==="buttons" && Array.isArray(block.buttons))
+    .map((block:any)=>(block.buttons as any[])
+      .filter((b:any)=>b?.callback_data || b?.url)
+      .map((b:any)=>b?.url
+        ? {text:String(b.text??"—"),url:String(b.url)}
+        : {
+            text:String(b.text??"—"),
+            callback_data:String(b.callback_data),
+            ...(b.style?{style:b.style}:{}),
+          }
+      )
+    )
+    .filter((row:any[])=>row.length>0);
+
+  return rows.length ? {inline_keyboard:rows} : undefined;
+}
+
+function richDocumentWithoutButtons(document:RichDocument):RichDocument{
+  return {
+    ...document,
+    blocks:document.blocks.filter((block:any)=>block?.type!=="buttons"),
+  };
+}
+
 async function render(chatId:number,messageId:number|undefined,document:RichDocument){
   const rich=validate(document);
+  const reply_markup=richReplyMarkup(rich);
+  const richBody=richDocumentWithoutButtons(rich);
+  const plain=richDocumentToPlainText(richBody);
 
   try{
     const richResult=messageId
       ? await telegramApi("editMessageText",{
           chat_id:chatId,
           message_id:messageId,
-          rich_message:rich,
+          rich_message:richBody,
+          ...(reply_markup?{reply_markup}:{}),
         })
       : await telegramApi("sendRichMessage",{
           chat_id:chatId,
-          rich_message:rich,
+          rich_message:richBody,
+          ...(reply_markup?{reply_markup}:{}),
         });
     if((richResult as any)?.ok===true)return richResult;
-    console.warn("[owner-sudo] Rich Message render failed; no duplicate keyboard will be sent");
+    console.warn("[owner-sudo] Rich Message render failed; using one functional inline keyboard");
   }catch(error){
-    console.warn("[owner-sudo] Rich Message render failed; no duplicate keyboard will be sent",error);
+    console.warn("[owner-sudo] Rich Message render failed; using one functional inline keyboard",error);
   }
 
-  return null;
+  return messageId
+    ? telegramApi("editMessageText",{
+        chat_id:chatId,
+        message_id:messageId,
+        text:plain,
+        ...(reply_markup?{reply_markup}:{}),
+      })
+    : telegramApi("sendMessage",{
+        chat_id:chatId,
+        text:plain,
+        ...(reply_markup?{reply_markup}:{}),
+      });
 }
-
 function normalizeDigits(value:string){
   return String(value??"")
     .replace(/[۰-۹]/g,ch=>String("۰۱۲۳۴۵۶۷۸۹".indexOf(ch)))
