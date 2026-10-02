@@ -2230,6 +2230,13 @@ async function executeConfirmedInstallationOperation(
       console.error("[installation] failed-session update error:", sessionError);
     });
 
+    await pool.query(
+      "UPDATE bot_installation_sessions SET last_error_code=$1,updated_at=NOW() WHERE group_id=$2 AND actor_id=$3",
+      [errorCode, String(chat.id), String(actorId)],
+    ).catch((stateError) => {
+      console.error("[installation] failed-session metadata update error:", stateError);
+    });
+
     progress = (await recordInstallationProgressError(
       pool,
       progress.execution_id,
