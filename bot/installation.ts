@@ -698,6 +698,7 @@ async function transitionSession(
     settings?: Record<string, unknown>;
     preflight?: PreflightReport | Record<string, unknown> | null;
     confirmed?: boolean;
+    lastErrorCode?: string | null;
   } = {},
 ) {
   const current = await getSession(pool, groupId);
@@ -749,6 +750,13 @@ async function transitionSession(
   if (Object.prototype.hasOwnProperty.call(patch, "confirmed")) {
     addValue("confirmed", Boolean(patch.confirmed));
   }
+
+  addValue(
+    "last_error_code",
+    Object.prototype.hasOwnProperty.call(patch, "lastErrorCode")
+      ? (patch.lastErrorCode ?? null)
+      : null,
+  );
 
   const groupParam = values.length + 1;
   const actorParam = values.length + 2;
@@ -2139,6 +2147,7 @@ async function executeConfirmedInstallationOperation(
           actorId,
           "failed",
           "failed",
+          { lastErrorCode: "VERIFICATION_FAILED" },
         );
 
         await logInstallEvent(pool, chat.id, actorId, "operation_verification_failed", {
@@ -2227,6 +2236,9 @@ async function executeConfirmedInstallationOperation(
       actorId,
       "failed",
       "failed",
+      {
+        lastErrorCode: String((error as any)?.code ?? "INSTALLATION_FAILED").slice(0, 80) || "INSTALLATION_FAILED",
+      },
     ).catch((sessionError) => {
       console.error("[installation] failed-session update error:", sessionError);
     });
