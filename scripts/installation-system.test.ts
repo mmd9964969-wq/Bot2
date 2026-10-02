@@ -91,3 +91,65 @@ test("recovery transitions are explicitly permitted", () => {
   assert.equal(canTransitionInstallationSession("completed","completed","preflight","checking"), true);
   assert.equal(canTransitionInstallationSession("completed","completed","executing","executing"), false);
 });
+
+
+test("all five operations have explicit availability rules", () => {
+  const matrix = [
+    ["install", false, true],
+    ["update", false, false],
+    ["repair", false, false],
+    ["reinstall", false, false],
+    ["uninstall", false, false],
+    ["install", true, false],
+    ["update", true, true],
+    ["repair", true, true],
+    ["reinstall", true, true],
+    ["uninstall", true, true],
+  ] as const;
+  for (const [operation, installed, expected] of matrix) {
+    assert.equal(installationOperationAllowed(operation, installed), expected);
+  }
+});
+
+test("execution finalization invariants are source-enforced", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const installation = await readFile(new URL("../bot/installation.ts", import.meta.url), "utf8");
+  const orchestrator = await readFile(
+    new URL("../bot/installation-orchestrator.ts", import.meta.url),
+    "utf8",
+  );
+  const progress = await readFile(
+    new URL("../bot/installation-progress.ts", import.meta.url),
+    "utf8",
+  );
+
+  const healthIndex = orchestrator.indexOf("const health = await runInstallationHealthCheck");
+  const installedIndex = orchestrator.indexOf("installed=TRUE");
+  const uninstallHealthIndex = orchestrator.indexOf("Health Check حذف نصب");
+  const uninstalledIndex = orchestrator.indexOf("installed=FALSE");
+  assert.ok(healthIndex >= 0 && installedIndex > healthIndex);
+  assert.ok(uninstallHealthIndex >= 0 && uninstalledIndex > uninstallHealthIndex);
+
+  assert.equal(
+    installation.includes('String(session?.operation ?? "") !== "report"'),
+    true,
+  );
+  assert.equal(
+    progress.includes("String(row.status) === "COMPLETED""),
+    true,
+  );
+  assert.equal(
+    progress.includes("Math.min(99, weightedProgress)"),
+    true,
+  );
+});
+
+test("production hardening primitives are present", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const installation = await readFile(new URL("../bot/installation.ts", import.meta.url), "utf8");
+  const state = await readFile(new URL("../bot/installation-state.ts", import.meta.url), "utf8");
+  assert.equal(installation.includes("state_version=state_version+1"), true);
+  assert.equal(installation.includes("AND state_version=$"), true);
+  assert.equal(installation.includes("sweepExpiredInstallationSessions"), true);
+  assert.equal(state.includes("INSTALLATION_SESSION_INVALID_TRANSITION"), true);
+});
