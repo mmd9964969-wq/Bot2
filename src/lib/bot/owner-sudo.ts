@@ -103,9 +103,25 @@ async function render(chatId:number,messageId:number|undefined,document:RichDocu
   const plain=richDocumentToPlainText(rich);
   const reply_markup=richReplyMarkup(rich);
 
-  // Sudo controls must use Telegram's native inline keyboard directly.
-  // This avoids routing interactive sudo controls through the custom Rich-message
-  // transport, which is not a Telegram Bot API method.
+  try{
+    const richResult=messageId
+      ? await telegramApi("editMessageText",{
+          chat_id:chatId,
+          message_id:messageId,
+          rich_message:rich,
+          ...(reply_markup?{reply_markup}:{}),
+        })
+      : await telegramApi("sendRichMessage",{
+          chat_id:chatId,
+          rich_message:rich,
+          ...(reply_markup?{reply_markup}:{}),
+        });
+    if((richResult as any)?.ok===true)return richResult;
+    console.warn("[owner-sudo] Rich Message unavailable; falling back to native keyboard");
+  }catch(error){
+    console.warn("[owner-sudo] Rich Message failed; falling back to native keyboard",error);
+  }
+
   return messageId
     ? telegramApi("editMessageText",{
         chat_id:chatId,
