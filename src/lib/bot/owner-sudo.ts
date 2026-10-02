@@ -405,6 +405,9 @@ export async function handleOwnerSudoTextInput(pool:Pool,actor:number,chatId:num
     if(pending?.level) level=pending.level;
   }
   if(!level)return false;
+
+  const clean=String(text||"").trim().replace(/^\s*\+?/,"");
+  if(!/^\d{5,20}$/.test(clean)){
     await render(chatId,undefined,doc([
       ...baseBlocks("ثبت سودو","شناسه عددی معتبر ارسال کنید."),
       buttons([button("لغو","os:center","link")]),
@@ -412,6 +415,7 @@ export async function handleOwnerSudoTextInput(pool:Pool,actor:number,chatId:num
     ]));
     return true;
   }
+
   const target=Number(clean);
   const result=await assignOwnerSudo(pool,actor,target,level,ownerIds);
   pendingAssignments.delete(actor);
