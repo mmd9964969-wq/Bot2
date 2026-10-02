@@ -221,7 +221,6 @@ async function detachRuntime(
 async function applyConfiguration(
   client: PoolClient,
   groupId: number,
-  actorId: number,
   operation: InstallationOperationForOrchestrator,
   targetVersion: string,
   permissionSnapshot: Record<string, unknown>,
@@ -233,8 +232,7 @@ async function applyConfiguration(
   );
 
   const query = [
-    "UPDATE bot_group_installations SET",
-    "installation_version=$2",
+    "UPDATE bot_group_installations SET installation_version=$2",
     "bot_permission_snapshot=$3::jsonb",
     "response_policy=COALESCE($4,response_policy)",
     "member_message_policy=COALESCE($5,member_message_policy)",
