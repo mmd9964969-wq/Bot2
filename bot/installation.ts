@@ -1736,6 +1736,139 @@ function operationSettingsPatch(
   return patch;
 }
 
+async function executeDirectUninstallOperation(
+  pool: Pool,
+  chat: TgChat,
+  actorId: number,
+  messageId: number,
+) {
+  const current = await state(pool, chat.id);
+  if (!Boolean(current?.installed)) {
+    await render(
+      chat.id,
+      messageId,
+      doc([
+        ...base("Uɴɪɴsᴛᴀʟʟ", "این گروه در حال حاضر نصب فعال ندارد."),
+        table("وضعیت", [
+          ["نصب", "○ نصب نشده"],
+          ["عملیات", "حذف نصب"],
+        ]),
+        { type: "divider" },
+        buttons([button("‹ بازگشت", "inst:manage", "primary")]),
+        { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Uɴɪɴsᴛᴀʟʟ" },
+      ]),
+    );
+    return { ok: false, reason: "not_installed" as const };
+  }
+
+  const activeProgress = await getActiveInstallationProgress(pool, chat.id);
+  if (activeProgress) {
+    await render(
+      chat.id,
+      messageId,
+      doc([
+        ...base("Uɴɪɴsᴛᴀʟʟ", "یک عملیات اجرایی دیگر برای این گروه هنوز فعال است."),
+        table("وضعیت", [
+          ["نصب", "● فعال"],
+          ["عملیات فعال", operationLabel(activeProgress.operation)],
+          ["مرحله", String(activeProgress.current_step || "—")],
+        ]),
+        { type: "divider" },
+        buttons([button("مشاهده عملیات فعال", "inst:retry")]),
+        buttons([button("‹ بازگشت", "inst:manage", "primary")]),
+        { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Uɴɪɴsᴛᴀʟʟ" },
+      ]),
+    );
+    return { ok: false, reason: "active_execution" as const };
+  }
+
+  const session = defaultSession("uninstall", actorId);
+  session.version = String(current.installation_version || VERSION);
+  session.environment = "production";
+  session.install_type = "quick";
+  session.settings = {};
+  session.step = "executing";
+  session.status = "executing";
+  await saveSession(pool, chat.id, session);
+  const freshSession = await getSession(pool, chat.id);
+  if (!freshSession) throw new Error("نشست حذف نصب ایجاد نشد.");
+
+  try {
+    const execution = await executeInstallationOperation(
+      pool,
+      chat,
+      actorId,
+      freshSession,
+      "",
+    );
+
+    const verification = await verifyInstallationOperation(
+      pool,
+      chat,
+      freshSession,
+      execution.version,
+    );
+
+    if (!verification.ok) {
+      throw new Error(verification.detail);
+    }
+
+    await logInstallEvent(pool, chat.id, actorId, "direct_uninstall_completed", {
+      version: execution.version,
+    }).catch(() => {});
+    await clearSession(pool, chat.id, actorId);
+
+    await render(
+      chat.id,
+      messageId,
+      doc([
+        ...base("Uɴɪɴsᴛᴀʟʟ Cᴏᴍᴘʟᴇᴛᴇᴅ", "حذف نصب بدون اجرای مسیر پیشرفت انجام شد."),
+        table("نتیجه", [
+          ["گروه", chat.title || "گروه بدون نام"],
+          ["عملیات", "حذف نصب"],
+          ["وضعیت", "● انجام شد"],
+          ["سرویس", "○ غیرفعال"],
+        ]),
+        { type: "divider" },
+        {
+          type: "paragraph",
+          text: "قابلیت‌های نصب غیرفعال، Runtime جدا و سیاست دستورها خاموش شد.",
+        },
+        buttons([button("مدیریت نصب", "inst:manage")]),
+        buttons([button("‹ بازگشت", "inst:home", "primary")]),
+        { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Uɴɪɴsᴛᴀʟʟ" },
+      ]),
+    );
+
+    return { ok: true, reason: "completed" as const };
+  } catch (error) {
+    const detail = String((error as any)?.message ?? error);
+    await logInstallEvent(pool, chat.id, actorId, "direct_uninstall_failed", {
+      error: detail,
+    }).catch(() => {});
+    await clearSession(pool, chat.id, actorId);
+
+    await render(
+      chat.id,
+      messageId,
+      doc([
+        ...base("Uɴɪɴsᴛᴀʟʟ Fᴀɪʟᴇᴅ", "حذف نصب انجام نشد و وضعیت فعلی گروه حفظ شد."),
+        table("نتیجه", [
+          ["گروه", chat.title || "گروه بدون نام"],
+          ["عملیات", "حذف نصب"],
+          ["وضعیت", "■ ناموفق"],
+        ]),
+        { type: "divider" },
+        { type: "paragraph", text: "خطای فنی در گزارش عملیات ثبت شد: " + detail.slice(0, 500) },
+        buttons([button("تلاش دوباره", "inst:op:uninstall", "danger")]),
+        buttons([button("‹ بازگشت", "inst:manage", "primary")]),
+        { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Uɴɪɴsᴛᴀʟʟ" },
+      ]),
+    );
+    return { ok: false, reason: "failed" as const };
+  }
+}
+
 async function executeInstallationOperation(
   pool: Pool,
   chat: TgChat,
