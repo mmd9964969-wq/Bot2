@@ -135,7 +135,7 @@ test("execution finalization invariants are source-enforced", async () => {
     true,
   );
   assert.equal(
-    progress.includes("String(row.status) === "COMPLETED""),
+    progress.includes('String(row.status) === "COMPLETED"'),
     true,
   );
   assert.equal(
