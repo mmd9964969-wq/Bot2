@@ -2174,77 +2174,95 @@ export async function resumeActiveInstallationExecutions(pool: Pool) {
   const candidates = await listRecoverableInstallationProgress(pool);
 
   for (const candidate of candidates) {
-    const claimed = await claimInstallationProgressRecovery(
-      pool,
-      candidate.execution_id,
-    );
-    if (!claimed) continue;
-
-    const session = await getSession(pool, Number(claimed.group_id));
-    if (!session) {
-      await recordInstallationProgressError(
+    try {
+      const claimed = await claimInstallationProgressRecovery(
         pool,
-        claimed.execution_id,
-        "SESSION_MISSING",
-        "نشست اجرای عملیات پس از راه‌اندازی مجدد پیدا نشد.",
-        { recovery: true },
+        candidate.execution_id,
       );
-      continue;
-    }
+      if (!claimed) continue;
 
-    const telegramChat = await telegramApi<any>("getChat", {
-      chat_id: Number(claimed.group_id),
-    });
-
-    if (!telegramChat.ok || !telegramChat.result?.id) {
-      await recordInstallationProgressError(
-        pool,
-        claimed.execution_id,
-        "CHAT_RECOVERY_FAILED",
-        "دریافت اطلاعات گروه برای بازیابی عملیات انجام نشد.",
-        { recovery: true, telegram_detail: telegramChat.description ?? null },
-      );
-      continue;
-    }
-
-    const chat: TgChat = {
-      id: Number(telegramChat.result.id),
-      type: String(telegramChat.result.type ?? "supergroup"),
-      title: telegramChat.result.title ?? undefined,
-      username: telegramChat.result.username ?? undefined,
-    };
-
-    let messageId = Number(claimed.last_message_id ?? 0);
-    if (messageId <= 0) {
-      const sent = await render(
-        chat.id,
-        undefined,
-        installationProgressDocument(chat, claimed, "عملیات ناتمام پس از راه‌اندازی مجدد شناسایی شد؛ بازیابی ادامه دارد."),
-      );
-      messageId = Number((sent as any)?.result?.message_id ?? 0);
-      if (messageId > 0) {
-        await attachInstallationProgressMessage(
+      const session = await getSession(pool, Number(claimed.group_id));
+      if (!session) {
+        await recordInstallationProgressError(
           pool,
           claimed.execution_id,
-          messageId,
+          "SESSION_MISSING",
+          "نشست اجرای عملیات پس از راه‌اندازی مجدد پیدا نشد.",
+          { recovery: true },
         );
+        continue;
       }
+
+      const telegramChat = await telegramApi<any>("getChat", {
+        chat_id: Number(claimed.group_id),
+      });
+
+      if (!telegramChat.ok || !telegramChat.result?.id) {
+        await recordInstallationProgressError(
+          pool,
+          claimed.execution_id,
+          "CHAT_RECOVERY_FAILED",
+          "دریافت اطلاعات گروه برای بازیابی عملیات انجام نشد.",
+          { recovery: true, telegram_detail: telegramChat.description ?? null },
+        );
+        continue;
+      }
+
+      const chat: TgChat = {
+        id: Number(telegramChat.result.id),
+        type: String(telegramChat.result.type ?? "supergroup"),
+        title: telegramChat.result.title ?? undefined,
+        username: telegramChat.result.username ?? undefined,
+      };
+
+      let messageId = Number(claimed.last_message_id ?? 0);
+      if (messageId <= 0) {
+        const sent = await render(
+          chat.id,
+          undefined,
+          installationProgressDocument(
+            chat,
+            claimed,
+            "عملیات ناتمام پس از راه‌اندازی مجدد شناسایی شد؛ بازیابی ادامه دارد.",
+          ),
+        );
+        messageId = Number((sent as any)?.result?.message_id ?? 0);
+        if (messageId > 0) {
+          await attachInstallationProgressMessage(
+            pool,
+            claimed.execution_id,
+            messageId,
+          );
+        }
+      }
+
+      await logInstallEvent(
+        pool,
+        chat.id,
+        Number(session.actor_id),
+        "operation_recovery_started",
+        {
+          execution_id: claimed.execution_id,
+          operation: claimed.operation,
+          previous_status: candidate.status,
+          current_step: candidate.current_step,
+        },
+      ).catch(() => {});
+
+      await executeConfirmedInstallationOperation(
+        pool,
+        chat,
+        Number(session.actor_id),
+        messageId,
+        claimed.execution_id,
+      );
+    } catch (error) {
+      console.error(
+        "[installation-progress] recovery failed:",
+        candidate.execution_id,
+        error,
+      );
     }
-
-    await logInstallEvent(pool, chat.id, Number(session.actor_id), "operation_recovery_started", {
-      execution_id: claimed.execution_id,
-      operation: claimed.operation,
-      previous_status: candidate.status,
-      current_step: candidate.current_step,
-    }).catch(() => {});
-
-    await executeConfirmedInstallationOperation(
-      pool,
-      chat,
-      Number(session.actor_id),
-      messageId,
-      claimed.execution_id,
-    );
   }
 }
 
