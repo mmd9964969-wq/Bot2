@@ -36,22 +36,33 @@ type TgCallback = {
 };
 
 export type InstallationGateResult = "handled" | "allow" | "drop";
+export type InstallationInputResult = "handled" | "ignored";
 
 type ButtonStyle = "primary" | "success" | "danger";
+type InstallType = "quick" | "custom";
+type InstallationOperation =
+  | "install"
+  | "update"
+  | "repair"
+  | "reinstall"
+  | "uninstall"
+  | "report";
+
+type SessionStep =
+  | "operation"
+  | "install_type"
+  | "version"
+  | "environment"
+  | "settings"
+  | "summary"
+  | "confirmed";
 
 const VERSION = process.env.NIZAM_PANEL_VERSION || "v1.0.0";
 const BUILTIN_OWNER_IDS = ["8247710529"];
 const PANEL_URL = String(process.env.PANEL_URL || "").replace(/\/$/, "");
+const SESSION_TTL_MS = 15 * 60 * 1000;
 
 let schemaReadyPromise: Promise<void> | null = null;
-let botIdentityPromise: Promise<{ ok: boolean; id?: number }> | null = null;
-
-const permissionCache = new Map<
-  number,
-  { expiresAt: number; result: Awaited<ReturnType<typeof permissionCheckInternal>> }
->();
-
-const PERMISSION_CACHE_MS = 15_000;
 
 function norm(value: unknown) {
   return String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
@@ -97,9 +108,7 @@ function button(text: string, callbackData: string, style?: ButtonStyle) {
     : { text, callback_data: callbackData };
 }
 
-function buttons(
-  items: Array<{ text: string; callback_data?: string; url?: string; style?: ButtonStyle }>,
-) {
+function buttons(items: Array<{ text: string; callback_data?: string; url?: string; style?: ButtonStyle }>) {
   return {
     type: "buttons",
     align: "center",
@@ -113,7 +122,7 @@ function table(caption: string, rows: Array<[string, string]>) {
     caption,
     is_bordered: true,
     is_striped: true,
-    is_compact: false,
+    is_compact: true,
     cells: [
       [
         { text: "شاخص", is_header: true, align: "right", valign: "middle" },
@@ -136,16 +145,18 @@ function list(items: string[]) {
   };
 }
 
-function base(title: string, subtitle: string): any[] {
-  return [
+function base(title: string, subtitle?: string): any[] {
+  const blocks: any[] = [
     {
       type: "heading",
       text: "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · " + title,
       size: 1,
     },
-    { type: "paragraph", text: subtitle },
-    { type: "divider" },
   ];
+
+  if (subtitle) blocks.push({ type: "paragraph", text: subtitle });
+  blocks.push({ type: "divider" });
+  return blocks;
 }
 
 function doc(blocks: any[]): RichDocument {
@@ -156,12 +167,88 @@ function doc(blocks: any[]): RichDocument {
   });
 }
 
-function validate(document: RichDocument) {
-  const result = validateRichDocument(document);
-  if (!result.ok) {
-    console.error("[installation] rich validation failed:", result.errors);
+function statusText(installed: boolean) {
+  return installed ? "● فعال" : "○ نصب نشده";
+}
+
+function operationLabel(operation: InstallationOperation) {
+  const map: Record<InstallationOperation, string> = {
+    install: "نصب اولیه",
+    update: "به‌روزرسانی",
+    repair: "تعمیر نصب",
+    reinstall: "نصب مجدد",
+    uninstall: "حذف نصب",
+    report: "گزارش وضعیت",
+  };
+  return map[operation];
+}
+
+function installTypeLabel(type?: InstallType | null) {
+  if (type === "quick") return "نصب سریع";
+  if (type === "custom") return "نصب سفارشی";
+  return "—";
+}
+
+function isDestructive(operation: InstallationOperation) {
+  return operation === "reinstall" || operation === "uninstall";
+}
+
+function defaultSession(operation: InstallationOperation, actorId: number) {
+  return {
+    operation,
+    actor_id: actorId,
+    install_type: null as InstallType | null,
+    version: null as string | null,
+    environment: null as string | null,
+    settings: {} as Record<string, unknown>,
+    step: "operation" as SessionStep,
+    status: "collecting",
+  };
+}
+
+function validVersion(value: string) {
+  const normalized = value.trim().replace(/^v/i, "");
+  return /^\d+\.\d+(?:\.\d+)?(?:[-+][0-9A-Za-z.-]+)?$/.test(normalized);
+}
+
+function canonicalVersion(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^latest$/i.test(trimmed) || trimmed === "آخرین نسخه" || trimmed === "جدیدترین") {
+    return "latest";
   }
-  return document;
+  if (!validVersion(trimmed)) return null;
+  return "v" + trimmed.replace(/^v/i, "");
+}
+
+function parseCustomSettings(value: string): Record<string, unknown> | null {
+  const raw = value.trim();
+  if (!raw || raw.length > 4000) return null;
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") return null;
+
+    const entries = Object.entries(parsed);
+    if (entries.length > 30) return null;
+
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of entries) {
+      const safeKey = String(key).trim();
+      if (!safeKey || safeKey.length > 80) return null;
+      if (typeof item === "string" && item.length > 500) return null;
+      out[safeKey] = item;
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+function settingsLabel(settings: unknown) {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return "استاندارد";
+  const keys = Object.keys(settings as Record<string, unknown>);
+  return keys.length ? `سفارشی · ${keys.length} گزینه` : "استاندارد";
 }
 
 function richReplyMarkup(document: RichDocument) {
@@ -172,10 +259,7 @@ function richReplyMarkup(document: RichDocument) {
         .filter((item: any) => item?.callback_data || item?.url)
         .map((item: any) =>
           item?.url
-            ? {
-                text: String(item.text ?? "—"),
-                url: String(item.url),
-              }
+            ? { text: String(item.text ?? "—"), url: String(item.url) }
             : {
                 text: String(item.text ?? "—"),
                 callback_data: String(item.callback_data),
@@ -195,18 +279,18 @@ function richDocumentWithoutButtons(document: RichDocument): RichDocument {
   };
 }
 
-async function render(
-  chatId: number,
-  messageId: number | undefined,
-  document: RichDocument,
-) {
-  const rich = validate(document);
-  const reply_markup = richReplyMarkup(rich);
-  const richBody = richDocumentWithoutButtons(rich);
+async function render(chatId: number, messageId: number | undefined, document: RichDocument) {
+  const validation = validateRichDocument(document);
+  if (!validation.ok) {
+    console.error("[installation] Rich validation failed:", validation.errors);
+  }
+
+  const reply_markup = richReplyMarkup(document);
+  const richBody = richDocumentWithoutButtons(document);
   const plainText = richDocumentToPlainText(richBody);
 
   try {
-    const richResult = messageId
+    const result = messageId
       ? await telegramApi("editMessageText", {
           chat_id: chatId,
           message_id: messageId,
@@ -219,10 +303,9 @@ async function render(
           ...(reply_markup ? { reply_markup } : {}),
         });
 
-    if ((richResult as any)?.ok === true) return richResult;
-    console.warn("[installation] Rich Message render failed; using plain fallback");
+    if ((result as any)?.ok === true) return result;
   } catch (error) {
-    console.warn("[installation] Rich Message render failed; using plain fallback", error);
+    console.warn("[installation] Rich Message render failed:", error);
   }
 
   return messageId
@@ -283,6 +366,27 @@ async function ensureSchemaInternal(pool: Pool) {
     "CREATE INDEX IF NOT EXISTS idx_bot_installation_events_group_time " +
       "ON bot_installation_events(group_id,created_at DESC)",
   );
+
+  await pool.query(
+    "CREATE TABLE IF NOT EXISTS bot_installation_sessions (" +
+      "group_id BIGINT PRIMARY KEY," +
+      "actor_id BIGINT NOT NULL," +
+      "operation TEXT NOT NULL," +
+      "install_type TEXT," +
+      "version TEXT," +
+      "environment TEXT," +
+      "settings JSONB NOT NULL DEFAULT '{}'::jsonb," +
+      "step TEXT NOT NULL DEFAULT 'operation'," +
+      "status TEXT NOT NULL DEFAULT 'collecting'," +
+      "updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()," +
+      "expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '15 minutes')" +
+      ")",
+  );
+
+  await pool.query(
+    "CREATE INDEX IF NOT EXISTS idx_bot_installation_sessions_expires " +
+      "ON bot_installation_sessions(expires_at)",
+  );
 }
 
 async function ensureSchema(pool: Pool) {
@@ -332,836 +436,635 @@ async function state(pool: Pool, groupId: number) {
   ).rows[0];
 }
 
-function statusDot(value: boolean) {
-  return value ? "● فعال" : "○ غیرفعال";
-}
+async function getSession(pool: Pool, groupId: number) {
+  const result = await pool.query(
+    "SELECT * FROM bot_installation_sessions WHERE group_id=$1 LIMIT 1",
+    [String(groupId)],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
 
-function capabilityStatus(value: boolean, enabled = "در دسترس", disabled = "نیازمند دسترسی") {
-  return value ? "● " + enabled : "○ " + disabled;
-}
-
-async function permissionCheckInternal(groupId: number) {
-  const me =
-    botIdentityPromise ??
-    (botIdentityPromise = telegramApi<any>("getMe", {})
-      .then((result) => ({
-        ok: Boolean(result?.ok),
-        id: result?.ok ? Number(result.result?.id) : undefined,
-      }))
-      .catch(() => ({ ok: false as const })));
-
-  if (!(await me).ok) {
-    return {
-      ok: false,
-      status: "unreachable",
-      missing: ["اتصال به Telegram"],
-      optionalMissing: [],
-      snapshot: {},
-    };
+  const expired = new Date(row.expires_at).getTime() <= Date.now();
+  if (expired) {
+    await pool.query("DELETE FROM bot_installation_sessions WHERE group_id=$1", [String(groupId)]);
+    return null;
   }
 
-  const botId = Number((await me).id);
-  const member = await telegramApi<any>("getChatMember", {
-    chat_id: groupId,
-    user_id: botId,
-  });
-
-  if (!member.ok) {
-    return {
-      ok: false,
-      status: "unreachable",
-      missing: ["دسترسی ربات به گروه"],
-      optionalMissing: [],
-      snapshot: { bot_id: botId },
-    };
-  }
-
-  const m = member.result || {};
-  if (String(m.status || "") !== "administrator") {
-    return {
-      ok: false,
-      status: String(m.status || "unknown"),
-      missing: ["administrator"],
-      optionalMissing: [],
-      snapshot: {
-        bot_id: botId,
-        status: m.status || "unknown",
-        checked_at: new Date().toISOString(),
-      },
-    };
-  }
-
-  const required: Array<[string, string]> = [
-    ["can_delete_messages", "حذف پیام"],
-    ["can_restrict_members", "محدودکردن اعضا"],
-  ];
-
-  const optional: Array<[string, string]> = [
-    ["can_invite_users", "دعوت اعضا"],
-    ["can_pin_messages", "پین پیام"],
-    ["can_promote_members", "مدیریت مدیران"],
-    ["can_manage_topics", "مدیریت تاپیک‌ها"],
-  ];
-
-  const missing = required
-    .filter(([key]) => m[key] !== true)
-    .map(([, label]) => label);
-
-  const optionalMissing = optional
-    .filter(([key]) => m[key] !== true)
-    .map(([, label]) => label);
-
-  const snapshot = {
-    bot_id: botId,
-    status: String(m.status),
-    can_manage_chat:
-      m.can_manage_chat === undefined ? null : Boolean(m.can_manage_chat),
-    can_delete_messages:
-      m.can_delete_messages === undefined ? null : Boolean(m.can_delete_messages),
-    can_restrict_members:
-      m.can_restrict_members === undefined ? null : Boolean(m.can_restrict_members),
-    can_invite_users:
-      m.can_invite_users === undefined ? null : Boolean(m.can_invite_users),
-    can_pin_messages:
-      m.can_pin_messages === undefined ? null : Boolean(m.can_pin_messages),
-    can_promote_members:
-      m.can_promote_members === undefined ? null : Boolean(m.can_promote_members),
-    can_manage_topics:
-      m.can_manage_topics === undefined ? null : Boolean(m.can_manage_topics),
-    checked_at: new Date().toISOString(),
-  };
-
-  return {
-    ok: missing.length === 0,
-    status: missing.length ? "partial_required" : "ready",
-    missing,
-    optionalMissing,
-    snapshot,
-  };
+  return row;
 }
 
-async function saveSnapshot(pool: Pool, groupId: number, snapshot: any) {
+async function saveSession(
+  pool: Pool,
+  groupId: number,
+  session: ReturnType<typeof defaultSession>,
+) {
   await pool.query(
-    "UPDATE bot_group_installations " +
-      "SET bot_permission_snapshot=$1::jsonb,updated_at=NOW() " +
-      "WHERE group_id=$2",
-    [JSON.stringify(snapshot || {}), String(groupId)],
+    "INSERT INTO bot_installation_sessions(" +
+      "group_id,actor_id,operation,install_type,version,environment,settings,step,status,updated_at,expires_at" +
+      ") VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,NOW(),NOW()+INTERVAL '15 minutes') " +
+      "ON CONFLICT(group_id) DO UPDATE SET " +
+      "actor_id=EXCLUDED.actor_id,operation=EXCLUDED.operation,install_type=EXCLUDED.install_type," +
+      "version=EXCLUDED.version,environment=EXCLUDED.environment,settings=EXCLUDED.settings," +
+      "step=EXCLUDED.step,status=EXCLUDED.status,updated_at=NOW()," +
+      "expires_at=NOW()+INTERVAL '15 minutes'",
+    [
+      String(groupId),
+      String(session.actor_id),
+      session.operation,
+      session.install_type,
+      session.version,
+      session.environment,
+      JSON.stringify(session.settings ?? {}),
+      session.step,
+      session.status,
+    ],
   );
 }
 
-async function permissionCheck(groupId: number, force = false) {
-  const now = Date.now();
-  const cached = permissionCache.get(groupId);
-
-  if (!force && cached && cached.expiresAt > now) {
-    return cached.result;
-  }
-
-  const result = await permissionCheckInternal(groupId);
-
-  permissionCache.set(groupId, {
-    expiresAt: now + PERMISSION_CACHE_MS,
-    result,
-  });
-
-  return result;
+async function clearSession(pool: Pool, groupId: number) {
+  await pool.query("DELETE FROM bot_installation_sessions WHERE group_id=$1", [String(groupId)]);
 }
 
-function invalidatePermissionCache(groupId: number) {
-  permissionCache.delete(groupId);
-}
-
-function actorRole(userId: number, owners: string[], sudo: string[]) {
-  if (BUILTIN_OWNER_IDS.includes(String(userId)) || owners.includes(String(userId))) {
-    return "مالک";
-  }
-
-  if (sudo.includes(String(userId))) return "سودو";
-  return "مجاز";
-}
-
-function policyLabel(value: unknown) {
-  const map: Record<string, string> = {
-    silent: "بدون پاسخ خودکار",
-    commands_only: "پاسخ به دستورات",
-    automation: "پاسخ‌های خودکار",
-    custom: "پیکربندی سفارشی",
-  };
-
-  return map[String(value || "")] || "بدون پاسخ خودکار";
-}
-
-function securityLabel(value: unknown) {
-  const map: Record<string, string> = {
-    standard: "استاندارد",
-    strict: "سخت‌گیرانه",
-    custom: "سفارشی",
-  };
-
-  return map[String(value || "")] || "استاندارد";
-}
-
-function installLandingDocument(
-  chat: TgChat,
-  actor: number,
-  owners: string[],
-  sudo: string[],
+async function logInstallEvent(
+  pool: Pool,
+  groupId: number,
+  actorId: number,
+  eventType: string,
+  metadata: Record<string, unknown> = {},
 ) {
+  await pool.query(
+    "INSERT INTO bot_installation_events(group_id,actor_id,event_type,metadata) VALUES($1,$2,$3,$4::jsonb)",
+    [String(groupId), String(actorId), eventType, JSON.stringify(metadata)],
+  );
+}
+
+function mainCenterDocument(chat: TgChat, stateRow: any, session: any) {
+  const installed = Boolean(stateRow?.installed);
+  const sessionActive = Boolean(session);
+
   const blocks: any[] = [
     ...base(
       "Iɴsᴛᴀʟʟ Cᴇɴᴛᴇʀ",
-      "این گروه هنوز برای استفاده از مدیریت پرشین بات فعال نشده است. قبل از نصب، دسترسی‌های اصلی بررسی می‌شوند و بعد تنظیمات پایه ثبت خواهد شد.",
+      installed
+        ? "مرکز نصب فعال است. وضعیت و عملیات مدیریت گروه از همین بخش کنترل می‌شوند."
+        : "مرکز نصب آماده است. ابتدا عملیات و سپس نوع نصب را انتخاب کنید.",
     ),
-    table("مشخصات درخواست", [
+    table("وضعیت", [
       ["گروه", chat.title || "گروه بدون نام"],
-      ["درخواست‌کننده", actorRole(actor, owners, sudo)],
-      ["نسخه", VERSION],
-      ["وضعیت", "○ نصب نشده"],
+      ["وضعیت نصب", statusText(installed)],
+      ["نسخه", installed ? String(stateRow?.installation_version || VERSION) : "—"],
+      ["اتصال", "بررسی نشده"],
+      ["تنظیمات نشست", sessionActive ? "● در حال پیکربندی" : "○ فعال نیست"],
     ]),
     { type: "divider" },
     {
       type: "heading",
-      text: "قابلیت‌های پایه نصب",
+      text: "★ - عملیات",
       size: 2,
-    },
-    list([
-      "مدیریت اعضا و عملیات مدیریتی پایه",
-      "پردازش دستورات بدون نیاز به Slash",
-      "تنظیم سیاست پاسخ‌گویی",
-      "اتوماسیون قابل فعال‌سازی",
-      "امنیت و ثبت رویدادهای مدیریتی",
-    ]),
-    {
-      type: "paragraph",
-      text: "نصب داده‌های قبلی گروه را پاک نمی‌کند. تنظیمات قابل تغییر هستند و بعد از نصب از همین بخش کنترل می‌شوند.",
-    },
-    buttons([button("نصب ربات", "inst:start", "success")]),
-    buttons([button("بررسی دسترسی ربات", "inst:recheck")]),
-    buttons([button("تنظیمات نصب", "inst:settings")]),
-    buttons([button("‹ انصراف", "inst:cancel", "primary")]),
-    {
-      type: "footer",
-      text: "Pᴇʀsɪᴀɴ ᴮᵒᵛ · Iɴsᴛᴀʟʟ Cᴇɴᴛᴇʀ",
     },
   ];
 
-  return doc(blocks);
-}
-
-function permissionDocument(
-  chat: TgChat,
-  check: Awaited<ReturnType<typeof permissionCheck>>,
-) {
-  const missingRequired = check.missing || [];
-  const optionalMissing = check.optionalMissing || [];
-
-  if (!check.ok) {
-    return doc([
-      ...base(
-        "Iɴsᴛᴀʟʟ Cʜᴇᴄᴋ",
-        "برای نصب، دسترسی‌های اصلی ربات کافی نیست. موارد زیر را در نقش مدیر ربات بررسی کنید.",
-      ),
-      table("وضعیت دسترسی", [
-        ["گروه", chat.title || "گروه بدون نام"],
-        ["نقش ربات", String(check.snapshot?.status || "نامشخص")],
-        ["دسترسی اصلی", "○ ناقص"],
-        ["موارد لازم", missingRequired.length ? missingRequired.join("، ") : "—"],
-      ]),
-      {
-        type: "heading",
-        text: "چه چیزی باید اصلاح شود؟",
-        size: 2,
-      },
-      list([
-        "ربات باید Administrator گروه باشد.",
-        "دسترسی حذف پیام لازم است.",
-        "دسترسی محدودکردن اعضا لازم است.",
-      ]),
-      {
-        type: "paragraph",
-        text: "بعد از اصلاح دسترسی‌ها، «بررسی مجدد» را بزنید. نصب تا زمانی که دسترسی‌های اصلی کامل نشوند انجام نمی‌شود.",
-      },
-      buttons([button("بررسی مجدد", "inst:recheck")]),
-      buttons([button("تنظیمات نصب", "inst:settings")]),
-      buttons([button("‹ بازگشت", "inst:back", "primary")]),
-      { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Iɴsᴛᴀʟʟ Cᴇɴᴛᴇʀ" },
-    ]);
-  }
-
-  return doc([
-    ...base(
-      "Iɴsᴛᴀʟʟ Rᴇᴠɪᴇᴡ",
-      "دسترسی‌های لازم برای نصب تأیید شد. بعضی قابلیت‌ها ممکن است به دسترسی‌های تکمیلی خودشان وابسته باشند.",
-    ),
-    table("نتیجه بررسی", [
-      ["گروه", chat.title || "گروه بدون نام"],
-      ["دسترسی اصلی", "● کامل"],
-      ["حذف پیام", capabilityStatus(check.snapshot?.can_delete_messages)],
-      ["محدودکردن اعضا", capabilityStatus(check.snapshot?.can_restrict_members)],
-      ["دعوت اعضا", capabilityStatus(check.snapshot?.can_invite_users)],
-      ["پین پیام", capabilityStatus(check.snapshot?.can_pin_messages)],
-      ["مدیریت مدیران", capabilityStatus(check.snapshot?.can_promote_members)],
-      ["مدیریت تاپیک‌ها", capabilityStatus(check.snapshot?.can_manage_topics)],
-    ]),
-    {
-      type: "details",
-      summary: "دسترسی‌های تکمیلی",
-      is_open: false,
-      blocks: [
-        {
-          type: "paragraph",
-          text:
-            optionalMissing.length > 0
-              ? "این موارد برای نصب پایه الزامی نیستند: " + optionalMissing.join("، ") + "."
-              : "دسترسی‌های تکمیلی موجود هستند.",
-        },
-      ],
-    },
-    {
-      type: "paragraph",
-      text: "با تأیید نصب، وضعیت گروه ثبت می‌شود و تنظیمات پایه فعال می‌شوند. چیزی از اطلاعات قبلی حذف نخواهد شد.",
-    },
-    buttons([button("تأیید و نصب", "inst:confirm", "success")]),
-    buttons([button("بررسی مجدد", "inst:recheck")]),
-    buttons([button("تنظیمات نصب", "inst:settings")]),
-    buttons([button("‹ بازگشت", "inst:back", "primary")]),
-    { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Iɴsᴛᴀʟʟ Cᴇɴᴛᴇʀ" },
-  ]);
-}
-
-function installedDocument(
-  chat: TgChat,
-  stateRow: any,
-  check: Awaited<ReturnType<typeof permissionCheck>>,
-) {
-  const missingOptional = check.optionalMissing || [];
-  const panelButton = PANEL_URL
-    ? { text: "مدیریت گروه از وب", callback_data: "inst:manage" }
-    : null;
-
-  const blocks: any[] = [
-    ...base(
-      "Gʀᴏᴜᴘ Mᴀɴᴀɢᴇᴍᴇɴᴛ",
-      "نصب این گروه فعال است. تنظیمات اصلی، دسترسی‌ها و قابلیت‌های اجرایی از همین مرکز قابل کنترل هستند.",
-    ),
-    table("وضعیت نصب", [
-      ["گروه", chat.title || "گروه بدون نام"],
-      ["وضعیت نصب", "● فعال"],
-      ["نسخه", String(stateRow?.installation_version || VERSION)],
-      ["دستورات", statusDot(String(stateRow?.command_policy || "enabled") === "enabled")],
-      ["پاسخ اعضا", policyLabel(stateRow?.member_message_policy)],
-      ["اتوماسیون", statusDot(Boolean(stateRow?.automation_enabled))],
-      ["امنیت", securityLabel(stateRow?.security_mode)],
-      ["ثبت رویدادها", statusDot(Boolean(stateRow?.audit_enabled))],
-    ]),
-    {
-      type: "heading",
-      text: "وضعیت دسترسی",
-      size: 2,
-    },
-    table("قابلیت‌های اجرایی", [
-      ["حذف پیام", capabilityStatus(check.snapshot?.can_delete_messages)],
-      ["محدودکردن اعضا", capabilityStatus(check.snapshot?.can_restrict_members)],
-      ["دعوت اعضا", capabilityStatus(check.snapshot?.can_invite_users)],
-      ["پین پیام", capabilityStatus(check.snapshot?.can_pin_messages)],
-      ["مدیریت مدیران", capabilityStatus(check.snapshot?.can_promote_members)],
-      ["مدیریت تاپیک‌ها", capabilityStatus(check.snapshot?.can_manage_topics)],
-    ]),
-  ];
-
-  if (missingOptional.length > 0) {
-    blocks.push({
-      type: "paragraph",
-      text:
-        "دسترسی تکمیلی در این گروه کامل نیست: " +
-        missingOptional.join("، ") +
-        ". فقط قابلیت‌های وابسته به این دسترسی‌ها محدود می‌شوند.",
-    });
-  } else {
-    blocks.push({
-      type: "paragraph",
-      text: "دسترسی‌های ثبت‌شده کامل هستند و محدودیت تکمیلی برای قابلیت‌های نصب دیده نمی‌شود.",
-    });
-  }
-
-  if (panelButton) {
-    blocks.push(buttons([panelButton]));
+  if (!installed) {
+    blocks.push(buttons([button("شروع نصب", "inst:operations", "success")]));
   }
 
   blocks.push(
-    buttons([button("تنظیمات نصب", "inst:settings")]),
-    buttons([button("وضعیت کامل", "inst:status")]),
-    buttons([button("سیاست دستورات", "inst:commands")]),
-    buttons([button("غیرفعال‌سازی", "inst:disable", "danger")]),
-    buttons([button("‹ بازگشت", "inst:back", "primary")]),
-    { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Iɴsᴛᴀʟʟ Cᴇɴᴛᴇʀ" },
+    buttons([button("بررسی سیستم", "inst:check")]),
+    buttons([button("مدیریت نصب", "inst:manage")]),
+  );
+
+  if (PANEL_URL && installed) {
+    blocks.push(buttons([{ text: "مدیریت گروه از وب", url: PANEL_URL + "#dashboard" }]));
+  }
+
+  blocks.push(
+    { type: "divider" },
+    buttons([button("‹ بازگشت", "inst:cancel", "primary")]),
+    {
+      type: "footer",
+      text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Iɴsᴛᴀʟʟ Cᴇɴᴛᴇʀ",
+    },
   );
 
   return doc(blocks);
 }
 
-function settingsDocument(stateRow: any) {
-  const commandEnabled = String(stateRow?.command_policy || "enabled") === "enabled";
-  const automationEnabled = Boolean(stateRow?.automation_enabled);
-  const auditEnabled = Boolean(stateRow?.audit_enabled);
+function managementDocument(chat: TgChat, stateRow: any) {
+  const installed = Boolean(stateRow?.installed);
+  const blocks: any[] = [
+    ...base(
+      "Iɴsᴛᴀʟʟ Mᴀɴᴀɢᴇᴍᴇɴᴛ",
+      installed
+        ? "عملیات قابل اجرا با وضعیت فعلی گروه فیلتر شده‌اند."
+        : "فقط عملیات سازگار با وضعیت فعلی گروه نمایش داده می‌شوند.",
+    ),
+    table("وضعیت فعلی", [
+      ["گروه", chat.title || "گروه بدون نام"],
+      ["نصب", statusText(installed)],
+      ["نسخه", installed ? String(stateRow?.installation_version || VERSION) : "—"],
+    ]),
+    { type: "divider" },
+    {
+      type: "heading",
+      text: "★ - عملیات در دسترس",
+      size: 2,
+    },
+  ];
 
+  if (installed) {
+    blocks.push(
+      buttons([button("به‌روزرسانی", "inst:op:update", "success")]),
+      buttons([button("تعمیر نصب", "inst:op:repair", "success")]),
+      buttons([button("نصب مجدد", "inst:op:reinstall", "danger")]),
+      buttons([button("حذف نصب", "inst:op:uninstall", "danger")]),
+      buttons([button("گزارش وضعیت", "inst:op:report")]),
+    );
+  } else {
+    blocks.push(
+      buttons([button("نصب اولیه", "inst:op:install", "success")]),
+      buttons([button("گزارش وضعیت", "inst:op:report")]),
+    );
+  }
+
+  blocks.push(
+    buttons([button("‹ بازگشت", "inst:home", "primary")]),
+    { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Iɴsᴛᴀʟʟ Mᴀɴᴀɢᴇᴍᴇɴᴛ" },
+  );
+
+  return doc(blocks);
+}
+
+function systemCheckPlaceholderDocument(chat: TgChat) {
   return doc([
     ...base(
-      "Iɴsᴛᴀʟʟ Sᴇᴛᴛɪɴɢs",
-      "اینجا رفتار پیش‌فرض ربات را برای همین گروه تعیین می‌کنید. تغییرات این بخش همان لحظه ذخیره می‌شوند.",
+      "Sʏsᴛᴇᴍ Cʜᴇᴄᴋ",
+      "ورودی مرکز بررسی ثبت شد، اما بررسی واقعی پیش‌نیازها هنوز در این مرحله اجرا نمی‌شود.",
     ),
-    table("تنظیمات فعلی", [
-      ["پاسخ اعضا", policyLabel(stateRow?.member_message_policy)],
-      ["دستورات", commandEnabled ? "● فعال" : "○ غیرفعال"],
-      ["حالت دستورات", "متن ساده؛ بدون Slash"],
-      ["اتوماسیون", automationEnabled ? "● فعال" : "○ غیرفعال"],
-      ["امنیت", securityLabel(stateRow?.security_mode)],
-      ["ثبت رویدادها", auditEnabled ? "● فعال" : "○ غیرفعال"],
+    table("مرز اجرایی فعلی", [
+      ["گروه", chat.title || "گروه بدون نام"],
+      ["وضعیت نصب", "از پایگاه داده خوانده می‌شود"],
+      ["پیش‌نیازها", "مرحلهٔ ۴"],
+      ["اجرای نصب", "در این مرحله انجام نمی‌شود"],
     ]),
     {
-      type: "details",
-      summary: "جزئیات رفتار",
-      is_open: false,
-      blocks: [
-        {
-          type: "paragraph",
-          text: "«پاسخ اعضا» مشخص می‌کند ربات در برابر پیام‌های عادی چه نوع پاسخ خودکاری داشته باشد.",
-        },
-        {
-          type: "paragraph",
-          text: "«دستورات» مستقل از پاسخ‌گویی اعضا کنترل می‌شود و حالت اجرای آن در حال حاضر Plain Text است.",
-        },
-        {
-          type: "paragraph",
-          text: "«اتوماسیون» برای رویدادها و پاسخ‌های خودکار قابل فعال‌سازی است.",
-        },
-        {
-          type: "paragraph",
-          text: "«ثبت رویدادها» سابقه عملیات نصب و مدیریت را نگه می‌دارد.",
-        },
-      ],
+      type: "paragraph",
+      text: "ساختار ورود و خروج این بخش آماده است تا در مرحلهٔ ۴ به بررسی محیط، وابستگی‌ها، دسترسی‌ها و اتصال متصل شود.",
     },
-    buttons([button("پاسخ اعضا : " + policyLabel(stateRow?.member_message_policy), "inst:set:member")]),
-    buttons([
-      button(
-        commandEnabled ? "دستورات : فعال" : "دستورات : غیرفعال",
-        "inst:set:commands",
-        commandEnabled ? "success" : "danger",
-      ),
-    ]),
-    buttons([
-      button(
-        automationEnabled ? "اتوماسیون : فعال" : "اتوماسیون : غیرفعال",
-        "inst:set:auto",
-        automationEnabled ? "success" : "danger",
-      ),
-    ]),
-    buttons([button("امنیت : " + securityLabel(stateRow?.security_mode), "inst:set:security")]),
-    buttons([
-      button(
-        auditEnabled ? "ثبت رویدادها : فعال" : "ثبت رویدادها : غیرفعال",
-        "inst:set:audit",
-        auditEnabled ? "success" : "danger",
-      ),
-    ]),
-    buttons([button("‹ بازگشت", "inst:complete", "primary")]),
-    { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Iɴsᴛᴀʟʟ Sᴇᴛᴛɪɴɢs" },
+    buttons([button("‹ بازگشت", "inst:home", "primary")]),
+    { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sʏsᴛᴇᴍ Cʜᴇᴄᴋ" },
   ]);
 }
 
-function statusDocument(
-  chat: TgChat,
-  stateRow: any,
-  check: Awaited<ReturnType<typeof permissionCheck>>,
-) {
-  const permissionSnapshot = stateRow?.bot_permission_snapshot || check.snapshot || {};
+function reportDocument(chat: TgChat, stateRow: any, session: any) {
   const installed = Boolean(stateRow?.installed);
 
   return doc([
     ...base(
-      "Iɴsᴛᴀʟʟ Sᴛᴀᴛᴜs",
-      "وضعیت فعلی نصب، تنظیمات اجرایی و دسترسی‌های ثبت‌شده در این گروه.",
+      "Iɴsᴛᴀʟʟ Rᴇᴘᴏʀᴛ",
+      "گزارش وضعیت فعلی بدون اجرای عملیات تغییردهنده.",
     ),
-    table("وضعیت اصلی", [
+    table("وضعیت فعلی", [
       ["گروه", chat.title || "گروه بدون نام"],
-      ["نصب", installed ? "● فعال" : "○ غیرفعال"],
-      ["نسخه نصب", String(stateRow?.installation_version || VERSION)],
-      ["نصب‌شده در", stateRow?.installed_at ? new Date(stateRow.installed_at).toLocaleString("fa-IR") : "ثبت نشده"],
+      ["نصب", statusText(installed)],
+      ["نسخه نصب‌شده", installed ? String(stateRow?.installation_version || VERSION) : "—"],
+      ["زمان نصب", stateRow?.installed_at ? new Date(stateRow.installed_at).toLocaleString("fa-IR") : "ثبت نشده"],
       ["آخرین تغییر", stateRow?.updated_at ? new Date(stateRow.updated_at).toLocaleString("fa-IR") : "ثبت نشده"],
-      ["دستورات", String(stateRow?.command_policy || "enabled") === "enabled" ? "● فعال" : "○ غیرفعال"],
-      ["اتوماسیون", Boolean(stateRow?.automation_enabled) ? "● فعال" : "○ غیرفعال"],
-      ["ثبت رویدادها", Boolean(stateRow?.audit_enabled) ? "● فعال" : "○ غیرفعال"],
-      ["امنیت", securityLabel(stateRow?.security_mode)],
-    ]),
-    table("دسترسی‌های ثبت‌شده", [
-      ["حذف پیام", capabilityStatus(permissionSnapshot?.can_delete_messages)],
-      ["محدودکردن اعضا", capabilityStatus(permissionSnapshot?.can_restrict_members)],
-      ["دعوت اعضا", capabilityStatus(permissionSnapshot?.can_invite_users)],
-      ["پین پیام", capabilityStatus(permissionSnapshot?.can_pin_messages)],
-      ["مدیریت مدیران", capabilityStatus(permissionSnapshot?.can_promote_members)],
-      ["مدیریت تاپیک‌ها", capabilityStatus(permissionSnapshot?.can_manage_topics)],
+      ["پیکربندی جاری", session ? "● نشست فعال" : "○ بدون نشست"],
+      ["عملیات جاری", session ? operationLabel(String(session.operation) as InstallationOperation) : "—"],
+      ["گام جاری", session ? String(session.step) : "—"],
     ]),
     {
-      type: "paragraph",
-      text:
-        "بررسی زنده نشان می‌دهد ربات در این لحظه " +
-        (check.ok ? "دسترسی‌های اصلی لازم را دارد." : "همه دسترسی‌های اصلی لازم را ندارد.") ,
+      type: "details",
+      summary: "جزئیات نشست",
+      is_open: false,
+      blocks: [
+        {
+          type: "paragraph",
+          text: session
+            ? "نوع نصب: " + installTypeLabel(session.install_type) +
+              " · نسخه: " + String(session.version || "—") +
+              " · محیط: " + String(session.environment || "—") +
+              " · تنظیمات: " + settingsLabel(session.settings)
+            : "نشست پیکربندی فعالی وجود ندارد.",
+        },
+      ],
     },
-    buttons([button("بررسی دوباره", "inst:status")]),
-    buttons([button("تنظیمات نصب", "inst:settings")]),
-    buttons([
-      button(
-        installed ? "غیرفعال‌سازی" : "نصب ربات",
-        installed ? "inst:disable" : "inst:start",
-        installed ? "danger" : "success",
-      ),
-    ]),
-    buttons([button("‹ بازگشت", installed ? "inst:complete" : "inst:back", "primary")]),
-    { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Iɴsᴛᴀʟʟ Cᴇɴᴛᴇʀ" },
+    buttons([button("‹ بازگشت", "inst:manage", "primary")]),
+    { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Iɴsᴛᴀʟʟ Rᴇᴘᴏʀᴛ" },
   ]);
 }
 
-function commandPolicyDocument(stateRow: any) {
-  const enabled = String(stateRow?.command_policy || "enabled") === "enabled";
+function operationSelectionDocument(stateRow: any) {
+  const installed = Boolean(stateRow?.installed);
+  const blocks: any[] = [
+    ...base(
+      "Sᴇʟᴇᴄᴛ Oᴘᴇʀᴀᴛɪᴏɴ",
+      "فقط عملیات سازگار با وضعیت فعلی گروه نمایش داده می‌شوند.",
+    ),
+    table("وضعیت", [
+      ["نصب فعلی", statusText(installed)],
+      ["نسخه", installed ? String(stateRow?.installation_version || VERSION) : "—"],
+    ]),
+    { type: "divider" },
+  ];
 
+  if (!installed) {
+    blocks.push(
+      buttons([button("نصب اولیه", "inst:op:install", "success")]),
+      buttons([button("گزارش وضعیت", "inst:op:report")]),
+    );
+  } else {
+    blocks.push(
+      buttons([button("به‌روزرسانی", "inst:op:update", "success")]),
+      buttons([button("تعمیر نصب", "inst:op:repair", "success")]),
+      buttons([button("نصب مجدد", "inst:op:reinstall", "danger")]),
+      buttons([button("حذف نصب", "inst:op:uninstall", "danger")]),
+      buttons([button("گزارش وضعیت", "inst:op:report")]),
+    );
+  }
+
+  blocks.push(
+    buttons([button("‹ بازگشت", "inst:home", "primary")]),
+    { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Oᴘᴇʀᴀᴛɪᴏɴ Sᴇʟᴇᴄᴛ" },
+  );
+
+  return doc(blocks);
+}
+
+function installTypeDocument(operation: InstallationOperation) {
   return doc([
     ...base(
-      "Cᴏᴍᴍᴀɴᴅ Pᴏʟɪᴄʏ",
-      "سیاست پردازش دستورات این گروه از تنظیمات نصب جدا نیست و از همین مرکز قابل کنترل است.",
+      "Iɴsᴛᴀʟʟ Tʏᴘᴇ",
+      "برای این عملیات، نوع اجرای پیکربندی را انتخاب کنید.",
     ),
-    table("سیاست فعلی", [
-      ["دستورات", enabled ? "● فعال" : "○ غیرفعال"],
-      ["حالت اجرا", "Plain Text"],
-      ["Slash", "نیاز نیست"],
-      ["پیام ناشناخته", "بدون پاسخ"],
+    table("عملیات", [
+      ["عملیات", operationLabel(operation)],
+      ["نوع", "هنوز انتخاب نشده"],
     ]),
     {
-      type: "paragraph",
-      text: enabled
-        ? "دستورات فعال هستند و ربات بدون الزام به Slash آن‌ها را پردازش می‌کند."
-        : "دستورات خاموش هستند و درخواست‌های دستوری گروه اجرا نخواهند شد.",
+      type: "details",
+      summary: "تفاوت دو مسیر",
+      is_open: false,
+      blocks: [
+        {
+          type: "paragraph",
+          text: "نصب سریع از تنظیمات استاندارد استفاده می‌کند و ورودی فنی از شما نمی‌گیرد.",
+        },
+        {
+          type: "paragraph",
+          text: "نصب سفارشی نسخه، محیط و تنظیمات را به‌صورت جداگانه دریافت می‌کند.",
+        },
+      ],
     },
-    buttons([
-      button(
-        enabled ? "غیرفعال‌سازی دستورات" : "فعال‌سازی دستورات",
-        "inst:set:commands",
-        enabled ? "danger" : "success",
-      ),
-    ]),
-    buttons([button("تنظیمات نصب", "inst:settings")]),
-    buttons([button("‹ بازگشت", "inst:complete", "primary")]),
-    { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Cᴏᴍᴍᴀɴᴅ Pᴏʟɪᴄʏ" },
+    buttons([button("نصب سریع", `inst:type:quick:${operation}`, "success")]),
+    buttons([button("نصب سفارشی", `inst:type:custom:${operation}`, "success")]),
+    buttons([button("‹ بازگشت", "inst:operations", "primary")]),
+    { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Iɴsᴛᴀʟʟ Tʏᴘᴇ" },
   ]);
 }
 
-function disableDocument(chat: TgChat, stateRow: any) {
+function versionDocument() {
   return doc([
     ...base(
-      "Dɪsᴀʙʟᴇ Gʀᴏᴜᴘ",
-      "غیرفعال‌سازی، مدیریت ربات را در این گروه متوقف می‌کند؛ اطلاعات ثبت‌شده و سابقه نصب حذف نمی‌شوند.",
+      "Sᴇʟᴇᴄᴛ Vᴇʀsɪᴏɴ",
+      "نسخه را انتخاب کنید یا نسخهٔ دقیق را به‌صورت متن ارسال کنید.",
     ),
-    table("اثر غیرفعال‌سازی", [
+    table("ورودی فعلی", [
+      ["فیلد", "نسخه"],
+      ["فرمت دقیق", "v1.2.3"],
+      ["آخرین نسخه", "latest"],
+    ]),
+    buttons([button("آخرین نسخه", "inst:version:latest", "success")]),
+    buttons([button(VERSION, "inst:version:current", "success")]),
+    buttons([button("ارسال نسخه دیگر", "inst:version:input")]),
+    buttons([button("‹ بازگشت", "inst:type:back", "primary")]),
+    {
+      type: "footer",
+      text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴇʟᴇᴄᴛ Vᴇʀsɪᴏɴ",
+    },
+  ]);
+}
+
+function environmentDocument() {
+  return doc([
+    ...base(
+      "Sᴇʟᴇᴄᴛ Eɴᴠɪʀᴏɴᴍᴇɴᴛ",
+      "محیط مقصد را مشخص کنید. این انتخاب در اجرای واقعی عملیات استفاده خواهد شد.",
+    ),
+    table("محیط", [
+      ["انتخاب فعلی", "هنوز انتخاب نشده"],
+      ["گزینه‌ها", "production · staging · development"],
+    ]),
+    buttons([button("production", "inst:env:production", "success")]),
+    buttons([button("staging", "inst:env:staging", "success")]),
+    buttons([button("development", "inst:env:development", "success")]),
+    buttons([button("‹ بازگشت", "inst:version", "primary")]),
+    { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴇʟᴇᴄᴛ Eɴᴠɪʀᴏɴᴍᴇɴᴛ" },
+  ]);
+}
+
+function settingsDocument() {
+  return doc([
+    ...base(
+      "Cᴜsᴛᴏᴍ Sᴇᴛᴛɪɴɢs",
+      "تنظیمات سفارشی را ارسال کنید یا تنظیمات استاندارد را انتخاب کنید.",
+    ),
+    table("فرمت ورودی", [
+      ["استاندارد", "{}"],
+      ["سفارشی", "یک JSON object معتبر"],
+      ["حداکثر", "۳۰ گزینه · ۴۰۰۰ نویسه"],
+    ]),
+    {
+      type: "code",
+      text: '{ "response_policy": "standard", "security_mode": "strict" }',
+      language: "json",
+    },
+    buttons([button("استفاده از استاندارد", "inst:settings:standard", "success")]),
+    buttons([button("ارسال تنظیمات سفارشی", "inst:settings:input", "success")]),
+    buttons([button("‹ بازگشت", "inst:environment", "primary")]),
+    { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Cᴜsᴛᴏᴍ Sᴇᴛᴛɪɴɢs" },
+  ]);
+}
+
+function summaryDocument(chat: TgChat, session: any, destructive: boolean) {
+  const settings = session.settings && Object.keys(session.settings).length
+    ? settingsLabel(session.settings)
+    : "استاندارد";
+
+  return doc([
+    ...base(
+      "Cᴏɴғɪʀᴍ Oᴘᴇʀᴀᴛɪᴏɴ",
+      "خلاصهٔ دقیق ورودی‌ها را بررسی کنید؛ تا این نقطه هنوز عملیات اجرایی انجام نشده است.",
+    ),
+    table("خلاصهٔ درخواست", [
       ["گروه", chat.title || "گروه بدون نام"],
-      ["دستورات", "○ غیرفعال"],
-      ["اتوماسیون", "○ غیرفعال"],
-      ["داده‌های ثبت‌شده", "حفظ می‌شوند"],
-      ["سابقه نصب", "حفظ می‌شود"],
-      ["نصب مجدد", "قابل انجام است"],
+      ["عملیات", operationLabel(String(session.operation) as InstallationOperation)],
+      ["نوع نصب", installTypeLabel(session.install_type)],
+      ["نسخه", String(session.version || "—")],
+      ["محیط", String(session.environment || "—")],
+      ["تنظیمات", settings],
+      ["وضعیت", "● منتظر تأیید"],
     ]),
     {
       type: "paragraph",
-      text: "این کار حذف داده نیست. فقط وضعیت نصب گروه خاموش می‌شود و برای استفاده دوباره باید نصب را تأیید کنید.",
+      text: destructive
+        ? "این عملیات می‌تواند وضعیت فعلی گروه را تغییر دهد. تأیید نهایی را فقط بعد از بررسی خلاصه انجام دهید."
+        : "تأیید این صفحه فقط پیکربندی را نهایی می‌کند. بررسی پیش‌نیازها و اجرای واقعی در مراحل بعد انجام می‌شود.",
     },
-    buttons([button("تأیید غیرفعال‌سازی", "inst:disable:confirm", "danger")]),
-    buttons([button("‹ بازگشت", "inst:complete", "primary")]),
-    { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Iɴsᴛᴀʟʟ Cᴇɴᴛᴇʀ" },
+    buttons([
+      button(
+        destructive ? "تأیید عملیات" : "تأیید و ادامه",
+        "inst:confirm",
+        destructive ? "danger" : "success",
+      ),
+    ]),
+    buttons([button("‹ بازگشت", "inst:summary:back", "primary")]),
+    { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Cᴏɴғɪʀᴍ Oᴘᴇʀᴀᴛɪᴏɴ" },
   ]);
 }
 
-function disabledDocument(chat: TgChat) {
+function confirmedDocument(chat: TgChat, session: any) {
   return doc([
     ...base(
-      "Dɪsᴀʙʟᴇᴅ",
-      "ربات از چرخه مدیریت این گروه خارج شد. اطلاعات و سابقه نصب باقی مانده‌اند و نصب دوباره از همین نقطه ممکن است.",
+      "Cᴏɴғɪʀᴍᴇᴅ",
+      "پیکربندی مرحلهٔ ۳ با موفقیت ثبت شد. هنوز هیچ نصب، حذف، تعمیر یا به‌روزرسانی واقعی اجرا نشده است.",
     ),
     table("نتیجه", [
       ["گروه", chat.title || "گروه بدون نام"],
-      ["وضعیت نصب", "○ غیرفعال"],
-      ["دستورات", "○ غیرفعال"],
-      ["اتوماسیون", "○ غیرفعال"],
-      ["داده‌های ثبت‌شده", "حفظ شده"],
-      ["سابقه نصب", "حفظ شده"],
+      ["عملیات", operationLabel(String(session.operation) as InstallationOperation)],
+      ["نوع نصب", installTypeLabel(session.install_type)],
+      ["نسخه", String(session.version || "—")],
+      ["محیط", String(session.environment || "—")],
+      ["تنظیمات", settingsLabel(session.settings)],
+      ["وضعیت", "● آماده برای مرحلهٔ بعد"],
     ]),
-    buttons([button("نصب دوباره", "inst:start", "success")]),
-    buttons([button("بررسی دسترسی ربات", "inst:recheck")]),
-    { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Iɴsᴛᴀʟʟ Cᴇɴᴛᴇʀ" },
+    {
+      type: "paragraph",
+      text: "مرز مرحلهٔ ۳ رعایت شد: ورودی‌ها دریافت، اعتبارسنجی و تأیید شدند؛ بررسی پیش‌نیازها هنوز اجرا نشده است.",
+    },
+    buttons([button("بررسی سیستم", "inst:check")]),
+    buttons([button("مدیریت نصب", "inst:manage")]),
+    buttons([button("‹ بازگشت", "inst:home", "primary")]),
+    { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Cᴏɴғɪʀᴍᴇᴅ" },
   ]);
 }
 
-async function updatePolicy(pool: Pool, groupId: number, key: string) {
-  const client = await pool.connect();
+function invalidInputDocument(message: string, backCallback: string) {
+  return doc([
+    ...base(
+      "Iɴᴠᴀʟɪᴅ Iɴᴘᴜᴛ",
+      "مقدار ارسال‌شده با قرارداد این مرحله سازگار نیست.",
+    ),
+    table("نتیجه", [
+      ["وضعیت", "○ نامعتبر"],
+      ["دلیل", message],
+    ]),
+    buttons([button("تلاش دوباره", "inst:retry")]),
+    buttons([button("‹ بازگشت", backCallback, "primary")]),
+    { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Iɴᴘᴜᴛ Vᴀʟɪᴅᴀᴛɪᴏɴ" },
+  ]);
+}
 
-  try {
-    await client.query("BEGIN");
+async function beginOperation(
+  pool: Pool,
+  chat: TgChat,
+  actorId: number,
+  operation: InstallationOperation,
+) {
+  const row = await state(pool, chat.id);
+  const installed = Boolean(row?.installed);
 
-    const result = await client.query(
-      "SELECT * FROM bot_group_installations WHERE group_id=$1 FOR UPDATE",
-      [String(groupId)],
+  if (operation === "install" && installed) return "installed";
+  if (["update", "repair", "reinstall", "uninstall"].includes(operation) && !installed) return "not_installed";
+
+  const session = defaultSession(operation, actorId);
+
+  if (operation === "install" || operation === "reinstall") {
+    session.step = "install_type";
+  } else if (operation === "uninstall") {
+    session.step = "summary";
+  } else if (operation === "update" || operation === "repair") {
+    session.version = "latest";
+    session.environment = "production";
+    session.install_type = "quick";
+    session.settings = {};
+    session.step = "summary";
+  } else {
+    session.step = "summary";
+  }
+
+  await saveSession(pool, chat.id, session);
+  await logInstallEvent(pool, chat.id, actorId, "operation_selected", {
+    operation,
+  });
+
+  return session;
+}
+
+async function applyInstallType(
+  pool: Pool,
+  chat: TgChat,
+  actorId: number,
+  type: InstallType,
+  operation: InstallationOperation,
+  messageId: number,
+) {
+  const session = defaultSession(operation, actorId);
+  session.install_type = type;
+
+  if (type === "quick") {
+    session.version = "latest";
+    session.environment = "production";
+    session.settings = {};
+    session.step = "summary";
+  } else {
+    session.step = "version";
+  }
+
+  await saveSession(pool, chat.id, session);
+  await render(
+    chat.id,
+    messageId,
+    type === "quick"
+      ? summaryDocument(chat, session, isDestructive(operation))
+      : versionDocument(),
+  );
+}
+
+async function renderCurrentSession(pool: Pool, chat: TgChat, messageId: number) {
+  const session = await getSession(pool, chat.id);
+  if (!session) {
+    await render(
+      chat.id,
+      messageId,
+      operationSelectionDocument(await state(pool, chat.id)),
     );
+    return;
+  }
 
-    if (!result.rows[0]) {
-      throw new Error("installation_state_missing");
-    }
-
-    const current = result.rows[0];
-
-    if (key === "member") {
-      const order = ["silent", "commands_only", "automation", "custom"];
-      let index = order.indexOf(String(current.member_message_policy));
-      if (index < 0) index = 0;
-      const next = order[(index + 1) % order.length];
-
-      await client.query(
-        "UPDATE bot_group_installations " +
-          "SET member_message_policy=$1,response_policy=$2,updated_at=NOW() " +
-          "WHERE group_id=$3",
-        [
-          next,
-          next === "silent" ? "standard" : "custom",
-          String(groupId),
-        ],
-      );
-    } else if (key === "commands") {
-      await client.query(
-        "UPDATE bot_group_installations " +
-          "SET command_policy=$1,updated_at=NOW() " +
-          "WHERE group_id=$2",
-        [
-          current.command_policy === "enabled" ? "disabled" : "enabled",
-          String(groupId),
-        ],
-      );
-    } else if (key === "auto") {
-      const next = !Boolean(current.automation_enabled);
-
-      await client.query(
-        "UPDATE bot_group_installations " +
-          "SET automation_enabled=$1," +
-          "member_message_policy=CASE " +
-          "WHEN $1=TRUE AND member_message_policy='silent' " +
-          "THEN 'automation' ELSE member_message_policy END," +
-          "updated_at=NOW() WHERE group_id=$2",
-        [next, String(groupId)],
-      );
-    } else if (key === "security") {
-      const order = ["standard", "strict", "custom"];
-      let index = order.indexOf(String(current.security_mode));
-      if (index < 0) index = 0;
-
-      await client.query(
-        "UPDATE bot_group_installations " +
-          "SET security_mode=$1,updated_at=NOW() " +
-          "WHERE group_id=$2",
-        [order[(index + 1) % order.length], String(groupId)],
-      );
-    } else if (key === "audit") {
-      await client.query(
-        "UPDATE bot_group_installations " +
-          "SET audit_enabled=NOT audit_enabled,updated_at=NOW() " +
-          "WHERE group_id=$1",
-        [String(groupId)],
-      );
-    }
-
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK").catch(() => {});
-    throw error;
-  } finally {
-    client.release();
+  const operation = String(session.operation) as InstallationOperation;
+  if (session.step === "install_type") {
+    await render(chat.id, messageId, installTypeDocument(operation));
+  } else if (session.step === "version") {
+    await render(chat.id, messageId, versionDocument());
+  } else if (session.step === "environment") {
+    await render(chat.id, messageId, environmentDocument());
+  } else if (session.step === "settings") {
+    await render(chat.id, messageId, settingsDocument());
+  } else if (session.step === "summary") {
+    await render(chat.id, messageId, summaryDocument(chat, session, isDestructive(operation)));
+  } else if (session.step === "confirmed") {
+    await render(chat.id, messageId, confirmedDocument(chat, session));
+  } else {
+    await render(chat.id, messageId, operationSelectionDocument(await state(pool, chat.id)));
   }
 }
 
-async function install(pool: Pool, chat: TgChat, actor: number) {
-  const check = await permissionCheck(chat.id);
-  await saveSnapshot(pool, chat.id, check.snapshot);
-
-  if (!check.ok) return check;
-
-  const client = await pool.connect();
-
-  try {
-    await client.query("BEGIN");
-
-    const result = await client.query(
-      "SELECT installed FROM bot_group_installations WHERE group_id=$1 FOR UPDATE",
-      [String(chat.id)],
-    );
-
-    if (result.rows[0]?.installed === true) {
-      await client.query("COMMIT");
-      return {
-        ok: true,
-        status: "complete",
-        missing: [],
-        optionalMissing: check.optionalMissing,
-        snapshot: check.snapshot,
-      };
-    }
-
-    await client.query(
-      "UPDATE bot_group_installations SET " +
-        "installed=TRUE," +
-        "installed_at=NOW()," +
-        "installed_by=$2," +
-        "uninstalled_at=NULL," +
-        "uninstalled_by=NULL," +
-        "installation_version=$3," +
-        "bot_permission_snapshot=$4::jsonb," +
-        "response_policy='standard'," +
-        "member_message_policy='silent'," +
-        "command_policy='enabled'," +
-        "command_mode='plain'," +
-        "automation_enabled=FALSE," +
-        "security_mode='standard'," +
-        "audit_enabled=TRUE," +
-        "updated_at=NOW() " +
-        "WHERE group_id=$1",
-      [
-        String(chat.id),
-        String(actor),
-        VERSION,
-        JSON.stringify(check.snapshot),
-      ],
-    );
-
-    await client.query(
-      "INSERT INTO bot_group_settings(group_id) VALUES($1) " +
-        "ON CONFLICT(group_id) DO NOTHING",
-      [String(chat.id)],
-    );
-
-    await client.query(
-      "INSERT INTO warning_system_settings(group_id) VALUES($1) " +
-        "ON CONFLICT(group_id) DO NOTHING",
-      [String(chat.id)],
-    );
-
-    await client.query(
-      "INSERT INTO content_lock_settings(group_id) VALUES($1) " +
-        "ON CONFLICT(group_id) DO NOTHING",
-      [String(chat.id)],
-    );
-
-    await client.query(
-      "INSERT INTO bot_installation_events(group_id,actor_id,event_type,metadata) " +
-        "VALUES($1,$2,'installed',$3::jsonb)",
-      [
-        String(chat.id),
-        String(actor),
-        JSON.stringify({
-          version: VERSION,
-          snapshot: check.snapshot,
-          optional_missing: check.optionalMissing,
-        }),
-      ],
-    );
-
-    await client.query(
-      "INSERT INTO audit_logs(actor_id,action,target,after_data,source) " +
-        "VALUES($1,'group_installed',$2,$3::jsonb,'telegram_installation')",
-      [
-        String(actor),
-        String(chat.id),
-        JSON.stringify({
-          version: VERSION,
-          member_message_policy: "silent",
-          command_mode: "plain",
-          optional_missing: check.optionalMissing,
-        }),
-      ],
-    );
-
-    await client.query("COMMIT");
-
-    return {
-      ok: true,
-      status: "complete",
-      missing: [],
-      optionalMissing: check.optionalMissing,
-      snapshot: check.snapshot,
-    };
-  } catch (error) {
-    await client.query("ROLLBACK").catch(() => {});
-    throw error;
-  } finally {
-    client.release();
-  }
+export function isInstallationCommandText(value: unknown) {
+  return isInstallText(value) || isUninstallText(value);
 }
 
-async function uninstall(pool: Pool, chat: TgChat, actor: number) {
-  const client = await pool.connect();
+export function installationInputValidation(value: string, mode: "version" | "settings") {
+  if (mode === "version") {
+    const version = canonicalVersion(value);
+    return version ? { ok: true as const, value: version } : { ok: false as const };
+  }
 
-  try {
-    await client.query("BEGIN");
+  const settings = parseCustomSettings(value);
+  return settings ? { ok: true as const, value: settings } : { ok: false as const };
+}
 
-    const result = await client.query(
-      "SELECT installed FROM bot_group_installations WHERE group_id=$1 FOR UPDATE",
-      [String(chat.id)],
+export async function handleInstallationInput(
+  pool: Pool,
+  msg: TgMessage,
+  owners: string[],
+  sudo: string[],
+): Promise<InstallationInputResult> {
+  if (!msg.from || ["private", "channel"].includes(msg.chat.type)) return "ignored";
+  if (!authorized(msg.from.id, owners, sudo)) return "ignored";
+
+  await ensureSchema(pool);
+
+  const session = await getSession(pool, msg.chat.id);
+  if (!session) return "ignored";
+  if (Number(session.actor_id) !== msg.from.id) return "ignored";
+
+  const text = msg.text || msg.caption || "";
+  if (!String(text).trim()) return "handled";
+
+  const value = String(text).trim();
+
+  if (["لغو", "لغو نصب", "cancel", "انصراف"].includes(plain(value))) {
+    await clearSession(pool, msg.chat.id);
+    await render(
+      msg.chat.id,
+      undefined,
+      mainCenterDocument(msg.chat, await state(pool, msg.chat.id), null),
     );
+    return "handled";
+  }
 
-    if (!result.rows[0]?.installed) {
-      await client.query("COMMIT");
-      return false;
+  if (session.step === "version") {
+    const result = installationInputValidation(value, "version");
+    if (!result.ok) {
+      await render(
+        msg.chat.id,
+        undefined,
+        invalidInputDocument(
+          "فرمت نسخه معتبر نیست. نمونه: v1.2.3 یا latest",
+          "inst:version",
+        ),
+      );
+      return "handled";
     }
 
-    await client.query(
-      "UPDATE bot_group_installations SET " +
-        "installed=FALSE," +
-        "uninstalled_at=NOW()," +
-        "uninstalled_by=$2," +
-        "command_policy='disabled'," +
-        "automation_enabled=FALSE," +
-        "updated_at=NOW() " +
-        "WHERE group_id=$1",
-      [String(chat.id), String(actor)],
+    await pool.query(
+      "UPDATE bot_installation_sessions SET version=$1,step='environment',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$2",
+      [result.value, String(msg.chat.id)],
     );
-
-    await client.query(
-      "INSERT INTO bot_installation_events(group_id,actor_id,event_type,metadata) " +
-        "VALUES($1,$2,'uninstalled',$3::jsonb)",
-      [
-        String(chat.id),
-        String(actor),
-        JSON.stringify({
-          retained_data: true,
-          retained_history: true,
-        }),
-      ],
-    );
-
-    await client.query(
-      "INSERT INTO audit_logs(actor_id,action,target,after_data,source) " +
-        "VALUES($1,'group_uninstalled',$2,$3::jsonb,'telegram_installation')",
-      [
-        String(actor),
-        String(chat.id),
-        JSON.stringify({
-          retained_data: true,
-          command_policy: "disabled",
-          automation_enabled: false,
-        }),
-      ],
-    );
-
-    await client.query("COMMIT");
-    return true;
-  } catch (error) {
-    await client.query("ROLLBACK").catch(() => {});
-    throw error;
-  } finally {
-    client.release();
+    const fresh = await getSession(pool, msg.chat.id);
+    await render(msg.chat.id, undefined, environmentDocument());
+    if (fresh) {
+      await logInstallEvent(pool, msg.chat.id, msg.from.id, "input_version_saved", {
+        version: result.value,
+      });
+    }
+    return "handled";
   }
+
+  if (session.step === "settings") {
+    const result = installationInputValidation(value, "settings");
+    if (!result.ok) {
+      await render(
+        msg.chat.id,
+        undefined,
+        invalidInputDocument(
+          "تنظیمات باید یک JSON object معتبر و حداکثر ۳۰ گزینه باشد.",
+          "inst:settings",
+        ),
+      );
+      return "handled";
+    }
+
+    await pool.query(
+      "UPDATE bot_installation_sessions SET settings=$1::jsonb,step='summary',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$2",
+      [JSON.stringify(result.value), String(msg.chat.id)],
+    );
+    const fresh = await getSession(pool, msg.chat.id);
+    if (fresh) {
+      await logInstallEvent(pool, msg.chat.id, msg.from.id, "input_settings_saved", {
+        keys: Object.keys(result.value),
+      });
+      await render(
+        msg.chat.id,
+        undefined,
+        summaryDocument(msg.chat, fresh, isDestructive(String(fresh.operation) as InstallationOperation)),
+      );
+    }
+    return "handled";
+  }
+
+  return "ignored";
 }
 
 export async function ensureInstallationSchema(pool: Pool) {
@@ -1175,9 +1078,7 @@ export async function installationGate(
   sudo: string[],
   allowActions = true,
 ): Promise<InstallationGateResult> {
-  if (!msg.from || ["private", "channel"].includes(msg.chat.type)) {
-    return "drop";
-  }
+  if (!msg.from || ["private", "channel"].includes(msg.chat.type)) return "drop";
 
   await ensureSchema(pool);
   await ensureGroup(pool, msg.chat);
@@ -1187,36 +1088,20 @@ export async function installationGate(
   const isOperator = authorized(msg.from.id, owners, sudo);
 
   if (allowActions && isOperator && isInstallText(raw)) {
-    if (installationState.installed) {
-      const check = await permissionCheck(msg.chat.id);
-      await saveSnapshot(pool, msg.chat.id, check.snapshot);
-
-      await render(
-        msg.chat.id,
-        undefined,
-        installedDocument(msg.chat, installationState, check),
-      );
-      return "handled";
-    }
-
+    const session = await getSession(pool, msg.chat.id);
     await render(
       msg.chat.id,
       undefined,
-      installLandingDocument(msg.chat, msg.from.id, owners, sudo),
+      mainCenterDocument(msg.chat, installationState, session),
     );
     return "handled";
   }
 
   if (allowActions && isOperator && isUninstallText(raw)) {
-    if (!installationState.installed) {
-      await render(msg.chat.id, undefined, disabledDocument(msg.chat));
-      return "handled";
-    }
-
     await render(
       msg.chat.id,
       undefined,
-      disableDocument(msg.chat, installationState),
+      mainCenterDocument(msg.chat, installationState, await getSession(pool, msg.chat.id)),
     );
     return "handled";
   }
@@ -1231,7 +1116,6 @@ export async function handleInstallationCallback(
   sudo: string[],
 ): Promise<boolean> {
   const data = norm(cb.data);
-
   if (!data.startsWith("inst:")) return false;
 
   if (!cb.message || ["private", "channel"].includes(cb.message.chat.type)) {
@@ -1248,267 +1132,303 @@ export async function handleInstallationCallback(
   await ensureGroup(pool, cb.message.chat);
 
   const chat = cb.message.chat;
-
-  let callbackNotice = "انجام شد";
+  let notice = "انجام شد";
 
   try {
-    switch (data) {
-      case "inst:start": {
-        const check = await permissionCheck(chat.id, true);
-        await saveSnapshot(pool, chat.id, check.snapshot);
-
-        await render(
-          chat.id,
-          cb.message.message_id,
-          permissionDocument(chat, check),
-        );
-        callbackNotice = check.ok ? "دسترسی‌ها تأیید شد" : "دسترسی‌ها نیاز به بررسی دارد";
-        return true;
-      }
-
-      case "inst:recheck": {
-        invalidatePermissionCache(chat.id);
-        const check = await permissionCheck(chat.id, true);
-        await saveSnapshot(pool, chat.id, check.snapshot);
-
-        await render(
-          chat.id,
-          cb.message.message_id,
-          permissionDocument(chat, check),
-        );
-
-        callbackNotice = check.ok ? "بررسی دسترسی کامل شد" : "چند دسترسی نیاز به اصلاح دارد";
-        return true;
-      }
-
-      case "inst:settings": {
-        const fresh = await state(pool, chat.id);
-
-        await render(
-          chat.id,
-          cb.message.message_id,
-          settingsDocument(fresh),
-        );
-        return true;
-      }
-
-      case "inst:settings:save": {
-        await render(
-          chat.id,
-          cb.message.message_id,
-          settingsDocument(await state(pool, chat.id)),
-        );
-        return true;
-      }
-
-      case "inst:back": {
-        const fresh = await state(pool, chat.id);
-
-        if (fresh?.installed) {
-          const check = await permissionCheck(chat.id);
-          await saveSnapshot(pool, chat.id, check.snapshot);
-
-          await render(
-            chat.id,
-            cb.message.message_id,
-            installedDocument(chat, fresh, check),
-          );
-        } else {
-          await render(
-            chat.id,
-            cb.message.message_id,
-            installLandingDocument(
-              chat,
-              cb.from.id,
-              owners,
-              sudo,
-            ),
-          );
-        }
-
-        return true;
-      }
-
-      case "inst:cancel": {
-        await render(
-          chat.id,
-          cb.message.message_id,
-          doc([
-            ...base(
-              "Iɴsᴛᴀʟʟ Cᴀɴᴄᴇʟʟᴇᴅ",
-              "درخواست نصب بسته شد. برای شروع دوباره، دستور نصب را ارسال کنید.",
-            ),
-            table("وضعیت", [
-              ["گروه", chat.title || "گروه بدون نام"],
-              ["وضعیت نصب", Boolean((await state(pool, chat.id))?.installed) ? "● فعال" : "○ نصب نشده"],
-            ]),
-            buttons([button("شروع دوباره", "inst:back")]),
-            { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Iɴsᴛᴀʟʟ Cᴇɴᴛᴇʀ" },
-          ]),
-        );
-        return true;
-      }
-
-      case "inst:confirm": {
-        const result = await install(pool, chat, cb.from.id);
-
-        if (!result.ok) {
-          await render(
-            chat.id,
-            cb.message.message_id,
-            permissionDocument(chat, result as any),
-          );
-          return true;
-        }
-
-        const fresh = await state(pool, chat.id);
-        const check = await permissionCheck(chat.id, true);
-        await saveSnapshot(pool, chat.id, check.snapshot);
-
-        await render(
-          chat.id,
-          cb.message.message_id,
-          installedDocument(chat, fresh, check),
-        );
-        callbackNotice = "نصب با موفقیت انجام شد";
-        return true;
-      }
-
-      case "inst:complete": {
-        const fresh = await state(pool, chat.id);
-
-        if (!fresh?.installed) {
-          await render(
-            chat.id,
-            cb.message.message_id,
-            installLandingDocument(chat, cb.from.id, owners, sudo),
-          );
-          return true;
-        }
-
-        const check = await permissionCheck(chat.id);
-        await saveSnapshot(pool, chat.id, check.snapshot);
-
-        await render(
-          chat.id,
-          cb.message.message_id,
-          installedDocument(chat, fresh, check),
-        );
-        callbackNotice = "مرکز نصب آماده است";
-        return true;
-      }
-
-      case "inst:status": {
-        const check = await permissionCheck(chat.id, true);
-        await saveSnapshot(pool, chat.id, check.snapshot);
-
-        await render(
-          chat.id,
-          cb.message.message_id,
-          statusDocument(chat, await state(pool, chat.id), check),
-        );
-        callbackNotice = "وضعیت به‌روز شد";
-        return true;
-      }
-
-      case "inst:commands": {
-        await render(
-          chat.id,
-          cb.message.message_id,
-          commandPolicyDocument(await state(pool, chat.id)),
-        );
-        return true;
-      }
-
-      case "inst:manage": {
-        const url =
-          PANEL_URL ||
-          "https://persian-bot-studio-panel-production.up.railway.app/";
-
-        await render(
-          chat.id,
-          cb.message.message_id,
-          doc([
-            ...base(
-              "Gʀᴏᴜᴘ Wᴇʙ Cᴏɴᴛʀᴏʟ",
-              "گروه به مرکز مدیریت متصل است. مدیریت جزئی‌تر از پنل وب انجام می‌شود.",
-            ),
-            table("اتصال فعلی", [
-              ["گروه", chat.title || "گروه بدون نام"],
-              ["وضعیت نصب", "● فعال"],
-              ["مرکز مدیریت", "وب‌پنل"],
-            ]),
-            buttons([{ text: "باز کردن پنل وب", url: url + "#dashboard" }]),
-            buttons([button("تنظیمات نصب", "inst:settings")]),
-            buttons([button("‹ بازگشت", "inst:complete", "primary")]),
-            { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Gʀᴏᴜᴘ Cᴏɴᴛʀᴏʟ" },
-          ]),
-        );
-        return true;
-      }
-
-      case "inst:disable":
-      case "inst:uninstall": {
-        const fresh = await state(pool, chat.id);
-
-        if (!fresh?.installed) {
-          await render(
-            chat.id,
-            cb.message.message_id,
-            disabledDocument(chat),
-          );
-          return true;
-        }
-
-        await render(
-          chat.id,
-          cb.message.message_id,
-          disableDocument(chat, fresh),
-        );
-        return true;
-      }
-
-      case "inst:disable:confirm":
-      case "inst:uninstall:confirm": {
-        const removed = await uninstall(pool, chat, cb.from.id);
-
-        if (!removed) {
-          await render(
-            chat.id,
-            cb.message.message_id,
-            disabledDocument(chat),
-          );
-          return true;
-        }
-
-        await render(
-          chat.id,
-          cb.message.message_id,
-          disabledDocument(chat),
-        );
-        return true;
-      }
-
-      case "inst:set:member":
-      case "inst:set:commands":
-      case "inst:set:auto":
-      case "inst:set:security":
-      case "inst:set:audit": {
-        await updatePolicy(pool, chat.id, data.slice("inst:set:".length));
-
-        await render(
-          chat.id,
-          cb.message.message_id,
-          settingsDocument(await state(pool, chat.id)),
-        );
-        callbackNotice = "تنظیمات ذخیره شد";
-        return true;
-      }
-
-      default:
-        callbackNotice = "این گزینه دیگر فعال نیست";
-        return true;
+    if (data === "inst:home") {
+      await clearSession(pool, chat.id);
+      await render(
+        chat.id,
+        cb.message.message_id,
+        mainCenterDocument(chat, await state(pool, chat.id), null),
+      );
+      return true;
     }
+
+    if (data === "inst:cancel") {
+      await clearSession(pool, chat.id);
+      await render(
+        chat.id,
+        cb.message.message_id,
+        mainCenterDocument(chat, await state(pool, chat.id), null),
+      );
+      notice = "مرکز نصب بسته شد";
+      return true;
+    }
+
+    if (data === "inst:operations") {
+      await render(
+        chat.id,
+        cb.message.message_id,
+        operationSelectionDocument(await state(pool, chat.id)),
+      );
+      return true;
+    }
+
+    if (data === "inst:manage") {
+      await clearSession(pool, chat.id);
+      await render(
+        chat.id,
+        cb.message.message_id,
+        managementDocument(chat, await state(pool, chat.id)),
+      );
+      return true;
+    }
+
+    if (data === "inst:check") {
+      await render(
+        chat.id,
+        cb.message.message_id,
+        systemCheckPlaceholderDocument(chat),
+      );
+      return true;
+    }
+
+    if (data.startsWith("inst:op:")) {
+      const operation = data.slice("inst:op:".length) as InstallationOperation;
+      if (!["install", "update", "repair", "reinstall", "uninstall", "report"].includes(operation)) {
+        notice = "عملیات نامعتبر است";
+        return true;
+      }
+
+      if (operation === "report") {
+        await render(
+          chat.id,
+          cb.message.message_id,
+          reportDocument(
+            chat,
+            await state(pool, chat.id),
+            await getSession(pool, chat.id),
+          ),
+        );
+        return true;
+      }
+
+      const result = await beginOperation(pool, chat, cb.from.id, operation);
+
+      if (result === "installed") {
+        await render(
+          chat.id,
+          cb.message.message_id,
+          mainCenterDocument(chat, await state(pool, chat.id), null),
+        );
+        notice = "این گروه از قبل نصب شده است";
+        return true;
+      }
+
+      if (result === "not_installed") {
+        await render(
+          chat.id,
+          cb.message.message_id,
+          operationSelectionDocument(await state(pool, chat.id)),
+        );
+        notice = "این عملیات برای وضعیت فعلی قابل اجرا نیست";
+        return true;
+      }
+
+      await renderCurrentSession(pool, chat, cb.message.message_id);
+      return true;
+    }
+
+    if (data.startsWith("inst:type:")) {
+      const parts = data.split(":");
+      const type = parts[2] as InstallType;
+      const operation = parts[3] as InstallationOperation;
+
+      if (!["quick", "custom"].includes(type)) {
+        notice = "نوع نصب نامعتبر است";
+        return true;
+      }
+
+      if (!["install", "reinstall"].includes(operation)) {
+        notice = "این نوع نصب برای عملیات فعلی مجاز نیست";
+        return true;
+      }
+
+      await applyInstallType(
+        pool,
+        chat,
+        cb.from.id,
+        type,
+        operation,
+        cb.message.message_id,
+      );
+      return true;
+    }
+
+    if (data === "inst:type:back") {
+      const session = await getSession(pool, chat.id);
+      await render(
+        chat.id,
+        cb.message.message_id,
+        session?.operation && ["install", "reinstall"].includes(String(session.operation))
+          ? installTypeDocument(String(session.operation) as InstallationOperation)
+          : operationSelectionDocument(await state(pool, chat.id)),
+      );
+      return true;
+    }
+
+    if (data === "inst:version:latest" || data === "inst:version:current") {
+      const version = data.endsWith(":current") ? VERSION : "latest";
+      await pool.query(
+        "UPDATE bot_installation_sessions SET version=$1,step='environment',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$2 AND actor_id=$3",
+        [version, String(chat.id), String(cb.from.id)],
+      );
+      await render(chat.id, cb.message.message_id, environmentDocument());
+      return true;
+    }
+
+    if (data === "inst:version:input") {
+      await pool.query(
+        "UPDATE bot_installation_sessions SET step='version',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
+        [String(chat.id), String(cb.from.id)],
+      );
+      await render(
+        chat.id,
+        cb.message.message_id,
+        doc([
+          ...base(
+            "Vᴇʀsɪᴏɴ Iɴᴘᴜᴛ",
+            "نسخهٔ دقیق را در پیام بعدی ارسال کنید.",
+          ),
+          table("فرمت", [
+            ["نمونه", "v1.2.3"],
+            ["آخرین نسخه", "latest"],
+          ]),
+          buttons([button("‹ بازگشت", "inst:version", "primary")]),
+          { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Vᴇʀsɪᴏɴ Iɴᴘᴜᴛ" },
+        ]),
+      );
+      return true;
+    }
+
+    if (data === "inst:version") {
+      await render(chat.id, cb.message.message_id, versionDocument());
+      return true;
+    }
+
+    if (data.startsWith("inst:env:")) {
+      const environment = data.slice("inst:env:".length);
+      if (!["production", "staging", "development"].includes(environment)) {
+        notice = "محیط نامعتبر است";
+        return true;
+      }
+
+      await pool.query(
+        "UPDATE bot_installation_sessions SET environment=$1,step='settings',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$2 AND actor_id=$3",
+        [environment, String(chat.id), String(cb.from.id)],
+      );
+      await render(chat.id, cb.message.message_id, settingsDocument());
+      return true;
+    }
+
+    if (data === "inst:environment") {
+      await render(chat.id, cb.message.message_id, environmentDocument());
+      return true;
+    }
+
+    if (data === "inst:settings:standard") {
+      await pool.query(
+        "UPDATE bot_installation_sessions SET settings='{}'::jsonb,step='summary',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
+        [String(chat.id), String(cb.from.id)],
+      );
+      const session = await getSession(pool, chat.id);
+      if (session) {
+        await render(
+          chat.id,
+          cb.message.message_id,
+          summaryDocument(chat, session, isDestructive(String(session.operation) as InstallationOperation)),
+        );
+      }
+      return true;
+    }
+
+    if (data === "inst:settings:input") {
+      await pool.query(
+        "UPDATE bot_installation_sessions SET step='settings',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
+        [String(chat.id), String(cb.from.id)],
+      );
+      await render(
+        chat.id,
+        cb.message.message_id,
+        doc([
+          ...base(
+            "Sᴇᴛᴛɪɴɢ Iɴᴘᴜᴛ",
+            "تنظیمات سفارشی را به‌صورت یک JSON object در پیام بعدی ارسال کنید.",
+          ),
+          {
+            type: "code",
+            text: '{ "response_policy": "standard", "security_mode": "strict" }',
+            language: "json",
+          },
+          buttons([button("‹ بازگشت", "inst:settings", "primary")]),
+          { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sᴇᴛᴛɪɴɢ Iɴᴘᴜᴛ" },
+        ]),
+      );
+      return true;
+    }
+
+    if (data === "inst:settings") {
+      await render(chat.id, cb.message.message_id, settingsDocument());
+      return true;
+    }
+
+    if (data === "inst:summary:back") {
+      await renderCurrentSession(pool, chat, cb.message.message_id);
+      return true;
+    }
+
+    if (data === "inst:retry") {
+      await renderCurrentSession(pool, chat, cb.message.message_id);
+      return true;
+    }
+
+    if (data === "inst:confirm") {
+      const session = await getSession(pool, chat.id);
+
+      if (!session || Number(session.actor_id) !== cb.from.id || session.step !== "summary") {
+        notice = "نشست تأیید معتبر نیست";
+        await renderCurrentSession(pool, chat, cb.message.message_id);
+        return true;
+      }
+
+      await pool.query(
+        "UPDATE bot_installation_sessions SET step='confirmed',status='confirmed',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
+        [String(chat.id), String(cb.from.id)],
+      );
+
+      await logInstallEvent(pool, chat.id, cb.from.id, "stage3_confirmed", {
+        operation: String(session.operation),
+        install_type: session.install_type,
+        version: session.version,
+        environment: session.environment,
+        settings: session.settings,
+      });
+
+      const confirmed = await getSession(pool, chat.id);
+      if (confirmed) {
+        await render(
+          chat.id,
+          cb.message.message_id,
+          confirmedDocument(chat, confirmed),
+        );
+      }
+      notice = "پیکربندی مرحلهٔ ۳ ثبت شد";
+      return true;
+    }
+
+    if (data === "inst:uninstall:confirm") {
+      notice = "برای حذف نصب ابتدا از مدیریت نصب وارد جریان حذف شوید";
+      await render(
+        chat.id,
+        cb.message.message_id,
+        operationSelectionDocument(await state(pool, chat.id)),
+      );
+      return true;
+    }
+
+    notice = "این گزینه دیگر فعال نیست";
+    return true;
   } catch (error) {
     console.error("[installation] callback failed:", error);
 
@@ -1518,21 +1438,21 @@ export async function handleInstallationCallback(
       doc([
         ...base(
           "Iɴsᴛᴀʟʟ Eʀʀᴏʀ",
-          "این عملیات کامل نشد. وضعیت فعلی گروه حفظ شده و می‌توانید از همین پیام دوباره تلاش کنید.",
+          "عملیات رابط نصب کامل نشد؛ وضعیت قبلی گروه حفظ شده است.",
         ),
         {
           type: "paragraph",
           text: "جزئیات فنی در لاگ سرور ثبت شده است.",
         },
-        buttons([button("تنظیمات نصب", "inst:settings")]),
-        buttons([button("‹ بازگشت", "inst:back", "primary")]),
-        { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Iɴsᴛᴀʟʟ Cᴇɴᴛᴇʀ" },
+        buttons([button("مدیریت نصب", "inst:manage")]),
+        buttons([button("‹ بازگشت", "inst:home", "primary")]),
+        { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Iɴsᴛᴀʟʟ Eʀʀᴏʀ" },
       ]),
     );
 
-    callbackNotice = "عملیات انجام نشد";
+    notice = "عملیات انجام نشد";
     return true;
   } finally {
-    await answer(cb.id, callbackNotice);
+    await answer(cb.id, notice);
   }
 }
