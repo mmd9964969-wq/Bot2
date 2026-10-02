@@ -1959,7 +1959,10 @@ async function executeConfirmedInstallationOperation(
     }
 
     stopHeartbeat = startInstallationHeartbeat(pool, progress.execution_id);
-    if (!existingExecutionId) {
+    if (
+      String(session.step) === "confirmed" ||
+      String(session.step) === "preflight"
+    ) {
       executionStage = "session_update";
       await transitionSession(
         pool,
@@ -1967,13 +1970,12 @@ async function executeConfirmedInstallationOperation(
         actorId,
         "executing",
         "executing",
-      ).catch((error) => {
-        console.error("[installation] execution session state update failed:", {
-          execution_id: progress.execution_id,
-          error: String((error as any)?.message ?? error),
-        });
-      });
+      );
+    } else if (!["executing", "verifying"].includes(String(session.step))) {
+      throw new Error("وضعیت نشست برای اجرای عملیات معتبر نیست.");
+    }
 
+    if (!existingExecutionId) {
       executionStage = "operation_event";
       await logInstallEvent(pool, chat.id, actorId, "operation_executing", {
         operation,
@@ -2100,6 +2102,9 @@ async function executeConfirmedInstallationOperation(
       )) ?? progress;
 
     if (!completed.has("verify")) {
+      if (String(session.step) === "confirmed" || String(session.step) === "preflight") {
+        throw new Error("نشست قبل از اعتبارسنجی به مرحلهٔ اجرا منتقل نشد.");
+      }
       await runStep("verify", 10, "RUNNING", "اعتبارسنجی نهایی آغاز شد.");
 
       const verification = await verifyInstallationOperation(
