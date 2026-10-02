@@ -1513,7 +1513,7 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
       license:"کد لایسنس را ارسال کنید.",
       audit:"عبارت یا شناسه رویداد را ارسال کنید."
     };
-    return edit(msg.chat.id,msg.message_id,panelTitle("جستجوی سراسری","⛂ - "+(prompts[hint]||"عبارت جستجو را ارسال کنید.")),menu([[[\"‹ بازگشت\",\"o:home\"]]]));
+    return edit(msg.chat.id,msg.message_id,panelTitle("جستجوی سراسری","⛂ - "+(prompts[hint]||"عبارت جستجو را ارسال کنید.")),menu([[["‹ بازگشت","o:home"]]]));
   }
   if(data==="o:operation_policy"){
     return edit(msg.chat.id,msg.message_id,await ownerOperationPolicy(pool),menu([
@@ -1526,7 +1526,7 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     const token=data.slice("o:op:cancel:".length),cur=getSession(uid);
     if(cur&&cur.flow==="owner_operation_confirm"&&String(cur.data.token)===token)clearSession(uid);
     await audit(pool,String(uid),"owner_operation_confirmation_cancelled","owner_operation",{token});
-    return edit(msg.chat.id,msg.message_id,panelTitle("عملیات لغو شد","⛂ - وضعیت : عملیات اجرا نشد.\n⛂ - Session تأیید بسته شد."),menu([[[\"‹ بازگشت\",\"o:home\"]]]));
+    return edit(msg.chat.id,msg.message_id,panelTitle("عملیات لغو شد","⛂ - وضعیت : عملیات اجرا نشد.\n⛂ - Session تأیید بسته شد."),menu([[["‹ بازگشت","o:home"]]]));
   }
 
   if(data.startsWith("o:palette:open:")){
