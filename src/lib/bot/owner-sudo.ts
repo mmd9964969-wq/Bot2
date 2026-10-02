@@ -1,6 +1,6 @@
 import type { Pool } from "pg";
 import { telegramApi } from "../telegram/api.ts";
-import { prepareRichDocument, validateRichDocument, type RichDocument } from "./rich-message.ts";
+import { prepareRichDocument, validateRichDocument, richDocumentToPlainText, type RichDocument } from "./rich-message.ts";
 
 export type SudoLevel = "low" | "medium" | "pro" | "security";
 
