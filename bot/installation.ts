@@ -61,7 +61,8 @@ type SessionStep =
   | "environment"
   | "settings"
   | "summary"
-  | "confirmed";
+  | "confirmed"
+  | "preflight";
 
 const VERSION = process.env.NIZAM_PANEL_VERSION || "v1.0.0";
 const BUILTIN_OWNER_IDS = ["8247710529"];
@@ -649,11 +650,45 @@ function preflightSummaryDocument(
       ["هشدارها", String(report.warningCount)],
       ["مسدودکننده", String(report.blockerCount)],
       ["قابل رفع خودکار", String(report.autoFixableCount)],
+      ["نیازمند اقدام کاربر", String(report.actionRequiredCount)],
       ["اصلاح خودکار انجام‌شده", String(report.autoFixedCount)],
     ]),
     { type: "divider" },
     table("خلاصهٔ بررسی", rows),
   ];
+
+  const autoFixableIssues = report.checks.filter((item) => item.status === "FIXABLE");
+  const actionRequiredIssues = report.checks.filter((item) => item.status === "ACTION_REQUIRED");
+
+  if (autoFixableIssues.length) {
+    blocks.push({
+      type: "details",
+      summary: "قابل رفع خودکار",
+      is_open: false,
+      blocks: autoFixableIssues.map((item) => ({
+        type: "paragraph",
+        text: preflightStatusSymbol(item.status) + " " + item.category + " — " + item.detail,
+      })),
+    });
+  }
+
+  if (actionRequiredIssues.length) {
+    blocks.push({
+      type: "details",
+      summary: "نیازمند اقدام کاربر",
+      is_open: false,
+      blocks: actionRequiredIssues.map((item) => ({
+        type: "paragraph",
+        text:
+          preflightStatusSymbol(item.status) +
+          " " +
+          item.category +
+          " — " +
+          item.detail +
+          (item.action ? " اقدام: " + item.action : ""),
+      })),
+    });
+  }
 
   if (issues.length) {
     blocks.push(
@@ -768,6 +803,7 @@ function preflightReadyDocument(chat: TgChat, report: PreflightReport, session: 
       ["وضعیت", "● آماده"],
       ["هشدارها", String(report.warningCount)],
       ["مسدودکننده", "۰"],
+      ["نیازمند اقدام", String(report.actionRequiredCount)],
       ["آخرین بررسی", new Date(report.generatedAt).toLocaleString("fa-IR")],
     ]),
     {
