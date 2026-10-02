@@ -2334,16 +2334,8 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
 
   if(data.startsWith("og:disable:")){
     const gid=Number(data.slice(11));if(!Number.isSafeInteger(gid))return;
-    session(uid,"owner_group_confirm",{action:"disable",gid,step:1});
-    return edit(msg.chat.id,msg.message_id,panelTitle("تأیید غیرفعال‌سازی",[
-      "⛂ - گروه : "+gid,
-      "⛂ - عملیات : غیرفعال‌سازی سرویس",
-      "",
-      "ربات از گروه خارج نخواهد شد.",
-      "سرویس مدیریتی این گروه متوقف می‌شود.",
-      "",
-      "برای ادامه، مرحله اول را تأیید کنید."
-    ].join("\n")),menu([[["› ادامه عملیات","og:confirm:disable:"+gid]],[["‹ انصراف","og:view:"+gid]]]));
+    await setOwnerGroupEnabled(pool,uid,gid,false);
+    return edit(msg.chat.id,msg.message_id,"✓ سرویس گروه غیرفعال شد.",menu([[["› مشاهده گروه","og:view:"+gid]],[["‹ بازگشت","o:groups"]]]));
   }
 
   if(data.startsWith("og:confirm:disable:")){
