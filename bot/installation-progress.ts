@@ -964,7 +964,6 @@ export function installationProgressDocument(
         type: "buttons",
         align: "center",
         buttons: [
-          { text: "بررسی مجدد", callback_data: "inst:preflight:recheck", style: "success" },
           { text: "‹ بازگشت", callback_data: "inst:home", style: "primary" },
         ],
       },
