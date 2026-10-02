@@ -172,13 +172,13 @@ export async function ensureOwnerSudoSchema(pool:Pool){
     )
   `);
   await pool.query(`
-  await pool.query(`
     CREATE TABLE IF NOT EXISTS bot_sudo_pending(
       actor_id BIGINT PRIMARY KEY,
       level TEXT NOT NULL CHECK(level IN ('low','medium','pro','security')),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS bot_sudo_audit(
       id BIGSERIAL PRIMARY KEY,
       actor_id BIGINT NOT NULL,
@@ -190,7 +190,6 @@ export async function ensureOwnerSudoSchema(pool:Pool){
     )
   `);
 }
-
 function levelTitle(level:string){
   return LEVELS[level as SudoLevel]?.title ?? "نامشخص";
 }
