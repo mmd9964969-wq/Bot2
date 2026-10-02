@@ -439,7 +439,7 @@ function userFacingInstallationError(error: unknown) {
   return "اجرای عملیات با یک خطای داخلی متوقف شد. جزئیات فنی در گزارش عملیات ثبت شده است.";
 }
 
-async async function installationEffectAlreadyApplied(
+async function installationEffectAlreadyApplied(
   pool: Pool,
   chatId: number,
   session: any,
