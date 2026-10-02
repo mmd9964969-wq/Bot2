@@ -2335,9 +2335,11 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   if(data.startsWith("og:disable:")){
     const gid=Number(data.slice(11));if(!Number.isSafeInteger(gid))return;
     await setOwnerGroupEnabled(pool,uid,gid,false);
-    return edit(msg.chat.id,msg.message_id,"✓ سرویس گروه غیرفعال شد.",menu([[["› مشاهده گروه","og:view:"+gid]],[["‹ بازگشت","o:groups"]]]));
+    return edit(msg.chat.id,msg.message_id,"✓ سرویس گروه غیرفعال شد.",menu([
+      [["› مشاهده گروه","og:view:"+gid]],
+      [["‹ بازگشت","o:groups"]]
+    ]));
   }
-
   if(data.startsWith("og:confirm:disable:")){
     const gid=Number(data.slice(19));const s=getSession(uid);if(!s||s.flow!=="owner_group_confirm"||s.data.action!=="disable"||Number(s.data.gid)!==gid)return;
     s.data.step=2;session(uid,s.flow,s.data);
