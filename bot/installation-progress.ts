@@ -853,6 +853,14 @@ export function installationProgressDocument(
     blocks.push(
       { type: "divider" },
       { type: "paragraph", text: "اعتبارسنجی نهایی با موفقیت انجام شد و عملیات بسته شد." },
+      {
+        type: "buttons",
+        align: "center",
+        buttons: [
+          { text: "گزارش وضعیت", callback_data: "inst:op:report" },
+          { text: "‹ بازگشت", callback_data: "inst:home", style: "primary" },
+        ],
+      },
     );
   } else if (snapshot.phase === "FAILED") {
     blocks.push(
@@ -861,6 +869,28 @@ export function installationProgressDocument(
         type: "paragraph",
         text:
           "این خطا در گزارش عملیات ثبت شده است. اجرای مجدد فقط پس از بررسی وضعیت فعلی انجام می‌شود.",
+      },
+      {
+        type: "buttons",
+        align: "center",
+        buttons: [
+          { text: "بررسی مجدد", callback_data: "inst:preflight:recheck", style: "success" },
+          { text: "گزارش وضعیت", callback_data: "inst:op:report" },
+          { text: "‹ بازگشت", callback_data: "inst:home", style: "primary" },
+        ],
+      },
+    );
+  } else if (snapshot.status === "STALE") {
+    blocks.push(
+      { type: "divider" },
+      { type: "paragraph", text: "اجرای عملیات متوقف به نظر می‌رسد و برای بازیابی در نشست بعدی نگه داشته شده است." },
+      {
+        type: "buttons",
+        align: "center",
+        buttons: [
+          { text: "بررسی مجدد", callback_data: "inst:preflight:recheck", style: "success" },
+          { text: "‹ بازگشت", callback_data: "inst:home", style: "primary" },
+        ],
       },
     );
   }
