@@ -89,10 +89,10 @@ const LICENSE_TYPES:{key:string;label:string;days:number|null}[]=[
 
 const K={
   ownerMain:[
-    [["مدیریت سامانه","o:section:system"],["مشتریان و لایسنس","o:section:business"]],
-    [["گروه‌ها و سرویس‌ها","o:section:groups"],["امنیت و دسترسی","o:section:security"]],
-    [["عملیات و ارتباطات","o:section:ops"],["گزارش و ممیزی","o:section:reports"]],
-    [["تنظیمات و توسعه","o:section:advanced"],["نمای مالک","o:owner_view"]],
+    [["سامانه","o:section:system"],["مشتریان","o:section:customers"]],
+    [["گروه‌ها","o:section:groups"],["امنیت","o:section:security"]],
+    [["گزارش‌ها","o:section:reports"],["ابزارها","o:section:tools"]],
+    [["تنظیمات مالک","o:section:settings"]],
     [["خروج از پنل مالک","o:exit"]]
   ],
   customerMain:[
@@ -571,7 +571,7 @@ async function isGroupAdmin(chatId:number,uid:number){
   const r=await telegramApi<any>("getChatMember",{chat_id:chatId,user_id:uid});return !!(r.ok&&["administrator","creator"].includes(String(r.result?.status||"")));
 }
 function mainOwnerMessage(){return [
-  "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Oᴡɴᴇʀ Cᴏɴᴛʀᴏʟ",
+  "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Oᴡɴᴇʀ Cᴇɴᴛᴇʀ",
   "",
   "★ - مرکز فرمان مالک",
   "",
@@ -581,60 +581,59 @@ function mainOwnerMessage(){return [
   "",
   PANEL_SEPARATOR,
   "",
-  "یک مسیر را انتخاب کنید.",
-  "بخش‌ها مرحله‌ای باز می‌شوند تا دسترسی کامل، بدون شلوغی و سردرگمی در اختیار شما باشد.",
+  "یک مرکز را انتخاب کنید.",
+  "تمام کنترل‌های تخصصی داخل مرکز مربوطه قرار دارند تا صفحه اصلی خلوت و مسیرها واضح بمانند.",
   "",
-  "◂ - عملیات حساس و بحرانی قبل از اجرا وارد مرکز تأیید می‌شوند."
+  "◂ - عملیات حساس و بحرانی پیش از اجرا وارد مرحله تأیید می‌شوند."
 ].join("\n");}
 function ownerSectionView(section:string){
   const views:Record<string,{title:string;body:string;rows:string[][][]}> = {
     system:{
-      title:"مدیریت سامانه",
+      title:"سامانه",
       body:[
-        "★ - هسته و وضعیت سامانه",
+        "★ - مرکز سامانه",
         "",
-        "⛂ - آمار کلی : تعداد مشتری، گروه و اجرای دستورات",
-        "⛂ - Runtime : پردازش، حافظه، Maintenance و کنترل هسته",
-        "⛂ - وضعیت سرور : منابع و سلامت سرویس",
-        "⛂ - تنظیمات : تنظیمات سراسری مالک",
-        "⛂ - قابلیت‌ها : مدیریت ماژول‌های فعال",
-        "⛂ - مرکز هوش مصنوعی : کنترل قابلیت‌های AI"
+        "⛂ - آمار سیستم : نمای کلی مشتریان، گروه‌ها و لایسنس‌ها",
+        "⛂ - کنترل Runtime : سلامت، نگهداری و عملیات هسته",
+        "⛂ - سرور و منابع : وضعیت پردازنده، حافظه و زمان فعالیت",
+        "⛂ - قابلیت‌ها : فعال/غیرفعال‌سازی ماژول‌های قابل مدیریت",
+        "⛂ - هوش مصنوعی : وضعیت و پیکربندی موتور AI"
       ].join("\n"),
       rows:[
-        [["آمار کلی سیستم","o:stats"],["کنترل اجرایی","o:runtime"]],
-        [["وضعیت سرور و منابع","o:server"],["تنظیمات پیشرفته","o:settings"]],
-        [["مدیریت قابلیت‌ها","o:features"],["مرکز هوش مصنوعی","o:ai"]],
+        [["آمار سیستم","o:stats"],["کنترل Runtime","o:runtime"]],
+        [["سرور و منابع","o:server"],["مدیریت قابلیت‌ها","o:features"]],
+        [["مرکز هوش مصنوعی","o:ai"]],
         [["‹ بازگشت","o:home"]]
       ]
     },
-    business:{
-      title:"مشتریان و لایسنس",
+    customers:{
+      title:"مشتریان",
       body:[
-        "★ - چرخه مشتری",
+        "★ - مرکز مشتریان و فروش",
         "",
         "⛂ - مشتریان : ثبت، جستجو، وضعیت و ارتباط",
-        "⛂ - اشتراک : ایجاد، تمدید، لغو و مشاهده",
-        "⛂ - لایسنس : ساخت، مدیریت و وضعیت",
+        "⛂ - اشتراک‌ها : ایجاد، تمدید، لغو و پیگیری",
+        "⛂ - لایسنس‌ها : ساخت و مدیریت دسترسی",
         "⛂ - لیست سیاه : کنترل دسترسی مشتریان",
         "",
-        "◂ - هر تغییر مهم در Audit ثبت می‌شود."
+        "◂ - عملیات حساس پیش از اجرا وارد مرحله تأیید می‌شوند."
       ].join("\n"),
       rows:[
-        [["مدیریت مشتریان","o:customers"],["مرکز اشتراک","o:subscriptions"]],
-        [["مدیریت لایسنس‌ها","o:licenses"],["فهرست سیاه مشتریان","o:blacklist"]],
+        [["مدیریت مشتریان","o:customers"],["اشتراک‌ها","o:subscriptions"]],
+        [["مدیریت لایسنس‌ها","o:licenses"],["لیست سیاه","o:blacklist"]],
         [["‹ بازگشت","o:home"]]
       ]
     },
     groups:{
-      title:"گروه‌ها و سرویس‌ها",
+      title:"گروه‌ها",
       body:[
-        "★ - مدیریت سراسری گروه‌ها",
+        "★ - مرکز گروه‌ها",
         "",
-        "⛂ - مدیریت گروه‌ها : وضعیت، سلامت، عملیات و دسترسی",
-        "⛂ - زبان گروه‌ها : تنظیم مستقل هر گروه",
+        "⛂ - مدیریت گروه‌ها : وضعیت، سلامت و عملیات سراسری",
+        "⛂ - زبان گروه‌ها : تنظیم مستقل زبان هر گروه",
         "⛂ - عملیات گروهی : مدیریت چند گروه از یک مسیر",
         "",
-        "◂ - مرکز گروه پس از ورود، امکانات جزئی‌تر را مرحله‌به‌مرحله نمایش می‌دهد."
+        "◂ - جزئیات هر گروه از داخل مرکز مدیریت گروه‌ها مرحله‌ای باز می‌شود."
       ].join("\n"),
       rows:[
         [["مدیریت گروه‌ها","o:groups"],["زبان گروه‌ها","o:languages"]],
@@ -642,66 +641,68 @@ function ownerSectionView(section:string){
       ]
     },
     security:{
-      title:"امنیت و دسترسی",
+      title:"امنیت",
       body:[
-        "★ - کنترل امنیتی مالک",
+        "★ - مرکز امنیت و دسترسی",
         "",
-        "⛂ - امنیت و دسترسی : کنترل سطح امنیت و دسترسی سامانه",
-        "⛂ - سطح عملیات : سیاست تأیید برای تغییرات",
-        "⛂ - عملیات حساس : یک تأیید",
-        "⛂ - عملیات بحرانی : تأیید نهایی جداگانه",
-        "",
-        "◂ - هدف این بخش جلوگیری از اجرای ناخواسته عملیات پرخطر است."
+        "⛂ - کنترل امنیت : مالکان، لیست سیاه و ثبت ممیزی",
+        "⛂ - سطح عملیات : سیاست اجرای عادی، حساس و بحرانی",
+        "⛂ - مرکز سودو : تفکیک دسترسی عملیاتی از مالکیت",
+        "⛂ - عملیات حساس : یک مرحله تأیید",
+        "⛂ - عملیات بحرانی : تأیید نهایی جداگانه"
       ].join("\n"),
       rows:[
-        [["امنیت و دسترسی","o:security"],["سطح عملیات","o:operation_policy"]],
+        [["مرکز امنیت","o:security"],["سطح عملیات","o:operation_policy"]],
+        [["مرکز سودو","os:center"]],
         [["‹ بازگشت","o:home"]]
       ]
     },
-    ops:{
-      title:"عملیات و ارتباطات",
+    reports:{
+      title:"گزارش‌ها",
+      body:[
+        "★ - مرکز گزارش و ممیزی",
+        "",
+        "⛂ - آمار : وضعیت عددی سامانه",
+        "⛂ - ممیزی : تاریخچه عملیات و تغییرات",
+        "⛂ - رویدادهای اخیر : بررسی سریع فعالیت‌های سیستم",
+        "",
+        "◂ - گزارش‌ها برای مشاهده و پیگیری هستند؛ تغییرات از مراکز عملیاتی انجام می‌شوند."
+      ].join("\n"),
+      rows:[
+        [["آمار سیستم","o:stats"],["مرکز ممیزی","o:audit"]],
+        [["رویدادهای اخیر","o:logs"]],
+        [["‹ بازگشت","o:home"]]
+      ]
+    },
+    tools:{
+      title:"ابزارها",
       body:[
         "★ - ابزارهای اجرایی",
         "",
         "⛂ - جستجوی سراسری : یافتن کاربر، گروه، لایسنس و رویداد",
         "⛂ - ارسال همگانی : ارتباط با مشتریان سامانه",
-        "⛂ - پیش‌نمایش و تأیید : برای جلوگیری از اجرای ناخواسته"
+        "⛂ - پیش‌نمایش و تأیید : کنترل قبل از عملیات",
+        "",
+        "◂ - ابزارهای سریع در این بخش متمرکز شده‌اند تا صفحه اصلی خلوت بماند."
       ].join("\n"),
       rows:[
         [["جستجوی سراسری","o:palette"],["ارسال همگانی","o:broadcast"]],
         [["‹ بازگشت","o:home"]]
       ]
     },
-    reports:{
-      title:"گزارش و ممیزی",
+    settings:{
+      title:"تنظیمات مالک",
       body:[
-        "★ - دید نظارتی مالک",
+        "★ - تنظیمات سطح مالک",
         "",
-        "⛂ - آمار کلی : نمای عددی سامانه",
-        "⛂ - ممیزی سیستم : سابقه عملیات و تغییرات",
+        "⛂ - تنظیمات پیشرفته : نگهداری و سیاست‌های سامانه",
+        "⛂ - پشتیبان‌گیری : تهیه و مدیریت Snapshot",
+        "⛂ - مدیریت مالک‌ها : تغییر دامنه دسترسی مالک",
         "",
-        "◂ - گزارش‌ها برای تشخیص وضعیت و پیگیری تغییرات استفاده می‌شوند."
-      ].join("\n"),
-      rows:[
-        [["آمار کلی سیستم","o:stats"],["ممیزی سیستم","o:audit"]],
-        [["‹ بازگشت","o:home"]]
-      ]
-    },
-    advanced:{
-      title:"تنظیمات و توسعه",
-      body:[
-        "★ - کنترل‌های پیشرفته",
-        "",
-        "⛂ - تنظیمات سراسری",
-        "⛂ - پشتیبان‌گیری و بازیابی",
-        "⛂ - مدیریت قابلیت‌ها",
-        "⛂ - مرکز هوش مصنوعی",
-        "",
-        "◂ - این بخش برای تنظیمات سطح بالاتر نگه داشته شده تا صفحه اصلی شلوغ نشود."
+        "◂ - تغییرات امنیتی و حساس قبل از اجرا نیاز به تأیید دارند."
       ].join("\n"),
       rows:[
         [["تنظیمات پیشرفته","o:settings"],["پشتیبان‌گیری و بازیابی","o:backup"]],
-        [["مدیریت قابلیت‌ها","o:features"],["مرکز هوش مصنوعی","o:ai"]],
         [["‹ بازگشت","o:home"]]
       ]
     }
@@ -1085,6 +1086,7 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
   if(await handleOwnerSudoTextInput(pool,uid,msg.chat.id,inputText,ownerIds))return true;
   if(await handleOwnerLicenseTextInput(pool,uid,msg.chat.id,inputText,ownerIds))return true;
   if(["owner","مالک"].includes(raw)){
+    if(!isPrivate)return send(msg.chat.id,"پنل مالک فقط در گفت‌وگوی خصوصی ربات قابل استفاده است.")&&true;
     await audit(pool,String(uid),"owner_panel_opened",String(uid));await renderOwner(pool,uid,msg.chat.id);return true;
   }
   if(raw==="سودو"){
@@ -1761,14 +1763,10 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
       ]
     });
   }
-  if(data==="o:owner_view"){
-    return edit(msg.chat.id,msg.message_id,await ownerView(pool,uid),menu([
-      [["پنل مالک","o:home"]],
-      [["بروزرسانی","o:owner_view"],["‹ بازگشت","o:home"]]
-    ]));
-  }
   if(data.startsWith("o:section:")){
-    const section=data.slice("o:section:".length);
+    let section=data.slice("o:section:".length);
+    const legacy:Record<string,string>={business:"customers",ops:"tools",advanced:"settings"};
+    section=legacy[section]||section;
     const view=ownerSectionView(section);
     if(!view)return;
     return edit(msg.chat.id,msg.message_id,panelTitle(view.title,view.body),menu(view.rows));
@@ -2503,6 +2501,15 @@ async function handleCustomer(pool:Pool,msg:TgMessage,ownerIds:string[]){
         return renderMemberControl(pool,msg.chat.id,uid,msg.reply_to_message.from.id);
       }
       await audit(pool,String(uid),"owner_panel_entry_opened",String(uid),{entry:"owner"});
+      if(!isPrivate){
+        return send(msg.chat.id,panelTitle("پنل مالک",[
+          "⛂ - وضعیت : این مرکز فقط از گفت‌وگوی خصوصی ربات قابل دسترسی است.",
+          "",
+          PANEL_SEPARATOR,
+          "",
+          "برای مدیریت سراسری، دستور «پنل» را در PV ربات ارسال کنید."
+        ].join("\n")),null) as any;
+      }
       return send(msg.chat.id,panelTitle("ورود مالک",[
         "★ - دسترسی اختصاصی",
         "",
@@ -2511,12 +2518,11 @@ async function handleCustomer(pool:Pool,msg:TgMessage,ownerIds:string[]){
         "",
         PANEL_SEPARATOR,
         "",
-        "ورود به پنل مالک فقط برای صاحب ربات فعال است.",
-        "تمام بخش‌های مدیریتی از داخل همین مرکز به‌صورت مرحله‌ای در دسترس قرار می‌گیرند."
+        "مرکز مالک فقط در گفت‌وگوی خصوصی ربات فعال است.",
+        "از همین مرکز می‌توانید سامانه، مشتریان، گروه‌ها، امنیت، گزارش‌ها، ابزارها و تنظیمات مالک را مدیریت کنید."
       ].join("\n")),{
         inline_keyboard:[
-          [styledGlassButton("پنل مالک","o:home","success")],
-          [styledGlassButton("نمای مالک","o:owner_view","primary")]
+          [styledGlassButton("ورود به مرکز مالک","o:home","success")]
         ]
       }) as any;
     }
