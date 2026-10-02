@@ -1,3 +1,4 @@
+import { INSTALLATION_VALIDATION_MARKER } from "../bot/installation-validation-marker.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -205,4 +206,21 @@ test("install type selection is state-machine driven", async () => {
   const fn = source.slice(start, end);
   assert.equal(fn.includes("await transitionSession("), true);
   assert.equal(fn.includes("await saveSession("), false);
+});
+
+
+test("installation validation marker is complete", () => {
+  assert.equal(INSTALLATION_VALIDATION_MARKER.system, "installation");
+  assert.equal(INSTALLATION_VALIDATION_MARKER.contract, "11-14");
+  assert.equal(INSTALLATION_VALIDATION_MARKER.version, 1);
+  assert.deepEqual(
+    [...INSTALLATION_VALIDATION_MARKER.scope],
+    [
+      "callback-actions",
+      "session-state-machine",
+      "five-operations",
+      "failure-recovery",
+      "production-hardening",
+    ],
+  );
 });
