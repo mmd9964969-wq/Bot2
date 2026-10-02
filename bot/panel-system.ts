@@ -537,19 +537,18 @@ export async function openOwnerPanelEntry(pool:Pool,msg:TgMessage,ownerIds:strin
   return runWithPanelScope(uid,pool,async()=>{
     setCurrentPanelKind("owner");
     await audit(pool,String(uid),"owner_panel_entry_opened",String(uid),{entry:"private_start_button",stage:"0"});
-    const body=panelTitle("پنل مالکیت",[
-      "★ - دسترسی اختصاصی مالک",
+    const body=panelTitle("ورود مالک",[
+      "★ - دسترسی اختصاصی",
       "",
-      "⛂ - هویت : OWNER",
       "⛂ - وضعیت دسترسی : ✓ تأییدشده",
       "",
       PANEL_SEPARATOR,
       "",
-      "برای ورود به مرکز مالک، دکمه زیر را انتخاب کنید."
+      "برای ورود، فقط دکمه زیر را لمس کنید."
     ].join("\n"));
     const result=await send(msg.chat.id,body,{
       inline_keyboard:[[
-        {text:"پنل مالکیت",callback_data:"o:home"}
+        styledGlassButton("پنل مالکیت","o:home","success")
       ]]
     });
     return !!result?.ok;
