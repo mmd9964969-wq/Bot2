@@ -242,8 +242,7 @@ async function applyConfiguration(
     "security_mode=COALESCE($9,security_mode)",
     "audit_enabled=COALESCE($10,audit_enabled)",
     "updated_at=NOW()",
-    "WHERE group_id=$1",
-  ].join(",");
+  ].join(",") + " WHERE group_id=$1";
 
   if (operation === "repair" || operation === "reinstall") {
     await client.query(
