@@ -1104,7 +1104,7 @@ async function executeLicenseAction(
     const target = Number(extra.targetOwner);
     if (!Number.isSafeInteger(target) || target <= 0) return { ok: false, message: "شناسه مالک معتبر نیست." };
     if (ownerIds.includes(String(target))) return { ok: false, message: "مالک سامانه نمی‌تواند به‌عنوان مالک انتقالی ثبت شود." };
-    await pool.query("UPDATE bot_licenses SET owner_id=$1,customer_id=$1,updated_at=NOW() WHERE id=$2", [target, licenseId]);
+    await pool.query("UPDATE bot_licenses SET owner_id=$1,customer_id=$1 WHERE id=$2", [target, licenseId]);
   } else if (action === "activate") {
     await pool.query("UPDATE bot_licenses SET status='active',starts_at=COALESCE(starts_at,NOW()),deleted_at=NULL WHERE id=$1", [licenseId]);
   } else if (action === "suspend") {
