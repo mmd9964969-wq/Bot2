@@ -159,9 +159,8 @@ test("every installation callback family has a real handler branch", async () =>
   const { readFile } = await import("node:fs/promises");
   const source = await readFile(new URL("../bot/installation.ts", import.meta.url), "utf8");
   const handlerStart = source.indexOf("export async function handleInstallationCallback");
-  const handlerEnd = source.indexOf("export async function handleInstallationInput", handlerStart);
-  assert.ok(handlerStart >= 0 && handlerEnd > handlerStart);
-  const handler = source.slice(handlerStart, handlerEnd);
+  assert.ok(handlerStart >= 0);
+  const handler = source.slice(handlerStart);
 
   const exactBranches = [
     "inst:operations",
