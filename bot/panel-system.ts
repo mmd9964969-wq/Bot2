@@ -711,30 +711,6 @@ function ownerSectionView(section:string){
   };
   return views[section];
 }
-async function ownerAgentCenter(pool:Pool,uid:number){
-  const data=await ownerAgentOverview(pool);
-  const running=data.jobs.find((x:any)=>x.status==="running");
-  const queued=data.jobs.filter((x:any)=>x.status==="queued").length;
-  const autopilot=data.settings.autopilot_enabled;
-  const deploy=data.settings.auto_deploy;
-  const body=panelTitle("عامل توسعه",[
-    "★ - Pᴇʀsɪᴀɴ ᴮᵒᵗ · Aɢᴇɴᴛ",
-    "",
-    "⛂ - عامل : "+(data.settings.enabled?"● فعال":"○ خاموش"),
-    "⛂ - اجرای خودکار : "+(autopilot?"● فعال":"○ خاموش"),
-    "⛂ - انتشار خودکار : "+(deploy?"● فعال":"○ خاموش"),
-    "⛂ - صف فعلی : "+queued+" کار",
-    "⛂ - اجرای جاری : "+(running?"#"+running.id+" · "+running.task_type:"ندارد"),
-    "",
-    PANEL_SEPARATOR,
-    "",
-    "عامل می‌تواند کد را بررسی کند، قابلیت بسازد، خطا را رفع کند، طراحی را ممیزی کند، بروزرسانی‌ها را بررسی کند، تست بگیرد و پس از عبور از کنترل‌ها تغییرات امن را منتشر کند.",
-    "",
-    "◂ - تغییرات پرخطر، حذف داده، توکن‌ها و ریشه دسترسی مالک خودکار دستکاری نمی‌شوند."
-  ].join("\n"));
-  return edit(uid===uid?uid:uid,0,body,null).catch(()=>null);
-}
-
 function ownerAgentMarkup(data:any){
   const s=data.settings;
   return menu([
