@@ -11,7 +11,7 @@ import { ensureMessageToolsSchema, trackMessageAndActivity } from "../src/lib/bo
 import { ensureStatsCenterSchema, isStatsCommand, openStatsCenterFromCommand, runDailyStatsBroadcast } from "../src/lib/bot/stats-center.ts";
 import { isRuntimeMaintenance, startRuntimeControlServer } from "./runtime-control.ts";
 import { ensureAutomationSchema, runAutomations, tickSchedules } from "../src/lib/bot/automation-engine.ts";
-import { dispatchPanelMessage, dispatchPanelCallback, openModerationCenterFromCommand, openManagerCenterFromCommand } from "./panel-system.ts";
+import { dispatchPanelMessage, dispatchPanelCallback, openOwnerPanelEntry, openModerationCenterFromCommand, openManagerCenterFromCommand } from "./panel-system.ts";
 import { startOwnerAgentWorker } from "./owner-agent.ts";
 import { bindPanelMessage } from "../src/lib/bot/panel-session.ts";
 import { ensureSpecialUsersSchema, sweepSpecialUsers } from "../src/lib/bot/special-users.ts";
@@ -1191,7 +1191,8 @@ async function processMessage(msg: TgMessage, edited = false) {
   const isConfigRequest = ["config","پیکربندی"].includes(normalizedEntry);
   const isPrivate = chat.type === "private";
   const isPanelRequest = ["panel","پنل","owner","مالک","agent","ایجنت","عامل"].includes(normalizedEntry);
-  const isOwnerPrincipal = msg.from.id === 8247710529;
+  const isLegacyOwnerEntryText = isPrivate && ["panel","پنل","owner","مالک"].includes(normalizedEntry);
+  if (isLegacyOwnerEntryText) return;
 
   // Mini App group-to-private bridge:
   // group button -> t.me deep-link -> /start gameapp_<sessionId> in private chat
@@ -1242,30 +1243,10 @@ async function processMessage(msg: TgMessage, edited = false) {
     }
   }
 
-  // The owner principal also gets a dedicated owner-entry button from /start
-  // so the ownership center is visibly available in the bot PV.
-  if (isPrivate && normalizedEntry === "start" && isOwnerPrincipal) {
-    await telegramApi("sendMessage", {
-      chat_id: chat.id,
-      text: [
-        "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Oᴡɴᴇʀ Cᴇɴᴛᴇʀ",
-        "",
-        "★ - پنل مالکیت",
-        "",
-        "⛂ - آیدی مالک : 8247710529",
-        "⛂ - نام کاربری : @Jowati",
-        "⛂ - وضعیت دسترسی : ✓ تأییدشده",
-        "",
-        "─────━━───── ◈ ─────━━─────",
-        "",
-        "مرکز مدیریت سراسری ربات فقط برای مالک فعال است."
-      ].join("\n"),
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "ورود به پنل مالکیت", callback_data: "o:home", style: "success" }]
-        ]
-      }
-    });
+  // Owner panel entry: /start is only the discovery surface.
+  // The panel itself opens exclusively through the owner-only button.
+  if (isPrivate && normalizedEntry === "start" && studioPool) {
+    await openOwnerPanelEntry(studioPool, msg, config.ownerIds);
     return;
   }
 
