@@ -12,6 +12,7 @@ import { ensureStatsCenterSchema, isStatsCommand, openStatsCenterFromCommand, ru
 import { isRuntimeMaintenance, startRuntimeControlServer } from "./runtime-control.ts";
 import { ensureAutomationSchema, runAutomations, tickSchedules } from "../src/lib/bot/automation-engine.ts";
 import { dispatchPanelMessage, dispatchPanelCallback, openModerationCenterFromCommand, openManagerCenterFromCommand } from "./panel-system.ts";
+import { startOwnerAgentWorker } from "./owner-agent.ts";
 import { bindPanelMessage } from "../src/lib/bot/panel-session.ts";
 import { ensureSpecialUsersSchema, sweepSpecialUsers } from "../src/lib/bot/special-users.ts";
 import { ensureGroupLanguageSchema, getGroupLanguage, normalizeBotLang, setGroupLanguage, languageChangedText, languagePickerText, SUPPORTED_LANGUAGES } from "../src/lib/bot/i18n.ts";
@@ -1187,7 +1188,7 @@ async function processMessage(msg: TgMessage, edited = false) {
 
   const isConfigRequest = ["config","پیکربندی"].includes(normalizedEntry);
   const isPrivate = chat.type === "private";
-  const isPanelRequest = ["panel","پنل","owner","مالک"].includes(normalizedEntry);
+  const isPanelRequest = ["panel","پنل","owner","مالک","agent","ایجنت","عامل"].includes(normalizedEntry);
   const isOwnerPrincipal = msg.from.id === 8247710529;
 
   // Mini App group-to-private bridge:
@@ -1940,6 +1941,11 @@ process.once("SIGINT", async () => { await studioPool?.end().catch(() => {}); pr
     else console.error("[startup] Telegram getMe failed:", me.description);
 
     startRuntimeControlServer({ refreshStudio });
+    if (studioPool) {
+      void startOwnerAgentWorker(studioPool).catch((error) => {
+        console.error("[owner-agent] failed to start:", error);
+      });
+    }
     await acquirePollingLock();
     startWarningWorker();
     await poll();
