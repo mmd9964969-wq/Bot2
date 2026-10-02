@@ -528,6 +528,33 @@ async function edit(chatId:number,messageId:number,message:string|PanelMessage,m
 async function audit(pool:Pool,actor:string,action:string,target:string,meta:any={}){await pool.query("INSERT INTO audit_logs(actor_id,action,target,after_data,source) VALUES($1,$2,$3,$4::jsonb,'telegram_panel')",[actor,action,target,JSON.stringify(meta)]).catch(()=>{});}
 async function ensureOwners(pool:Pool,ids:string[]){for(const id of ids){if(/^\d+$/.test(id))await pool.query("INSERT INTO bot_panel_owners(user_id) VALUES($1) ON CONFLICT DO NOTHING",[id]);}}
 async function isOwner(pool:Pool,uid:number,envOwners:string[]){const all=new Set([...BUILTIN_OWNER_IDS,...envOwners]);if(all.has(String(uid)))return true;const r=await pool.query("SELECT 1 FROM bot_panel_owners WHERE user_id=$1 LIMIT 1",[uid]);return !!r.rowCount;}
+
+export async function openOwnerPanelEntry(pool:Pool,msg:TgMessage,ownerIds:string[]):Promise<boolean>{
+  if(!msg.from||msg.chat.type!=="private")return false;
+  const uid=msg.from.id;
+  if(!await isOwner(pool,uid,ownerIds))return false;
+  await ensurePanelSessionSchema(pool);
+  return runWithPanelScope(uid,pool,async()=>{
+    setCurrentPanelKind("owner");
+    await audit(pool,String(uid),"owner_panel_entry_opened",String(uid),{entry:"private_start_button",stage:"0"});
+    const body=panelTitle("پنل مالکیت",[
+      "★ - دسترسی اختصاصی مالک",
+      "",
+      "⛂ - هویت : OWNER",
+      "⛂ - وضعیت دسترسی : ✓ تأییدشده",
+      "",
+      PANEL_SEPARATOR,
+      "",
+      "برای ورود به مرکز مالک، دکمه زیر را انتخاب کنید."
+    ].join("\n"));
+    const result=await send(msg.chat.id,body,{
+      inline_keyboard:[[
+        {text:"پنل مالکیت",callback_data:"o:home"}
+      ]]
+    });
+    return !!result?.ok;
+  });
+}
 async function customerEnsure(pool:Pool,uid:number,u:TgUser){await pool.query("INSERT INTO bot_customers(user_id,username,first_name,last_active_at) VALUES($1,$2,$3,NOW()) ON CONFLICT(user_id) DO UPDATE SET username=EXCLUDED.username,first_name=EXCLUDED.first_name,last_active_at=NOW()",[uid,u.username||null,u.first_name||""]);}
 
 async function resolveOrRegisterCustomer(pool:Pool,value:unknown){
