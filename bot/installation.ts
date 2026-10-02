@@ -2812,6 +2812,7 @@ export async function handleInstallationCallback(
       const parts = data.split(":");
       const type = parts[2] as InstallType;
       const operation = parts[3] as InstallationOperation;
+      const session = await getSession(pool, chat.id);
 
       if (!["quick", "custom"].includes(type)) {
         notice = "نوع نصب نامعتبر است";
@@ -2820,6 +2821,16 @@ export async function handleInstallationCallback(
 
       if (!["install", "reinstall"].includes(operation)) {
         notice = "این نوع نصب برای عملیات فعلی مجاز نیست";
+        return true;
+      }
+
+      if (
+        !session ||
+        Number(session.actor_id) !== cb.from.id ||
+        String(session.step) !== "install_type" ||
+        String(session.operation) !== operation
+      ) {
+        notice = "این دکمه مربوط به نشست فعلی نیست";
         return true;
       }
 
@@ -2836,6 +2847,13 @@ export async function handleInstallationCallback(
 
     if (data === "inst:type:back") {
       const session = await getSession(pool, chat.id);
+      if (
+        session &&
+        Number(session.actor_id) === cb.from.id &&
+        String(session.step) === "version"
+      ) {
+        await transitionSession(pool, chat.id, cb.from.id, "install_type", "collecting");
+      }
       await render(
         chat.id,
         cb.message.message_id,
@@ -2847,6 +2865,16 @@ export async function handleInstallationCallback(
     }
 
     if (data === "inst:version:latest" || data === "inst:version:current") {
+      const session = await getSession(pool, chat.id);
+      if (
+        !session ||
+        Number(session.actor_id) !== cb.from.id ||
+        String(session.step) !== "version" ||
+        !["install", "reinstall"].includes(String(session.operation))
+      ) {
+        notice = "انتخاب نسخه مربوط به نشست فعلی نیست";
+        return true;
+      }
       const version = data.endsWith(":current") ? VERSION : "latest";
       await transitionSession(
         pool,
@@ -2861,12 +2889,22 @@ export async function handleInstallationCallback(
     }
 
     if (data === "inst:version:input") {
+      const session = await getSession(pool, chat.id);
+      if (
+        !session ||
+        Number(session.actor_id) !== cb.from.id ||
+        String(session.step) !== "version" ||
+        !["install", "reinstall"].includes(String(session.operation))
+      ) {
+        notice = "ورودی نسخه مربوط به نشست فعلی نیست";
+        return true;
+      }
       await transitionSession(
         pool,
         chat.id,
         cb.from.id,
         "version",
-        String((await getSession(pool, chat.id))?.status ?? "collecting") as InstallationSessionStatus,
+        String(session.status) as InstallationSessionStatus,
       );
       await render(
         chat.id,
@@ -2888,14 +2926,28 @@ export async function handleInstallationCallback(
     }
 
     if (data === "inst:version") {
+      const session = await getSession(pool, chat.id);
+      if (session && Number(session.actor_id) === cb.from.id && String(session.step) === "environment") {
+        await transitionSession(pool, chat.id, cb.from.id, "version", "collecting");
+      }
       await render(chat.id, cb.message.message_id, versionDocument());
       return true;
     }
 
     if (data.startsWith("inst:env:")) {
       const environment = data.slice("inst:env:".length);
+      const session = await getSession(pool, chat.id);
       if (!["production", "staging", "development"].includes(environment)) {
         notice = "محیط نامعتبر است";
+        return true;
+      }
+      if (
+        !session ||
+        Number(session.actor_id) !== cb.from.id ||
+        String(session.step) !== "environment" ||
+        !["install", "reinstall"].includes(String(session.operation))
+      ) {
+        notice = "انتخاب محیط مربوط به نشست فعلی نیست";
         return true;
       }
 
@@ -2912,11 +2964,25 @@ export async function handleInstallationCallback(
     }
 
     if (data === "inst:environment") {
+      const session = await getSession(pool, chat.id);
+      if (session && Number(session.actor_id) === cb.from.id && String(session.step) === "settings") {
+        await transitionSession(pool, chat.id, cb.from.id, "environment", "collecting");
+      }
       await render(chat.id, cb.message.message_id, environmentDocument());
       return true;
     }
 
     if (data === "inst:settings:standard") {
+      const session = await getSession(pool, chat.id);
+      if (
+        !session ||
+        Number(session.actor_id) !== cb.from.id ||
+        String(session.step) !== "settings" ||
+        !["install", "reinstall"].includes(String(session.operation))
+      ) {
+        notice = "تنظیمات مربوط به نشست فعلی نیست";
+        return true;
+      }
       await transitionSession(
         pool,
         chat.id,
@@ -2937,12 +3003,22 @@ export async function handleInstallationCallback(
     }
 
     if (data === "inst:settings:input") {
+      const session = await getSession(pool, chat.id);
+      if (
+        !session ||
+        Number(session.actor_id) !== cb.from.id ||
+        String(session.step) !== "settings" ||
+        !["install", "reinstall"].includes(String(session.operation))
+      ) {
+        notice = "ورودی تنظیمات مربوط به نشست فعلی نیست";
+        return true;
+      }
       await transitionSession(
         pool,
         chat.id,
         cb.from.id,
         "settings",
-        String((await getSession(pool, chat.id))?.status ?? "collecting") as InstallationSessionStatus,
+        String(session.status) as InstallationSessionStatus,
       );
       await render(
         chat.id,
@@ -2965,12 +3041,41 @@ export async function handleInstallationCallback(
     }
 
     if (data === "inst:settings") {
+      const session = await getSession(pool, chat.id);
+      if (session && Number(session.actor_id) === cb.from.id && String(session.step) === "summary" && ["install", "reinstall"].includes(String(session.operation))) {
+        await transitionSession(pool, chat.id, cb.from.id, "settings", "collecting");
+      }
       await render(chat.id, cb.message.message_id, settingsDocument());
       return true;
     }
 
     if (data === "inst:summary:back") {
-      await renderCurrentSession(pool, chat, cb.message.message_id);
+      const session = await getSession(pool, chat.id);
+      if (!session || Number(session.actor_id) !== cb.from.id || String(session.step) !== "summary") {
+        notice = "نشست خلاصه معتبر نیست";
+        return true;
+      }
+
+      const operation = String(session.operation) as InstallationOperation;
+      if (["install", "reinstall"].includes(operation)) {
+        const previousStep = session.install_type === "custom" ? "settings" : "install_type";
+        await transitionSession(
+          pool,
+          chat.id,
+          cb.from.id,
+          previousStep as InstallationSessionStep,
+          "collecting",
+        );
+        await renderCurrentSession(pool, chat, cb.message.message_id);
+        return true;
+      }
+
+      await clearSession(pool, chat.id, cb.from.id);
+      await render(
+        chat.id,
+        cb.message.message_id,
+        operationSelectionDocument(await state(pool, chat.id)),
+      );
       return true;
     }
 
@@ -2981,6 +3086,10 @@ export async function handleInstallationCallback(
 
     if (data === "inst:preflight:details") {
       const session = await getSession(pool, chat.id);
+      if (!session || Number(session.actor_id) !== cb.from.id || String(session.step) !== "preflight") {
+        notice = "نشست بررسی معتبر نیست";
+        return true;
+      }
       const report = preflightReportFromSession(session);
       if (!report) {
         await runPreflightForCurrentSession(pool, chat, cb.from.id, cb.message.message_id, false);
@@ -2992,6 +3101,10 @@ export async function handleInstallationCallback(
 
     if (data === "inst:preflight:summary") {
       const session = await getSession(pool, chat.id);
+      if (!session || Number(session.actor_id) !== cb.from.id || String(session.step) !== "preflight") {
+        notice = "نشست بررسی معتبر نیست";
+        return true;
+      }
       const report = preflightReportFromSession(session);
       if (!session || !report) {
         await runPreflightForCurrentSession(pool, chat, cb.from.id, cb.message.message_id, false);
@@ -3031,7 +3144,7 @@ export async function handleInstallationCallback(
       const session = await getSession(pool, chat.id);
       const report = preflightReportFromSession(session);
 
-      if (!session || Number(session.actor_id) !== cb.from.id || !report) {
+      if (!session || Number(session.actor_id) !== cb.from.id || String(session.step) !== "preflight" || !report) {
         notice = "گزارش بررسی معتبر نیست";
         await runPreflightForCurrentSession(pool, chat, cb.from.id, cb.message.message_id, false);
         return true;
