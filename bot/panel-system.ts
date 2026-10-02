@@ -3570,6 +3570,27 @@ export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:str
   // Do not reject legacy/previously-rendered panel messages solely because their
   // session row expired or was created before the session table was introduced.
   // Authorization is enforced again inside ownerCallback/customerCallback.
+  const data=String(cb.data||"");
+  // Sudo callbacks bypass panel-session bookkeeping so level selection and
+  // assignment remain reliable even if a legacy/expired panel session exists.
+  if(data.startsWith("os:")){
+    return runWithPanelScope(cb.from.id,pool,async()=>{
+      setCurrentPanelKind("owner");
+      try{
+        return await ownerCallback(pool,cb,ownerIds);
+      }catch(error){
+        console.error("[owner-sudo] callback failed",error);
+        await telegramApi("editMessageText",{
+          chat_id:cb.message!.chat.id,
+          message_id:cb.message!.message_id,
+          text:"◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Mᴀɴᴀɢᴇᴅ Sᴜᴅᴏ\n\n⛂ - وضعیت : ✗ عملیات سودو اجرا نشد\n⛂ - دلیل : خطای داخلی در پردازش مرکز سودو.",
+          reply_markup:{inline_keyboard:[[{text:"‹ بازگشت",callback_data:"o:home"}]]}
+        }).catch(()=>{});
+        return true;
+      }
+    });
+  }
+
   const owned=await panelMessageOwnedBy(pool,cb.message.chat.id,cb.message.message_id,cb.from.id).catch(()=>false);
   return runWithPanelScope(cb.from.id,pool,async()=>{
     if(!owned){
@@ -3588,10 +3609,7 @@ export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:str
     // Callback queries are already user-initiated Telegram events; do not run them
     // through the message throttle. The old shared throttle could silently drop
     // panel clicks arriving shortly after a panel-opening message or another click.
-    const data=String(cb.data||"");
-    // Sudo owner-center callbacks use the os: namespace and must be routed
-    // before the generic owner/customer callback dispatch.
-    if(data.startsWith("os:")) return ownerCallback(pool,cb,ownerIds);
+    // License callbacks keep the generic owner routing.
     if(data.startsWith("lic:")) return ownerCallback(pool,cb,ownerIds);
     // Route panel callbacks before secondary feature handlers so every main
     // customer/owner navigation callback reaches its dedicated controller.
