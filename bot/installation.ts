@@ -6,6 +6,12 @@ import {
   richDocumentToPlainText,
   type RichDocument,
 } from "../src/lib/bot/rich-message.ts";
+import {
+  runInstallationPreflight,
+  preflightStatusLabel,
+  preflightStatusSymbol,
+  type PreflightReport,
+} from "./installation-preflight.ts";
 
 type TgUser = {
   id: number;
@@ -203,6 +209,7 @@ function defaultSession(operation: InstallationOperation, actorId: number) {
     settings: {} as Record<string, unknown>,
     step: "operation" as SessionStep,
     status: "collecting",
+    preflight: null as PreflightReport | null,
   };
 }
 
@@ -378,6 +385,7 @@ async function ensureSchemaInternal(pool: Pool) {
       "settings JSONB NOT NULL DEFAULT '{}'::jsonb," +
       "step TEXT NOT NULL DEFAULT 'operation'," +
       "status TEXT NOT NULL DEFAULT 'collecting'," +
+      "preflight JSONB NOT NULL DEFAULT '{}'::jsonb," +
       "updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()," +
       "expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '15 minutes')" +
       ")",
@@ -386,6 +394,11 @@ async function ensureSchemaInternal(pool: Pool) {
   await pool.query(
     "CREATE INDEX IF NOT EXISTS idx_bot_installation_sessions_expires " +
       "ON bot_installation_sessions(expires_at)",
+  );
+
+  await pool.query(
+    "ALTER TABLE bot_installation_sessions " +
+      "ADD COLUMN IF NOT EXISTS preflight JSONB NOT NULL DEFAULT '{}'::jsonb",
   );
 }
 
@@ -460,12 +473,12 @@ async function saveSession(
 ) {
   await pool.query(
     "INSERT INTO bot_installation_sessions(" +
-      "group_id,actor_id,operation,install_type,version,environment,settings,step,status,updated_at,expires_at" +
-      ") VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,NOW(),NOW()+INTERVAL '15 minutes') " +
+      "group_id,actor_id,operation,install_type,version,environment,settings,step,status,preflight,updated_at,expires_at" +
+      ") VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10::jsonb,NOW(),NOW()+INTERVAL '15 minutes') " +
       "ON CONFLICT(group_id) DO UPDATE SET " +
       "actor_id=EXCLUDED.actor_id,operation=EXCLUDED.operation,install_type=EXCLUDED.install_type," +
       "version=EXCLUDED.version,environment=EXCLUDED.environment,settings=EXCLUDED.settings," +
-      "step=EXCLUDED.step,status=EXCLUDED.status,updated_at=NOW()," +
+      "step=EXCLUDED.step,status=EXCLUDED.status,preflight=EXCLUDED.preflight,updated_at=NOW()," +
       "expires_at=NOW()+INTERVAL '15 minutes'",
     [
       String(groupId),
@@ -477,6 +490,7 @@ async function saveSession(
       JSON.stringify(session.settings ?? {}),
       session.step,
       session.status,
+      JSON.stringify(session.preflight ?? {}),
     ],
   );
 }
@@ -594,24 +608,185 @@ function managementDocument(chat: TgChat, stateRow: any) {
   return doc(blocks);
 }
 
-function systemCheckPlaceholderDocument(chat: TgChat) {
+function preflightReportFromSession(session: any): PreflightReport | null {
+  const raw = session?.preflight;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  if (!Array.isArray(raw.checks) || !raw.operation || !raw.overall) return null;
+  return raw as PreflightReport;
+}
+
+function preflightSummaryDocument(
+  chat: TgChat,
+  stateRow: any,
+  session: any,
+  report: PreflightReport,
+) {
+  const statusTextValue = report.overall === "READY" ? "● آماده" : "■ مسدود";
+  const canContinue =
+    report.overall === "READY" &&
+    ["confirmed", "preflight_ready", "preflight_blocked", "ready"].includes(String(session?.status ?? ""));
+
+  const rows: Array<[string, string]> = report.checks.map((item) => [
+    item.category,
+    preflightStatusSymbol(item.status) + " " + preflightStatusLabel(item.status),
+  ]);
+
+  const issues = report.checks.filter(
+    (item) => !["READY", "SKIPPED"].includes(item.status),
+  );
+
+  const blocks: any[] = [
+    ...base(
+      "Pʀᴇғʟɪɢʜᴛ Cʜᴇᴄᴋ",
+      report.overall === "READY"
+        ? "پیش‌نیازهای لازم بررسی شده‌اند. هنوز هیچ عملیات اجرایی آغاز نشده است."
+        : "اجرای عملیات تا رفع موارد مسدودکننده مجاز نیست.",
+    ),
+    table("وضعیت کلی", [
+      ["نتیجه", statusTextValue],
+      ["عملیات", operationLabel(String(report.operation) as InstallationOperation)],
+      ["بررسی‌ها", `${report.checkedCount} / ${report.relevantCount}`],
+      ["هشدارها", String(report.warningCount)],
+      ["مسدودکننده", String(report.blockerCount)],
+      ["قابل رفع خودکار", String(report.autoFixableCount)],
+      ["اصلاح خودکار انجام‌شده", String(report.autoFixedCount)],
+    ]),
+    { type: "divider" },
+    table("خلاصهٔ بررسی", rows),
+  ];
+
+  if (issues.length) {
+    blocks.push(
+      {
+        type: "details",
+        summary: "موارد نیازمند توجه",
+        is_open: false,
+        blocks: [
+          ...issues.map((item) => ({
+            type: "paragraph",
+            text:
+              preflightStatusSymbol(item.status) +
+              " " +
+              item.category +
+              " — " +
+              item.detail +
+              (item.action ? " اقدام: " + item.action : ""),
+          })),
+        ],
+      },
+    );
+  } else {
+    blocks.push({
+      type: "paragraph",
+      text: "تمام بررسی‌های مرتبط با این عملیات بدون مسدودکننده به پایان رسیدند.",
+    });
+  }
+
+  blocks.push(
+    { type: "divider" },
+    buttons([button("جزئیات بررسی", "inst:preflight:details")]),
+    buttons([button("بررسی مجدد", "inst:preflight:recheck")]),
+  );
+
+  if (report.autoFixableCount > 0) {
+    blocks.push(buttons([button("رفع خودکار موارد", "inst:preflight:fix", "success")]));
+  }
+
+  if (canContinue) {
+    blocks.push(buttons([button("ادامه", "inst:preflight:continue", "success")]));
+  }
+
+  blocks.push(
+    buttons([button("‹ بازگشت", "inst:home", "primary")]),
+    {
+      type: "footer",
+      text:
+        "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Pʀᴇғʟɪɢʜᴛ" +
+        (stateRow?.installed ? " · Installed" : " · Not Installed"),
+    },
+  );
+
+  return doc(blocks);
+}
+
+function preflightDetailsDocument(report: PreflightReport) {
+  const blocks: any[] = [
+    ...base(
+      "Pʀᴇғʟɪɢʜᴛ Dᴇᴛᴀɪʟs",
+      "جزئیات فقط برای بررسی‌های این عملیات نمایش داده می‌شوند.",
+    ),
+    table(
+      "شاخص‌های بررسی",
+      report.checks.map((item) => [
+        item.category,
+        preflightStatusSymbol(item.status) + " " + preflightStatusLabel(item.status),
+      ]),
+    ),
+  ];
+
+  for (const item of report.checks.filter((entry) => !["READY", "SKIPPED"].includes(entry.status))) {
+    blocks.push(
+      {
+        type: "details",
+        summary: item.category + " · " + preflightStatusLabel(item.status),
+        is_open: false,
+        blocks: [
+          {
+            type: "paragraph",
+            text: item.detail,
+          },
+          ...(item.action
+            ? [{ type: "paragraph", text: "اقدام: " + item.action }]
+            : []),
+          ...(item.autoFixable
+            ? [{ type: "paragraph", text: "این مورد امکان رفع خودکار دارد." }]
+            : []),
+        ],
+      },
+    );
+  }
+
+  blocks.push(
+    { type: "divider" },
+    buttons([button("بررسی مجدد", "inst:preflight:recheck")]),
+    buttons([button("‹ بازگشت", "inst:preflight:summary", "primary")]),
+    { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Pʀᴇғʟɪɢʜᴛ Dᴇᴛᴀɪʟs" },
+  );
+
+  return doc(blocks);
+}
+
+function preflightReadyDocument(chat: TgChat, report: PreflightReport, session: any) {
   return doc([
     ...base(
-      "Sʏsᴛᴇᴍ Cʜᴇᴄᴋ",
-      "ورودی مرکز بررسی ثبت شد، اما بررسی واقعی پیش‌نیازها هنوز در این مرحله اجرا نمی‌شود.",
+      "Pʀᴇғʟɪɢʜᴛ Rᴇᴀᴅʏ",
+      "مرحلهٔ بررسی پیش‌نیازها با موفقیت به وضعیت READY رسید. اجرای عملیات در این مرحله انجام نمی‌شود.",
     ),
-    table("مرز اجرایی فعلی", [
+    table("نتیجه", [
       ["گروه", chat.title || "گروه بدون نام"],
-      ["وضعیت نصب", "از پایگاه داده خوانده می‌شود"],
-      ["پیش‌نیازها", "مرحلهٔ ۴"],
-      ["اجرای نصب", "در این مرحله انجام نمی‌شود"],
+      ["عملیات", operationLabel(String(session.operation) as InstallationOperation)],
+      ["وضعیت", "● آماده"],
+      ["هشدارها", String(report.warningCount)],
+      ["مسدودکننده", "۰"],
+      ["آخرین بررسی", new Date(report.generatedAt).toLocaleString("fa-IR")],
     ]),
     {
       type: "paragraph",
-      text: "ساختار ورود و خروج این بخش آماده است تا در مرحلهٔ ۴ به بررسی محیط، وابستگی‌ها، دسترسی‌ها و اتصال متصل شود.",
+      text:
+        report.warningCount > 0
+          ? "همهٔ پیش‌نیازهای اجباری آماده هستند؛ " +
+            report.warningCount +
+            " هشدار اختیاری ثبت شده است."
+          : "همهٔ پیش‌نیازهای اجباری آماده هستند و هیچ مسدودکننده‌ای ثبت نشده است.",
     },
+    {
+      type: "paragraph",
+      text: "مرز مرحلهٔ ۴ رعایت شده است: عملیات نصب، حذف، تعمیر یا به‌روزرسانی اجرا نشده است.",
+    },
+    { type: "divider" },
+    buttons([button("بررسی مجدد", "inst:preflight:recheck")]),
     buttons([button("‹ بازگشت", "inst:home", "primary")]),
-    { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Sʏsᴛᴇᴍ Cʜᴇᴄᴋ" },
+    { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Pʀᴇғʟɪɢʜᴛ Rᴇᴀᴅʏ" },
   ]);
 }
 
@@ -951,6 +1126,13 @@ async function renderCurrentSession(pool: Pool, chat: TgChat, messageId: number)
     await render(chat.id, messageId, environmentDocument());
   } else if (session.step === "settings") {
     await render(chat.id, messageId, settingsDocument());
+  } else if (session.step === "preflight") {
+    const report = preflightReportFromSession(session);
+    if (report) {
+      await render(chat.id, messageId, preflightSummaryDocument(chat, await state(pool, chat.id), session, report));
+    } else {
+      await runPreflightForCurrentSession(pool, chat, Number(session.actor_id), messageId, false);
+    }
   } else if (session.step === "summary") {
     await render(chat.id, messageId, summaryDocument(chat, session, isDestructive(operation)));
   } else if (session.step === "confirmed") {
@@ -958,6 +1140,94 @@ async function renderCurrentSession(pool: Pool, chat: TgChat, messageId: number)
   } else {
     await render(chat.id, messageId, operationSelectionDocument(await state(pool, chat.id)));
   }
+}
+
+async function runPreflightForCurrentSession(
+  pool: Pool,
+  chat: TgChat,
+  actorId: number,
+  messageId: number,
+  autoFix = false,
+) {
+  let session = await getSession(pool, chat.id);
+
+  if (!session) {
+    const currentState = await state(pool, chat.id);
+    const operation: InstallationOperation = currentState?.installed ? "report" : "install";
+    const temporary = defaultSession(operation, actorId);
+    if (operation === "install") {
+      temporary.install_type = "quick";
+      temporary.version = "latest";
+      temporary.environment = "production";
+    }
+    temporary.step = "preflight";
+    temporary.status = "preflight_report";
+    await saveSession(pool, chat.id, temporary);
+    session = await getSession(pool, chat.id);
+  }
+
+  if (!session || Number(session.actor_id) !== actorId) {
+    await render(
+      chat.id,
+      messageId,
+      operationSelectionDocument(await state(pool, chat.id)),
+    );
+    return null;
+  }
+
+  const installationState = await state(pool, chat.id);
+  const operation = String(session.operation) as InstallationOperation;
+  const report = await runInstallationPreflight({
+    pool,
+    chatId: chat.id,
+    actorId,
+    operation,
+    installed: Boolean(installationState?.installed),
+    version: session.version,
+    environment: session.environment,
+    settings: session.settings,
+    sessionConfirmed: ["confirmed", "preflight_ready", "preflight_blocked", "ready"].includes(
+      String(session.status ?? ""),
+    ),
+    autoFix,
+    ensureSchema: () => ensureSchema(pool),
+  });
+
+  const nextStatus =
+    report.overall === "READY" ? "preflight_ready" : "preflight_blocked";
+
+  await pool.query(
+    "UPDATE bot_installation_sessions " +
+      "SET preflight=$1::jsonb,step='preflight',status=$2,updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' " +
+      "WHERE group_id=$3 AND actor_id=$4",
+    [
+      JSON.stringify(report),
+      nextStatus,
+      String(chat.id),
+      String(actorId),
+    ],
+  );
+
+  await logInstallEvent(pool, chat.id, actorId, "preflight_completed", {
+    operation,
+    overall: report.overall,
+    warning_count: report.warningCount,
+    blocker_count: report.blockerCount,
+    auto_fixable_count: report.autoFixableCount,
+    auto_fixed_count: report.autoFixedCount,
+    auto_fix_requested: autoFix,
+  });
+
+  const fresh = await getSession(pool, chat.id);
+  if (fresh) {
+    await render(
+      chat.id,
+      messageId,
+      preflightSummaryDocument(chat, installationState, fresh, report),
+    );
+  }
+
+  return report;
 }
 
 export function isInstallationCommandText(value: unknown) {
@@ -1176,10 +1446,12 @@ export async function handleInstallationCallback(
     }
 
     if (data === "inst:check") {
-      await render(
-        chat.id,
+      await runPreflightForCurrentSession(
+        pool,
+        chat,
+        cb.from.id,
         cb.message.message_id,
-        systemCheckPlaceholderDocument(chat),
+        false,
       );
       return true;
     }
@@ -1380,6 +1652,102 @@ export async function handleInstallationCallback(
 
     if (data === "inst:retry") {
       await renderCurrentSession(pool, chat, cb.message.message_id);
+      return true;
+    }
+
+    if (data === "inst:preflight:details") {
+      const session = await getSession(pool, chat.id);
+      const report = preflightReportFromSession(session);
+      if (!report) {
+        await runPreflightForCurrentSession(pool, chat, cb.from.id, cb.message.message_id, false);
+        return true;
+      }
+      await render(chat.id, cb.message.message_id, preflightDetailsDocument(report));
+      return true;
+    }
+
+    if (data === "inst:preflight:summary") {
+      const session = await getSession(pool, chat.id);
+      const report = preflightReportFromSession(session);
+      if (!session || !report) {
+        await runPreflightForCurrentSession(pool, chat, cb.from.id, cb.message.message_id, false);
+        return true;
+      }
+      await render(
+        chat.id,
+        cb.message.message_id,
+        preflightSummaryDocument(chat, await state(pool, chat.id), session, report),
+      );
+      return true;
+    }
+
+    if (data === "inst:preflight:recheck") {
+      await runPreflightForCurrentSession(
+        pool,
+        chat,
+        cb.from.id,
+        cb.message.message_id,
+        false,
+      );
+      return true;
+    }
+
+    if (data === "inst:preflight:fix") {
+      await runPreflightForCurrentSession(
+        pool,
+        chat,
+        cb.from.id,
+        cb.message.message_id,
+        true,
+      );
+      return true;
+    }
+
+    if (data === "inst:preflight:continue") {
+      const session = await getSession(pool, chat.id);
+      const report = preflightReportFromSession(session);
+
+      if (!session || Number(session.actor_id) !== cb.from.id || !report) {
+        notice = "گزارش بررسی معتبر نیست";
+        await runPreflightForCurrentSession(pool, chat, cb.from.id, cb.message.message_id, false);
+        return true;
+      }
+
+      if (report.overall !== "READY") {
+        notice = "ابتدا موارد مسدودکننده را برطرف کنید";
+        await render(
+          chat.id,
+          cb.message.message_id,
+          preflightSummaryDocument(chat, await state(pool, chat.id), session, report),
+        );
+        return true;
+      }
+
+      if (!["confirmed", "preflight_ready", "ready"].includes(String(session.status ?? ""))) {
+        notice = "ابتدا تأیید نهایی عملیات را ثبت کنید";
+        await renderCurrentSession(pool, chat, cb.message.message_id);
+        return true;
+      }
+
+      await pool.query(
+        "UPDATE bot_installation_sessions SET status='ready',step='preflight',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
+        [String(chat.id), String(cb.from.id)],
+      );
+
+      await logInstallEvent(pool, chat.id, cb.from.id, "stage4_ready", {
+        operation: String(session.operation),
+      });
+
+      const readySession = await getSession(pool, chat.id);
+      if (readySession) {
+        await render(
+          chat.id,
+          cb.message.message_id,
+          preflightReadyDocument(chat, report, readySession),
+        );
+      }
+
+      notice = "پیش‌نیازها تأیید شد";
       return true;
     }
 
