@@ -692,6 +692,29 @@ export async function getLatestInstallationProgressForGroup(
   return row ? rowToSnapshot(row) : null;
 }
 
+export async function ensureInstallationProgressSteps(
+  pool: Pool,
+  executionId: string,
+  operation: InstallationProgressOperation,
+) {
+  const definitions = stepDefinitions(operation);
+  const progress = await getInstallationProgress(pool, executionId);
+  if (!progress) throw new Error("رکورد پیشرفت عملیات پیدا نشد: " + executionId);
+
+  for (let i = 0; i < definitions.length; i += 1) {
+    const step = definitions[i];
+    await pool.query(
+      "INSERT INTO bot_installation_progress_steps(" +
+        "execution_id,step_id,step_index,label,weight,status,progress" +
+      ") VALUES($1,$2,$3,$4,$5,'NOT_STARTED',0) " +
+      "ON CONFLICT(execution_id,step_id) DO NOTHING",
+      [executionId, step.id, i + 1, step.label, step.weight],
+    );
+  }
+
+  return getInstallationProgressStepStatuses(pool, executionId);
+}
+
 export async function getInstallationProgressStepStatuses(pool: Pool, executionId: string) {
   const result = await pool.query(
     "SELECT step_id,step_index,label,weight,status,progress,attempts,started_at,completed_at,metadata " +
