@@ -156,6 +156,7 @@ async function cloneRepository(root: string) {
   await runCommand(dirname(root), "git", ["clone", "--depth", "1", "--branch", branch, url, root], 180000);
   await runCommand(root, "git", ["config", "user.name", env("AGENT_GIT_NAME", "Persian Bot Agent")]);
   await runCommand(root, "git", ["config", "user.email", env("AGENT_GIT_EMAIL", "agent@persian-bot.local")]);
+  await runCommand(root, "npm", ["ci", "--ignore-scripts"], 300000);
 }
 
 async function listFiles(root: string): Promise<string[]> {
