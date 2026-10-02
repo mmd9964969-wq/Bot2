@@ -431,24 +431,50 @@ async function commitAndPush(root: string, job: AgentJob, deploy: boolean) {
   return { changed: true, commitSha: sha, branch };
 }
 
-async function verifyRailway(commitSha: string) {
+async function verifyRailway(commitSha: string, startedAt: number) {
   const token = env("RAILWAY_TOKEN");
   const projectId = env("RAILWAY_PROJECT_ID");
   const environmentId = env("RAILWAY_ENVIRONMENT_ID");
   if (!token || !projectId || !environmentId) return { checked: false, status: "unverified" };
 
-  const query = "query project($id:String!){project(id:$id){serviceInstances{edges{node{serviceId latestDeployment{id status createdAt}}}}}}";
-  const res = await fetch("https://backboard.railway.com/graphql/v2", {
-    method: "POST",
-    headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
-    body: JSON.stringify({ query, variables: { id: projectId } }),
-  });
-  const json: any = await res.json();
-  if (!res.ok || json?.errors?.length) throw new Error("railway_api_failed");
-  const nodes = json?.data?.project?.serviceInstances?.edges || [];
-  const bot = nodes.map((x: any) => x.node).find((x: any) => String(x.serviceId) === env("RAILWAY_SERVICE_ID"));
-  const status = String(bot?.latestDeployment?.status || "unknown");
-  return { checked: true, status, deploymentId: String(bot?.latestDeployment?.id || ""), commitSha };
+  const query = "query environment($id:String!){environment(id:$id){serviceInstances{edges{node{serviceId latestDeployment{id status createdAt}}}}}}";
+  const deadline = Date.now() + 120000;
+  let last: any = null;
+
+  while (Date.now() < deadline) {
+    const res = await fetch("https://backboard.railway.com/graphql/v2", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+      body: JSON.stringify({ query, variables: { id: environmentId } }),
+    });
+    const json: any = await res.json();
+    if (!res.ok || json?.errors?.length) throw new Error("railway_api_failed");
+
+    const nodes = json?.data?.environment?.serviceInstances?.edges || [];
+    const bot = nodes.map((x: any) => x.node).find((x: any) => String(x.serviceId) === env("RAILWAY_SERVICE_ID"));
+    const deployment = bot?.latestDeployment;
+    last = {
+      checked: true,
+      status: String(deployment?.status || "unknown"),
+      deploymentId: String(deployment?.id || ""),
+      createdAt: deployment?.createdAt || null,
+      commitSha,
+    };
+
+    const createdAt = deployment?.createdAt ? new Date(deployment.createdAt).getTime() : 0;
+    if (createdAt >= startedAt) {
+      if (["SUCCESS","FAILED","CRASHED","REMOVED"].includes(last.status)) return last;
+      if (["DEPLOYING","BUILDING","QUEUED","INITIALIZING"].includes(last.status)) {
+        await new Promise(resolve => setTimeout(resolve, 10000));
+        continue;
+      }
+    } else {
+      await new Promise(resolve => setTimeout(resolve, 10000));
+      continue;
+    }
+  }
+
+  return last || { checked: true, status: "verification_timeout", commitSha };
 }
 
 async function processJob(pool: Pool, job: AgentJob) {
@@ -468,6 +494,7 @@ async function processJob(pool: Pool, job: AgentJob) {
   }
 
   const work = join(WORK_ROOT, "job-" + job.id);
+  const jobStart = Date.now();
 
   try {
     await cloneRepository(work);
@@ -495,7 +522,7 @@ async function processJob(pool: Pool, job: AgentJob) {
     const push = await commitAndPush(work, job, deploy);
     let railway: any = { checked: false, status: deploy ? "verification_unavailable" : "not_requested" };
 
-    if (deploy && push.commitSha) railway = await verifyRailway(push.commitSha);
+    if (deploy && push.commitSha) railway = await verifyRailway(push.commitSha, jobStart);
 
     const deploymentBad = deploy && railway.checked &&
       !["SUCCESS", "DEPLOYING", "BUILDING", "QUEUED", "INITIALIZING"].includes(railway.status);
