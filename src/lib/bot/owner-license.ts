@@ -134,8 +134,20 @@ function statusFa(status: string, expiresAt?: unknown) {
   return status || "نامشخص";
 }
 
-function button(text: string, callback_data: string) {
-  return { text, callback_data };
+function button(
+  text: string,
+  callback_data: string,
+  style: "primary" | "success" | "danger" | "link" = autoButtonStyle(callback_data),
+) {
+  return { text, callback_data, style };
+}
+
+function autoButtonStyle(callback_data: string): "primary" | "success" | "danger" | "link" {
+  const data = String(callback_data || "");
+  if (/delete|cancel|suspend|lock|emergency|stop_all|revoke|disconnect|unbind/i.test(data)) return "danger";
+  if (/activate|restore|create|confirm|renew:set|plan:create|save|apply/i.test(data)) return "success";
+  if (/center$|^o:home$|back|بازگشت/i.test(data)) return "link";
+  return "primary";
 }
 
 function buttons(items: Array<{ text: string; callback_data: string }>) {
@@ -547,7 +559,7 @@ function licenseView(row: LicenseRow) {
     ]),
     buttons([
       button("بازکردن قفل", "lic:unlock:" + row.id),
-      button("حذف", "lic:delete:" + row.id),
+      button("حذف", "lic:delete:confirm:" + row.id, "danger"),
       button("مرکز لایسنس", "lic:center"),
     ]),
     footer(),
@@ -589,24 +601,24 @@ export async function sendOwnerLicenseCenter(pool: Pool, chatId: number, message
       button("همه", "lic:list:all"),
       button("جستجو", "lic:search"),
       button("مشاهده", "lic:select:view"),
-      button("ایجاد جدید", "lic:create"),
+      button("ایجاد جدید", "lic:create", "success"),
     ]),
     buttons([
       button("ویرایش", "lic:select:edit"),
       button("تمدید", "lic:select:renew"),
-      button("تعلیق", "lic:select:suspend"),
-      button("فعال‌سازی", "lic:select:activate"),
+      button("تعلیق", "lic:select:suspend", "danger"),
+      button("فعال‌سازی", "lic:select:activate", "success"),
     ]),
     buttons([
-      button("لغو", "lic:select:cancel"),
-      button("حذف", "lic:select:delete"),
-      button("بازیابی", "lic:list:deleted"),
-      button("تغییر مالک", "lic:select:owner"),
+      button("لغو", "lic:select:cancel", "danger"),
+      button("حذف", "lic:select:delete", "danger"),
+      button("بازیابی", "lic:list:deleted", "success"),
+      button("تغییر مالک", "lic:select:owner", "primary"),
     ]),
     buttons([
       button("انتقال", "lic:select:transfer"),
-      button("قفل", "lic:select:lock"),
-      button("بازکردن قفل", "lic:select:unlock"),
+      button("قفل", "lic:select:lock", "danger"),
+      button("بازکردن قفل", "lic:select:unlock", "success"),
       button("نزدیک به انقضا", "lic:list:expiring"),
     ]),
     { type: "divider" },
@@ -1368,14 +1380,27 @@ export async function ownerLicenseCallback(
       ]));
     }
 
-    if (["activate", "suspend", "cancel", "delete", "restore", "lock", "unlock"].includes(action)) {
+    if (action === "delete") {
+      return render(chatId, messageId, doc([
+        ...base("تأیید حذف لایسنس", "لایسنس انتخاب‌شده آماده حذف است."),
+        table("لایسنس انتخابی", licenseSummaryRows(license)),
+        { type: "paragraph", text: "حذف، وضعیت لایسنس را به «حذف‌شده» تغییر می‌دهد. برای ادامه، حذف نهایی را بزنید." },
+        buttons([
+          button("حذف نهایی", "lic:delete:confirm:" + license.id, "danger"),
+          button("انصراف", "lic:view:" + license.id, "link"),
+        ]),
+        footer(),
+      ]));
+    }
+
+    if (["activate", "suspend", "cancel", "restore", "lock", "unlock"].includes(action)) {
       const result = await executeLicenseAction(pool, actor, licenseId, action, {}, ownerIds);
       return render(chatId, messageId, doc([
         ...base(result.ok ? "عملیات ثبت شد" : "عملیات انجام نشد", result.ok ? "لایسنس انتخاب‌شده مستقیماً به‌روزرسانی شد." : result.message),
         result.ok ? table("نتیجه", licenseSummaryRows(result.row)) : { type: "paragraph", text: result.message },
         buttons([
           button("مشاهده لایسنس", result.ok ? "lic:view:" + result.row.id : "lic:center"),
-          button("بازگشت", "lic:center"),
+          button("بازگشت", "lic:center", "link"),
         ]),
         footer(),
       ]));
@@ -1428,6 +1453,33 @@ export async function ownerLicenseCallback(
         footer(),
       ]));
     }
+  }
+
+  if (data.startsWith("lic:delete:confirm:")) {
+    const id = Number(data.slice("lic:delete:confirm:".length));
+    if (!Number.isSafeInteger(id) || id <= 0) return;
+    const license = await fetchLicenseById(pool, id);
+    if (!license) {
+      return render(chatId, messageId, doc([
+        ...base("حذف لایسنس", "لایسنس موردنظر دیگر پیدا نشد."),
+        buttons([button("مرکز لایسنس", "lic:center", "link")]),
+        footer(),
+      ]));
+    }
+    const result = await executeLicenseAction(pool, actor, id, "delete", {}, ownerIds);
+    return render(chatId, messageId, doc([
+      ...base(result.ok ? "حذف انجام شد" : "حذف انجام نشد", result.ok
+        ? "لایسنس انتخاب‌شده با موفقیت حذف شد."
+        : result.message),
+      result.ok
+        ? table("نتیجه", licenseSummaryRows(result.row))
+        : { type: "paragraph", text: result.message },
+      buttons([
+        button("فهرست حذف‌شده‌ها", "lic:list:deleted", "primary"),
+        button("مرکز لایسنس", "lic:center", "link"),
+      ]),
+      footer(),
+    ]));
   }
 
   if (data.startsWith("lic:activate:") || data.startsWith("lic:suspend:") || data.startsWith("lic:cancel:") ||
