@@ -16,7 +16,7 @@ import { startOwnerAgentWorker } from "./owner-agent.ts";
 import { bindPanelMessage } from "../src/lib/bot/panel-session.ts";
 import { ensureSpecialUsersSchema, sweepSpecialUsers } from "../src/lib/bot/special-users.ts";
 import { ensureGroupLanguageSchema, getGroupLanguage, normalizeBotLang, setGroupLanguage, languageChangedText, languagePickerText, SUPPORTED_LANGUAGES } from "../src/lib/bot/i18n.ts";
-import { ensureInstallationSchema, installationGate, handleInstallationCallback } from "./installation.ts";
+import { ensureInstallationSchema, installationGate, handleInstallationCallback, handleInstallationInput } from "./installation.ts";
 import { ensureModerationSchema, runModerationCommand } from "../src/lib/bot/moderation.ts";
 import { sweepGroupSubscriptions } from "../src/lib/bot/group-subscriptions.ts";
 import { ensureInviteLinkSchema, handleInviteLinkCallback, handleInviteLinkJoinRequest, handleInviteLinkTextInput, handleInviteLinkUsage, openInviteLinkCenter } from "../src/lib/bot/invite-links.ts";
@@ -1271,6 +1271,16 @@ async function processMessage(msg: TgMessage, edited = false) {
   // explicitly supported as a group-selection entry point.
   if (isPrivate && !isConfigRequest) return;
   if (!studioPool) return;
+
+  if (!isPrivate && !edited) {
+    const installationInput = await handleInstallationInput(
+      studioPool,
+      msg,
+      config.ownerIds,
+      config.sudoIds,
+    );
+    if (installationInput === "handled") return;
+  }
 
   const installationState = isPrivate && isConfigRequest
     ? "allow"
