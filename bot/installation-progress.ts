@@ -950,7 +950,7 @@ export function installationProgressDocument(
         type: "buttons",
         align: "center",
         buttons: [
-          { text: "بررسی مجدد", callback_data: "inst:preflight:recheck", style: "success" },
+          { text: "ادامه نصب", callback_data: "inst:retry", style: "success" },
           { text: "گزارش وضعیت", callback_data: "inst:op:report" },
           { text: "‹ بازگشت", callback_data: "inst:home", style: "primary" },
         ],
