@@ -195,3 +195,15 @@ test("every installation callback family has a real handler branch", async () =>
   assert.equal(handler.includes('data === "inst:version:input"'), true);
   assert.equal(handler.includes('data.startsWith("inst:env:")'), true);
 });
+
+
+test("install type selection is state-machine driven", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../bot/installation.ts", import.meta.url), "utf8");
+  const start = source.indexOf("async function applyInstallType");
+  const end = source.indexOf("async function renderCurrentSession", start);
+  assert.ok(start >= 0 && end > start);
+  const fn = source.slice(start, end);
+  assert.equal(fn.includes("await transitionSession("), true);
+  assert.equal(fn.includes("await saveSession("), false);
+});
