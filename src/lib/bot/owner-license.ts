@@ -1079,11 +1079,105 @@ async function settingsPage(pool: Pool) {
   ]);
 }
 
+function licenseActionLabel(action: string) {
+  const labels: Record<string, string> = {
+    view: "مشاهده",
+    edit: "ویرایش",
+    renew: "تمدید",
+    owner: "تغییر مالک",
+    transfer: "انتقال",
+    activate: "فعال‌سازی",
+    suspend: "تعلیق",
+    cancel: "لغو",
+    delete: "حذف",
+    restore: "بازیابی",
+    lock: "قفل",
+    unlock: "بازکردن قفل",
+    features: "امکانات",
+    limits: "محدودیت‌ها",
+    security: "امنیت",
+    group: "اتصال گروه",
+  };
+  return labels[action] || action;
+}
+
+function actionMethodPage(action: string) {
+  const label = licenseActionLabel(action);
+  return doc([
+    ...base("مدیریت لایسنس · " + label, "روش انتخاب لایسنس را مشخص کنید."),
+    table("روش انتخاب", [
+      ["روش اول", "با آیدی کاربری / شناسه"],
+      ["روش دوم", "انتخاب مستقیم از لایسنس‌های موجود"],
+    ]),
+    buttons([
+      button("با آیدی کاربری / شناسه", "lic:input:" + action),
+      button("انتخاب از موجودها", "lic:pick:" + action),
+    ]),
+    buttons([button("بازگشت", "lic:center")]),
+    footer(),
+  ]);
+}
+
+async function pickLicensePage(pool: Pool, action: string, page = 0) {
+  const offset = Math.max(0, page) * 12;
+  const result = await pool.query(
+    "SELECT id,code,customer_id,license_type,expires_at,status,name,plan_key,locked " +
+      "FROM bot_licenses WHERE status <> 'deleted' ORDER BY id DESC LIMIT 12 OFFSET $1",
+    [offset],
+  );
+
+  const blocks: any[] = [
+    ...base("انتخاب لایسنس · " + licenseActionLabel(action), "یک لایسنس موجود را انتخاب کنید؛ نیازی به ارسال آیدی یا شناسه نیست."),
+  ];
+
+  if (!result.rows.length) {
+    blocks.push({ type: "paragraph", text: "لایسنسی برای انتخاب وجود ندارد." });
+  } else {
+    for (const row of result.rows) {
+      blocks.push(table(String(row.name || ("لایسنس #" + row.id)), [
+        ["شناسه", String(row.id)],
+        ["کد", String(row.code)],
+        ["مشتری", String(row.customer_id)],
+        ["نوع", planName(row.plan_key, row.license_type)],
+        ["وضعیت", statusFa(row.status, row.expires_at) + (row.locked ? " · قفل" : "")],
+      ]));
+      blocks.push(buttons([
+        button("انتخاب این لایسنس", "lic:apply:" + action + ":" + row.id),
+      ]));
+    }
+  }
+
+  const nav: any[] = [];
+  if (page > 0) nav.push(button("قبلی", "lic:pick:" + action + ":" + (page - 1)));
+  if (result.rows.length === 12) nav.push(button("بعدی", "lic:pick:" + action + ":" + (page + 1)));
+  nav.push(button("بازگشت", "lic:method:" + action));
+  blocks.push(buttons(nav));
+  blocks.push(footer());
+  return doc(blocks);
+}
+
+async function resolveLicenseTargets(pool: Pool, value: string) {
+  const clean = String(value || "").trim();
+  if (!clean) return [] as LicenseRow[];
+
+  const result = await pool.query(
+    "SELECT id,code,customer_id,license_type,group_limit,price,starts_at,expires_at,status," +
+      "name,internal_id,owner_id,plan_key,is_trial,locked,auto_renew,group_id,group_title,features,limits,security,metadata,deleted_at " +
+      "FROM bot_licenses " +
+      "WHERE id::text=$1 OR code=$1 OR internal_id=$1 OR customer_id::text=$1 " +
+      "ORDER BY CASE WHEN id::text=$1 THEN 0 WHEN customer_id::text=$1 THEN 1 ELSE 2 END, id DESC LIMIT 20",
+    [clean],
+  );
+  return result.rows as LicenseRow[];
+}
+
 async function selectPrompt(action: string) {
   return doc([
-    ...base("انتخاب لایسنس", "شناسه لایسنس، کد یا شناسه داخلی را ارسال کنید."),
-    { type: "paragraph", text: "عملیات درخواستی: " + action },
-    buttons([button("بازگشت", "lic:center")]),
+    ...base("شناسه لایسنس", "آیدی کاربری، شناسه لایسنس، کد یا شناسه داخلی را ارسال کنید."),
+    { type: "paragraph", text: "عملیات: " + licenseActionLabel(action) },
+    { type: "paragraph", text: "برای اجرای همین عملیات بدون ورود شناسه، از «انتخاب از موجودها» استفاده کنید." },
+    buttons([button("انتخاب از موجودها", "lic:pick:" + action)]),
+    buttons([button("بازگشت", "lic:method:" + action)]),
     footer(),
   ]);
 }
@@ -1238,8 +1332,102 @@ export async function ownerLicenseCallback(
 
   if (data.startsWith("lic:select:")) {
     const action = data.slice("lic:select:".length);
+    return render(chatId, messageId, actionMethodPage(action));
+  }
+
+  if (data.startsWith("lic:method:")) {
+    const action = data.slice("lic:method:".length);
+    return render(chatId, messageId, actionMethodPage(action));
+  }
+
+  if (data.startsWith("lic:input:")) {
+    const action = data.slice("lic:input:".length);
     setPending(actor, "select_action", { action });
-    return render(chatId, messageId, await selectPrompt(action));
+    return render(chatId, messageId, selectPrompt(action));
+  }
+
+  if (data.startsWith("lic:pick:")) {
+    const parts = data.split(":");
+    const action = parts[2];
+    const page = Number(parts[3] || 0);
+    return render(chatId, messageId, await pickLicensePage(pool, action, Number.isSafeInteger(page) ? Math.max(0, page) : 0));
+  }
+
+  if (data.startsWith("lic:apply:")) {
+    const parts = data.split(":");
+    const action = parts[2];
+    const licenseId = Number(parts[3]);
+    if (!Number.isSafeInteger(licenseId) || !action) return;
+
+    const license = await fetchLicenseById(pool, licenseId);
+    if (!license) {
+      return render(chatId, messageId, doc([
+        ...base("عملیات لایسنس", "لایسنس انتخاب‌شده پیدا نشد."),
+        buttons([button("بازگشت", "lic:pick:" + action)]),
+        footer(),
+      ]));
+    }
+
+    if (["activate", "suspend", "cancel", "delete", "restore", "lock", "unlock"].includes(action)) {
+      const result = await executeLicenseAction(pool, actor, licenseId, action, {}, ownerIds);
+      return render(chatId, messageId, doc([
+        ...base(result.ok ? "عملیات ثبت شد" : "عملیات انجام نشد", result.ok ? "لایسنس انتخاب‌شده مستقیماً به‌روزرسانی شد." : result.message),
+        result.ok ? table("نتیجه", licenseSummaryRows(result.row)) : { type: "paragraph", text: result.message },
+        buttons([
+          button("مشاهده لایسنس", result.ok ? "lic:view:" + result.row.id : "lic:center"),
+          button("بازگشت", "lic:center"),
+        ]),
+        footer(),
+      ]));
+    }
+
+    if (action === "view") return render(chatId, messageId, licenseView(license));
+    if (action === "features") return render(chatId, messageId, await featureCenter(pool, licenseId));
+    if (action === "limits") return render(chatId, messageId, await limitsPage(pool, licenseId));
+    if (action === "security") return render(chatId, messageId, await securityCenter(pool, licenseId));
+    if (action === "edit") {
+      setPending(actor, "edit_name", { licenseId });
+      return render(chatId, messageId, doc([
+        ...base("ویرایش لایسنس", "نام جدید لایسنس را ارسال کنید."),
+        table("لایسنس انتخابی", licenseSummaryRows(license)),
+        buttons([button("بازگشت", "lic:view:" + licenseId)]),
+        footer(),
+      ]));
+    }
+    if (action === "renew") {
+      return render(chatId, messageId, doc([
+        ...base("تمدید لایسنس", "مدت تمدید لایسنس انتخاب‌شده را انتخاب کنید."),
+        buttons([
+          button("یک ماه", "lic:renew:set:" + licenseId + ":30"),
+          button("سه ماه", "lic:renew:set:" + licenseId + ":90"),
+          button("شش ماه", "lic:renew:set:" + licenseId + ":180"),
+          button("یک سال", "lic:renew:set:" + licenseId + ":365"),
+        ]),
+        buttons([
+          button("تمدید دائمی", "lic:renew:set:" + licenseId + ":lifetime"),
+          button("بازگشت", "lic:method:renew"),
+        ]),
+        footer(),
+      ]));
+    }
+    if (action === "owner" || action === "transfer") {
+      setPending(actor, "owner_change", { licenseId, action });
+      return render(chatId, messageId, doc([
+        ...base("تغییر مالک لایسنس", "شناسه عددی مالک جدید را ارسال کنید."),
+        table("لایسنس انتخابی", licenseSummaryRows(license)),
+        buttons([button("بازگشت", "lic:view:" + licenseId)]),
+        footer(),
+      ]));
+    }
+    if (action === "group") {
+      setPending(actor, "group_bind", { licenseId });
+      return render(chatId, messageId, doc([
+        ...base("اتصال گروه", "شناسه عددی گروه را ارسال کنید."),
+        table("لایسنس انتخابی", licenseSummaryRows(license)),
+        buttons([button("بازگشت", "lic:view:" + licenseId)]),
+        footer(),
+      ]));
+    }
   }
 
   if (data.startsWith("lic:activate:") || data.startsWith("lic:suspend:") || data.startsWith("lic:cancel:") ||
@@ -1569,34 +1757,43 @@ export async function handleOwnerLicenseTextInput(
     }
 
     if (row.flow === "select_action") {
-      const license = await fetchLicense(pool, value);
-      if (!license) {
+      const action = String(row.data.action);
+      const targets = await resolveLicenseTargets(pool, value);
+
+      if (!targets.length) {
         await render(chatId, undefined, doc([
-          ...base("انتخاب لایسنس", "لایسنس پیدا نشد؛ دوباره شناسه، کد یا شناسه داخلی را ارسال کنید."),
-          buttons([button("لغو", "lic:center")]),
+          ...base("لایسنس پیدا نشد", "هیچ لایسنس فعالی با این آیدی یا شناسه پیدا نشد."),
+          { type: "paragraph", text: "می‌توانید آیدی کاربری، شناسه لایسنس، کد یا شناسه داخلی را ارسال کنید." },
+          buttons([
+            button("انتخاب از موجودها", "lic:pick:" + action),
+            button("بازگشت", "lic:method:" + action),
+          ]),
           footer(),
         ]));
         return true;
       }
-      const action = String(row.data.action);
+
       clearPending(actor);
 
-      if (action === "view") return render(chatId, undefined, licenseView(license));
-      if (action === "features") return render(chatId, undefined, await featureCenter(pool, license.id));
-      if (action === "limits") return render(chatId, undefined, await limitsPage(pool, license.id));
-      if (action === "security") return render(chatId, undefined, await securityCenter(pool, license.id));
-
-      if (["edit", "renew", "owner", "transfer", "activate", "suspend", "cancel", "delete", "lock", "unlock"].includes(action)) {
-        return ownerLicenseCallback(pool, chatId, 0, actor, "lic:" + action + ":" + license.id, ownerIds);
+      if (targets.length === 1) {
+        return ownerLicenseCallback(pool, chatId, 0, actor, "lic:apply:" + action + ":" + targets[0].id, ownerIds);
       }
-      if (action === "group") {
-        setPending(actor, "group_bind", { licenseId: license.id });
-        return render(chatId, undefined, doc([
-          ...base("اتصال گروه", "شناسه عددی گروه را ارسال کنید."),
-          buttons([button("بازگشت", "lic:view:" + license.id)]),
-          footer(),
+
+      const blocks: any[] = [
+        ...base("انتخاب لایسنس", "برای این آیدی چند لایسنس پیدا شد؛ مورد موردنظر را انتخاب کنید."),
+      ];
+      for (const license of targets) {
+        blocks.push(table("لایسنس", licenseSummaryRows(license)));
+        blocks.push(buttons([
+          button("انتخاب این لایسنس", "lic:apply:" + action + ":" + license.id),
         ]));
       }
+      blocks.push(buttons([
+        button("بازگشت", "lic:method:" + action),
+      ]));
+      blocks.push(footer());
+      await render(chatId, undefined, doc(blocks));
+      return true;
     }
 
     if (row.flow === "create_customer") {
