@@ -210,6 +210,7 @@ export async function ensureInstallationProgressSchema(pool: Pool) {
       "completed_at TIMESTAMPTZ," +
       "last_message_id BIGINT," +
       "last_render_at TIMESTAMPTZ," +
+      "last_rendered_progress INTEGER NOT NULL DEFAULT 0," +
       "error_code TEXT," +
       "error_message TEXT," +
       "metadata JSONB NOT NULL DEFAULT '{}'::jsonb" +
@@ -217,7 +218,12 @@ export async function ensureInstallationProgressSchema(pool: Pool) {
   );
 
   await pool.query(
-    "CREATE TABLE IF NOT EXISTS bot_installation_progress_steps (" +
+    "ALTER TABLE bot_installation_progress " +
+      "ADD COLUMN IF NOT EXISTS last_rendered_progress INTEGER NOT NULL DEFAULT 0",
+  );
+
+  await pool.query(
+    "CREATE TABLE IF NOT EXISTS bot_installation_progress_steps ("
       "execution_id TEXT NOT NULL REFERENCES bot_installation_progress(execution_id) ON DELETE CASCADE," +
       "step_id TEXT NOT NULL," +
       "step_index INTEGER NOT NULL," +
@@ -509,7 +515,8 @@ export async function setInstallationPhase(
   if (!snapshot) return null;
 
   await pool.query(
-    "UPDATE bot_installation_progress SET phase=$2,status=$3,updated_at=NOW(),heartbeat_at=NOW(),completed_at=CASE WHEN $3 IN ('COMPLETED','FAILED','CANCELLED') THEN NOW() ELSE completed_at END WHERE execution_id=$1",
+    "UPDATE bot_installation_progress SET phase=$2,status=$3,progress=CASE WHEN $3='COMPLETED' THEN 100 ELSE progress END," +
+      "updated_at=NOW(),heartbeat_at=NOW(),completed_at=CASE WHEN $3 IN ('COMPLETED','FAILED','CANCELLED') THEN NOW() ELSE completed_at END WHERE execution_id=$1",
     [executionId, phase, status],
   );
 
@@ -576,13 +583,13 @@ export async function shouldRenderInstallationProgress(
   if (force) return true;
 
   const row = await pool.query(
-    "SELECT progress,last_render_at,current_step FROM bot_installation_progress WHERE execution_id=$1 LIMIT 1",
+    "SELECT progress,last_render_at,last_rendered_progress,current_step FROM bot_installation_progress WHERE execution_id=$1 LIMIT 1",
     [executionId],
   );
   const current = row.rows[0];
   if (!current) return true;
 
-  const previousProgress = Number(current.progress ?? 0);
+  const previousProgress = Number(current.last_rendered_progress ?? 0);
   const previousStep = current.current_step == null ? null : String(current.current_step);
   const lastRenderAt = current.last_render_at ? new Date(current.last_render_at).getTime() : 0;
   const elapsed = Date.now() - lastRenderAt;
@@ -597,7 +604,7 @@ export async function markInstallationProgressRendered(
   executionId: string,
 ) {
   await pool.query(
-    "UPDATE bot_installation_progress SET last_render_at=NOW(),updated_at=NOW() WHERE execution_id=$1",
+    "UPDATE bot_installation_progress SET last_render_at=NOW(),last_rendered_progress=progress,updated_at=NOW() WHERE execution_id=$1",
     [executionId],
   );
 }
@@ -618,6 +625,41 @@ export function startInstallationHeartbeat(
 
   timer.unref?.();
   return () => clearInterval(timer);
+}
+
+export async function getLatestInstallationProgressForGroup(
+  pool: Pool,
+  groupId: number | string,
+): Promise<InstallationProgressSnapshot | null> {
+  const result = await pool.query(
+    "SELECT * FROM bot_installation_progress WHERE group_id=$1 ORDER BY started_at DESC LIMIT 1",
+    [String(groupId)],
+  );
+  const row = result.rows[0];
+  return row ? rowToSnapshot(row) : null;
+}
+
+export async function getInstallationProgressStepStatuses(pool: Pool, executionId: string) {
+  const result = await pool.query(
+    "SELECT step_id,step_index,label,weight,status,progress,attempts,started_at,completed_at,metadata " +
+      "FROM bot_installation_progress_steps WHERE execution_id=$1 ORDER BY step_index ASC",
+    [executionId],
+  );
+  return result.rows.map((row) => ({
+    step_id: String(row.step_id),
+    step_index: Number(row.step_index),
+    label: String(row.label),
+    weight: Number(row.weight),
+    status: String(row.status) as InstallationStepStatus,
+    progress: Number(row.progress ?? 0),
+    attempts: Number(row.attempts ?? 0),
+    started_at: row.started_at ? new Date(row.started_at).toISOString() : null,
+    completed_at: row.completed_at ? new Date(row.completed_at).toISOString() : null,
+    metadata:
+      row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+        ? row.metadata
+        : {},
+  }));
 }
 
 export async function listRecoverableInstallationProgress(pool: Pool) {
