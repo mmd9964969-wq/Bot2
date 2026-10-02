@@ -34,6 +34,7 @@ import {
   type InstallationProgressSnapshot,
 } from "./installation-progress.ts";
 import { executeInstallationOrchestration, ensureInstallationOrchestratorSchema } from "./installation-orchestrator.ts";
+import { diagnoseInstallation, installationDiagnosticDocument } from "./installation-diagnostics.ts";
 
 type TgUser = {
   id: number;
@@ -1002,7 +1003,8 @@ function reportDocument(chat: TgChat, stateRow: any, session: any) {
         },
       ],
     },
-    buttons([button("‹ بازگشت", "inst:manage", "primary")]),
+    buttons([button("بررسی سلامت نصب", "inst:health")]),
+        buttons([button("‹ بازگشت", "inst:manage", "primary")]),
     { type: "footer", text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Iɴsᴛᴀʟʟ Rᴇᴘᴏʀᴛ" },
   ]);
 }
@@ -2503,6 +2505,17 @@ export async function handleInstallationCallback(
         cb.message.message_id,
         operationSelectionDocument(await state(pool, chat.id)),
       );
+      return true;
+    }
+
+    if (data === "inst:health") {
+      const diagnostic = await diagnoseInstallation(pool, chat.id);
+      await render(
+        chat.id,
+        cb.message.message_id,
+        installationDiagnosticDocument(chat.title || "گروه بدون نام", diagnostic),
+      );
+      notice = diagnostic.health.ok ? "سلامت نصب تأیید شد" : "نصب نیازمند بررسی است";
       return true;
     }
 
