@@ -1911,6 +1911,7 @@ async function executeConfirmedInstallationOperation(
   }
 
   let executionStage = "execution_initialized";
+  let stopHeartbeat: (() => void) | null = null;
   try {
     if (!progress.last_message_id && messageId > 0) {
       executionStage = "progress_message_attach";
@@ -1926,7 +1927,7 @@ async function executeConfirmedInstallationOperation(
       }
     }
 
-    const stopHeartbeat = startInstallationHeartbeat(pool, progress.execution_id);
+    stopHeartbeat = startInstallationHeartbeat(pool, progress.execution_id);
     if (!existingExecutionId) {
       executionStage = "session_update";
       await pool.query(
@@ -2188,7 +2189,7 @@ async function executeConfirmedInstallationOperation(
 
     return { ok: false, reason: "execution_failed" as const };
   } finally {
-    stopHeartbeat();
+    stopHeartbeat?.();
   }
 }
 
