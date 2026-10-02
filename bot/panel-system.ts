@@ -89,17 +89,10 @@ const LICENSE_TYPES:{key:string;label:string;days:number|null}[]=[
 
 const K={
   ownerMain:[
-    [["آمار کلی سیستم","o:stats"],["مدیریت مشتریان","o:customers"]],
-    [["مرکز اشتراک","o:subscriptions"],["مدیریت لایسنس‌ها","o:licenses"]],
-    [["مدیریت گروه‌ها","o:groups"]],
-    [["زبان گروه‌ها","o:languages"],["ارسال همگانی","o:broadcast"]],
-    [["کنترل اجرایی","o:runtime"],["ممیزی سیستم","o:audit"]],
-    [["جستجوی سراسری","o:palette"],["سطح عملیات","o:operation_policy"]],
-    [["امنیت و دسترسی","o:security"]],
-    [["پشتیبان‌گیری و بازیابی","o:backup"]],
-    [["تنظیمات پیشرفته","o:settings"],["وضعیت سرور و منابع","o:server"]],
-    [["فهرست سیاه مشتریان","o:blacklist"],["مدیریت قابلیت‌ها","o:features"]],
-    [["مرکز هوش مصنوعی","o:ai"]],
+    [["مدیریت سامانه","o:section:system"],["مشتریان و لایسنس","o:section:business"]],
+    [["گروه‌ها و سرویس‌ها","o:section:groups"],["امنیت و دسترسی","o:section:security"]],
+    [["عملیات و ارتباطات","o:section:ops"],["گزارش و ممیزی","o:section:reports"]],
+    [["تنظیمات و توسعه","o:section:advanced"],["نمای مالک","o:owner_view"]],
     [["خروج از پنل مالک","o:exit"]]
   ],
   customerMain:[
@@ -196,7 +189,16 @@ const BUTTON_LABELS:Record<string,Partial<Record<BotLang,string>>> = {
   "تمدید لایسنس":{en:"Renew license",ar:"تجديد الترخيص",ru:"Продлить лицензию",tr:"Lisansı yenile",zh:"续订许可证"},
   "مدیریت مالک‌ها":{en:"Owner management",ar:"إدارة المالكين",ru:"Владельцы",tr:"Sahipler",zh:"所有者管理"},
   "لیست سیاه":{en:"Blacklist",ar:"القائمة السوداء",ru:"Черный список",tr:"Kara liste",zh:"黑名单"},
-  "استثناها و دامنه مجاز":{en:"Exceptions & allowlist",ar:"الاستثناءات",ru:"Исключения",tr:"İstisnalar",zh:"例外与白名单"}
+  "استثناها و دامنه مجاز":{en:"Exceptions & allowlist",ar:"الاستثناءات",ru:"Исключения",tr:"İstisnalar",zh:"例外与白名单"},
+  "مدیریت سامانه":{en:"System management",ar:"إدارة النظام",ru:"Управление системой",tr:"Sistem yönetimi",zh:"系统管理"},
+  "مشتریان و لایسنس":{en:"Customers & licenses",ar:"العملاء والتراخيص",ru:"Клиенты и лицензии",tr:"Müşteriler ve lisanslar",zh:"客户与许可证"},
+  "گروه‌ها و سرویس‌ها":{en:"Groups & services",ar:"المجموعات والخدمات",ru:"Группы и сервисы",tr:"Gruplar ve servisler",zh:"群组与服务"},
+  "امنیت و دسترسی":{en:"Security & access",ar:"الأمان والصلاحيات",ru:"Безопасность и доступ",tr:"Güvenlik ve erişim",zh:"安全与访问"},
+  "عملیات و ارتباطات":{en:"Operations & communications",ar:"العمليات والاتصالات",ru:"Операции и связь",tr:"İşlemler ve iletişim",zh:"操作与通信"},
+  "گزارش و ممیزی":{en:"Reports & audit",ar:"التقارير والتدقيق",ru:"Отчеты и аудит",tr:"Raporlar ve denetim",zh:"报告与审计"},
+  "تنظیمات و توسعه":{en:"Settings & development",ar:"الإعدادات والتطوير",ru:"Настройки и разработка",tr:"Ayarlar ve geliştirme",zh:"设置与开发"},
+  "نمای مالک":{en:"Owner view",ar:"عرض المالك",ru:"Вид владельца",tr:"Sahip görünümü",zh:"所有者视图"},
+  "پنل مالک":{en:"Owner panel",ar:"لوحة المالك",ru:"Панель владельца",tr:"Sahip paneli",zh:"所有者面板"}
 };
 
 function localizePanelTitle(title:string,lang:BotLang):string {
@@ -568,7 +570,179 @@ async function customerAllowedForChat(pool:Pool,uid:number,chatId:number){
 async function isGroupAdmin(chatId:number,uid:number){
   const r=await telegramApi<any>("getChatMember",{chat_id:chatId,user_id:uid});return !!(r.ok&&["administrator","creator"].includes(String(r.result?.status||"")));
 }
-function mainOwnerMessage(){return "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Oᴡɴᴇʀ Cᴏɴᴛʀᴏʟ\n\n⛂ - سطح دسترسی : OWNER\n⛂ - وضعیت هسته : فعال\n⛂ - وضعیت پنل : آماده\n\nمرکز کنترل مالک برای مدیریت مشتریان، لایسنس‌ها، گروه‌ها، Runtime و Audit.";};
+function mainOwnerMessage(){return [
+  "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Oᴡɴᴇʀ Cᴏɴᴛʀᴏʟ",
+  "",
+  "★ - مرکز فرمان مالک",
+  "",
+  "⛂ - سطح دسترسی : OWNER",
+  "⛂ - وضعیت هسته : ● فعال",
+  "⛂ - وضعیت پنل : ● آماده",
+  "",
+  PANEL_SEPARATOR,
+  "",
+  "یک مسیر را انتخاب کنید.",
+  "بخش‌ها مرحله‌ای باز می‌شوند تا دسترسی کامل، بدون شلوغی و سردرگمی در اختیار شما باشد.",
+  "",
+  "◂ - عملیات حساس و بحرانی قبل از اجرا وارد مرکز تأیید می‌شوند."
+].join("\n");}
+function ownerSectionView(section:string){
+  const views:Record<string,{title:string;body:string;rows:string[][][]}> = {
+    system:{
+      title:"مدیریت سامانه",
+      body:[
+        "★ - هسته و وضعیت سامانه",
+        "",
+        "⛂ - آمار کلی : تعداد مشتری، گروه و اجرای دستورات",
+        "⛂ - Runtime : پردازش، حافظه، Maintenance و کنترل هسته",
+        "⛂ - وضعیت سرور : منابع و سلامت سرویس",
+        "⛂ - تنظیمات : تنظیمات سراسری مالک",
+        "⛂ - قابلیت‌ها : مدیریت ماژول‌های فعال",
+        "⛂ - مرکز هوش مصنوعی : کنترل قابلیت‌های AI"
+      ].join("\n"),
+      rows:[
+        [["آمار کلی سیستم","o:stats"],["کنترل اجرایی","o:runtime"]],
+        [["وضعیت سرور و منابع","o:server"],["تنظیمات پیشرفته","o:settings"]],
+        [["مدیریت قابلیت‌ها","o:features"],["مرکز هوش مصنوعی","o:ai"]],
+        [["‹ بازگشت","o:home"]]
+      ]
+    },
+    business:{
+      title:"مشتریان و لایسنس",
+      body:[
+        "★ - چرخه مشتری",
+        "",
+        "⛂ - مشتریان : ثبت، جستجو، وضعیت و ارتباط",
+        "⛂ - اشتراک : ایجاد، تمدید، لغو و مشاهده",
+        "⛂ - لایسنس : ساخت، مدیریت و وضعیت",
+        "⛂ - لیست سیاه : کنترل دسترسی مشتریان",
+        "",
+        "◂ - هر تغییر مهم در Audit ثبت می‌شود."
+      ].join("\n"),
+      rows:[
+        [["مدیریت مشتریان","o:customers"],["مرکز اشتراک","o:subscriptions"]],
+        [["مدیریت لایسنس‌ها","o:licenses"],["فهرست سیاه مشتریان","o:blacklist"]],
+        [["‹ بازگشت","o:home"]]
+      ]
+    },
+    groups:{
+      title:"گروه‌ها و سرویس‌ها",
+      body:[
+        "★ - مدیریت سراسری گروه‌ها",
+        "",
+        "⛂ - مدیریت گروه‌ها : وضعیت، سلامت، عملیات و دسترسی",
+        "⛂ - زبان گروه‌ها : تنظیم مستقل هر گروه",
+        "⛂ - عملیات گروهی : مدیریت چند گروه از یک مسیر",
+        "",
+        "◂ - مرکز گروه پس از ورود، امکانات جزئی‌تر را مرحله‌به‌مرحله نمایش می‌دهد."
+      ].join("\n"),
+      rows:[
+        [["مدیریت گروه‌ها","o:groups"],["زبان گروه‌ها","o:languages"]],
+        [["‹ بازگشت","o:home"]]
+      ]
+    },
+    security:{
+      title:"امنیت و دسترسی",
+      body:[
+        "★ - کنترل امنیتی مالک",
+        "",
+        "⛂ - امنیت و دسترسی : کنترل سطح امنیت و دسترسی سامانه",
+        "⛂ - سطح عملیات : سیاست تأیید برای تغییرات",
+        "⛂ - عملیات حساس : یک تأیید",
+        "⛂ - عملیات بحرانی : تأیید نهایی جداگانه",
+        "",
+        "◂ - هدف این بخش جلوگیری از اجرای ناخواسته عملیات پرخطر است."
+      ].join("\n"),
+      rows:[
+        [["امنیت و دسترسی","o:security"],["سطح عملیات","o:operation_policy"]],
+        [["‹ بازگشت","o:home"]]
+      ]
+    },
+    ops:{
+      title:"عملیات و ارتباطات",
+      body:[
+        "★ - ابزارهای اجرایی",
+        "",
+        "⛂ - جستجوی سراسری : یافتن کاربر، گروه، لایسنس و رویداد",
+        "⛂ - ارسال همگانی : ارتباط با مشتریان سامانه",
+        "⛂ - پیش‌نمایش و تأیید : برای جلوگیری از اجرای ناخواسته"
+      ].join("\n"),
+      rows:[
+        [["جستجوی سراسری","o:palette"],["ارسال همگانی","o:broadcast"]],
+        [["‹ بازگشت","o:home"]]
+      ]
+    },
+    reports:{
+      title:"گزارش و ممیزی",
+      body:[
+        "★ - دید نظارتی مالک",
+        "",
+        "⛂ - آمار کلی : نمای عددی سامانه",
+        "⛂ - ممیزی سیستم : سابقه عملیات و تغییرات",
+        "",
+        "◂ - گزارش‌ها برای تشخیص وضعیت و پیگیری تغییرات استفاده می‌شوند."
+      ].join("\n"),
+      rows:[
+        [["آمار کلی سیستم","o:stats"],["ممیزی سیستم","o:audit"]],
+        [["‹ بازگشت","o:home"]]
+      ]
+    },
+    advanced:{
+      title:"تنظیمات و توسعه",
+      body:[
+        "★ - کنترل‌های پیشرفته",
+        "",
+        "⛂ - تنظیمات سراسری",
+        "⛂ - پشتیبان‌گیری و بازیابی",
+        "⛂ - مدیریت قابلیت‌ها",
+        "⛂ - مرکز هوش مصنوعی",
+        "",
+        "◂ - این بخش برای تنظیمات سطح بالاتر نگه داشته شده تا صفحه اصلی شلوغ نشود."
+      ].join("\n"),
+      rows:[
+        [["تنظیمات پیشرفته","o:settings"],["پشتیبان‌گیری و بازیابی","o:backup"]],
+        [["مدیریت قابلیت‌ها","o:features"],["مرکز هوش مصنوعی","o:ai"]],
+        [["‹ بازگشت","o:home"]]
+      ]
+    }
+  };
+  return views[section];
+}
+async function ownerView(pool:Pool,uid:number){
+  const [customers,groups,licenses,owners,me]=await Promise.all([
+    pool.query("SELECT COUNT(*)::int n FROM bot_customers").catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(*)::int n FROM bot_customer_groups WHERE is_active=TRUE").catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(*)::int n FROM bot_licenses WHERE status='active' AND (expires_at IS NULL OR expires_at>NOW())").catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(*)::int n FROM bot_panel_owners").catch(()=>({rows:[{n:0}]})),
+    telegramApi<any>("getMe",{}).catch(()=>({ok:false,result:null}))
+  ]);
+  const memory=process.memoryUsage();
+  return panelTitle("نمای مالک",[
+    "★ - هویت و دسترسی",
+    "",
+    "⛂ - شناسه مالک : "+uid,
+    "⛂ - سطح دسترسی : OWNER",
+    "⛂ - دامنه دسترسی : سراسری",
+    "⛂ - تعداد مالک‌های ثبت‌شده : "+Number(owners.rows[0]?.n||0),
+    "",
+    PANEL_SEPARATOR,
+    "",
+    "★ - وضعیت سامانه",
+    "",
+    "⛂ - مشتریان : "+Number(customers.rows[0]?.n||0),
+    "⛂ - گروه‌های فعال : "+Number(groups.rows[0]?.n||0),
+    "⛂ - لایسنس‌های فعال : "+Number(licenses.rows[0]?.n||0),
+    "⛂ - Telegram API : "+(me.ok?"● متصل":"○ نامشخص"),
+    "⛂ - Bot : "+valueOrDash(me.result?.username?"@"+me.result.username:null),
+    "⛂ - Runtime : ● فعال",
+    "⛂ - RAM : "+(memory.rss/1048576).toFixed(1)+" MB",
+    "",
+    PANEL_SEPARATOR,
+    "",
+    "◂ - این صفحه فقط برای مالک ربات قابل مشاهده است."
+  ].join("\n"));
+}
+
 function mainCustomerMessage(){return "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Gʀᴏᴜᴘ Cᴏɴᴛʀᴏʟ\n\n⛂ - دسترسی : مدیر گروه\n⛂ - هسته قفل : آماده\n⛂ - موتور کنترل : فعال\n\nمرکز کنترل عملیاتی گروه از همین پنل در دسترس است.";};
 type OwnerOperationLevel="normal"|"sensitive"|"critical";
 function ownerOperationMeta(action:string):{level:OwnerOperationLevel;label:string;notice:string}{
@@ -1568,6 +1742,38 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     }
   }
 
+  if(data==="o:owner_entry"){
+    setCurrentPanelKind("owner");
+    return edit(msg.chat.id,msg.message_id,panelTitle("ورود مالک",[
+      "★ - دسترسی اختصاصی",
+      "",
+      "⛂ - هویت : OWNER",
+      "⛂ - وضعیت دسترسی : ✓ تأییدشده",
+      "",
+      PANEL_SEPARATOR,
+      "",
+      "این ورودی فقط برای مالک ربات نمایش داده می‌شود.",
+      "برای ورود به مرکز کامل مالک، دکمه زیر را انتخاب کنید."
+    ].join("\n")),{
+      inline_keyboard:[
+        [styledGlassButton("پنل مالک","o:home","success")],
+        [styledGlassButton("نمای مالک","o:owner_view","primary")]
+      ]
+    });
+  }
+  if(data==="o:owner_view"){
+    return edit(msg.chat.id,msg.message_id,await ownerView(pool,uid),menu([
+      [["پنل مالک","o:home"]],
+      [["بروزرسانی","o:owner_view"],["‹ بازگشت","o:home"]]
+    ]));
+  }
+  if(data.startsWith("o:section:")){
+    const section=data.slice("o:section:".length);
+    const view=ownerSectionView(section);
+    if(!view)return;
+    return edit(msg.chat.id,msg.message_id,panelTitle(view.title,view.body),menu(view.rows));
+  }
+
   if(data==="o:home")return renderOwner(pool,uid,msg.chat.id,msg.message_id,"main");
   if(data==="o:stats")return renderOwner(pool,uid,msg.chat.id,msg.message_id,"stats");
   if(data==="o:customers"){
@@ -2296,8 +2502,23 @@ async function handleCustomer(pool:Pool,msg:TgMessage,ownerIds:string[]){
       if(!isPrivate && msg.reply_to_message?.from?.id){
         return renderMemberControl(pool,msg.chat.id,uid,msg.reply_to_message.from.id);
       }
-      await audit(pool,String(uid),"owner_panel_opened",String(uid),{entry:"panel"});
-      return renderOwner(pool,uid,msg.chat.id);
+      await audit(pool,String(uid),"owner_panel_entry_opened",String(uid),{entry:"owner"});
+      return send(msg.chat.id,panelTitle("ورود مالک",[
+        "★ - دسترسی اختصاصی",
+        "",
+        "⛂ - هویت : OWNER",
+        "⛂ - وضعیت دسترسی : ✓ تأییدشده",
+        "",
+        PANEL_SEPARATOR,
+        "",
+        "ورود به پنل مالک فقط برای صاحب ربات فعال است.",
+        "تمام بخش‌های مدیریتی از داخل همین مرکز به‌صورت مرحله‌ای در دسترس قرار می‌گیرند."
+      ].join("\n")),{
+        inline_keyboard:[
+          [styledGlassButton("پنل مالک","o:home","success")],
+          [styledGlassButton("نمای مالک","o:owner_view","primary")]
+        ]
+      }) as any;
     }
     const targetGroup=isPrivate?null:msg.chat.id;const lic=targetGroup?await customerAllowedForChat(pool,uid,targetGroup):await validLicense(pool,uid);
     if(!lic){
