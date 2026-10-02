@@ -3113,16 +3113,6 @@ export async function handleInstallationCallback(
       return true;
     }
 
-    if (data === "inst:uninstall:confirm") {
-      notice = "برای حذف نصب ابتدا از مدیریت نصب وارد جریان حذف شوید";
-      await render(
-        chat.id,
-        cb.message.message_id,
-        operationSelectionDocument(await state(pool, chat.id)),
-      );
-      return true;
-    }
-
     notice = "این گزینه دیگر فعال نیست";
     return true;
   } catch (error) {
