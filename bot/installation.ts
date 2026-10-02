@@ -43,6 +43,16 @@ const VERSION = process.env.NIZAM_PANEL_VERSION || "v1.0.0";
 const BUILTIN_OWNER_IDS = ["8247710529"];
 const PANEL_URL = String(process.env.PANEL_URL || "").replace(/\/$/, "");
 
+let schemaReadyPromise: Promise<void> | null = null;
+let botIdentityPromise: Promise<{ ok: boolean; id?: number }> | null = null;
+
+const permissionCache = new Map<
+  number,
+  { expiresAt: number; result: Awaited<ReturnType<typeof permissionCheckInternal>> }
+>();
+
+const PERMISSION_CACHE_MS = 15_000;
+
 function norm(value: unknown) {
   return String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
 }
@@ -236,7 +246,7 @@ async function answer(id: string, text = "") {
   }).catch(() => ({ ok: false }));
 }
 
-async function ensureSchema(pool: Pool) {
+async function ensureSchemaInternal(pool: Pool) {
   await pool.query(
     "CREATE TABLE IF NOT EXISTS bot_group_installations (" +
       "group_id BIGINT PRIMARY KEY," +
@@ -273,6 +283,16 @@ async function ensureSchema(pool: Pool) {
     "CREATE INDEX IF NOT EXISTS idx_bot_installation_events_group_time " +
       "ON bot_installation_events(group_id,created_at DESC)",
   );
+}
+
+async function ensureSchema(pool: Pool) {
+  if (!schemaReadyPromise) {
+    schemaReadyPromise = ensureSchemaInternal(pool).catch((error) => {
+      schemaReadyPromise = null;
+      throw error;
+    });
+  }
+  await schemaReadyPromise;
 }
 
 async function ensureGroup(pool: Pool, chat: TgChat) {
@@ -320,10 +340,17 @@ function capabilityStatus(value: boolean, enabled = "در دسترس", disabled 
   return value ? "● " + enabled : "○ " + disabled;
 }
 
-async function permissionCheck(groupId: number) {
-  const me = await telegramApi<any>("getMe", {});
+async function permissionCheckInternal(groupId: number) {
+  const me =
+    botIdentityPromise ??
+    (botIdentityPromise = telegramApi<any>("getMe", {})
+      .then((result) => ({
+        ok: Boolean(result?.ok),
+        id: result?.ok ? Number(result.result?.id) : undefined,
+      }))
+      .catch(() => ({ ok: false as const })));
 
-  if (!me.ok) {
+  if (!(await me).ok) {
     return {
       ok: false,
       status: "unreachable",
@@ -333,7 +360,7 @@ async function permissionCheck(groupId: number) {
     };
   }
 
-  const botId = Number(me.result?.id);
+  const botId = Number((await me).id);
   const member = await telegramApi<any>("getChatMember", {
     chat_id: groupId,
     user_id: botId,
@@ -420,6 +447,28 @@ async function saveSnapshot(pool: Pool, groupId: number, snapshot: any) {
       "WHERE group_id=$2",
     [JSON.stringify(snapshot || {}), String(groupId)],
   );
+}
+
+async function permissionCheck(groupId: number, force = false) {
+  const now = Date.now();
+  const cached = permissionCache.get(groupId);
+
+  if (!force && cached && cached.expiresAt > now) {
+    return cached.result;
+  }
+
+  const result = await permissionCheckInternal(groupId);
+
+  permissionCache.set(groupId, {
+    expiresAt: now + PERMISSION_CACHE_MS,
+    result,
+  });
+
+  return result;
+}
+
+function invalidatePermissionCache(groupId: number) {
+  permissionCache.delete(groupId);
 }
 
 function actorRole(userId: number, owners: string[], sudo: string[]) {
@@ -1185,13 +1234,13 @@ export async function handleInstallationCallback(
 
   if (!data.startsWith("inst:")) return false;
 
-  await answer(cb.id);
-
   if (!cb.message || ["private", "channel"].includes(cb.message.chat.type)) {
+    await answer(cb.id);
     return true;
   }
 
   if (!authorized(cb.from.id, owners, sudo)) {
+    await answer(cb.id, "دسترسی کافی نیست");
     return true;
   }
 
@@ -1200,11 +1249,12 @@ export async function handleInstallationCallback(
 
   const chat = cb.message.chat;
 
+  let callbackNotice = "انجام شد";
+
   try {
     switch (data) {
-      case "inst:start":
-      case "inst:recheck": {
-        const check = await permissionCheck(chat.id);
+      case "inst:start": {
+        const check = await permissionCheck(chat.id, true);
         await saveSnapshot(pool, chat.id, check.snapshot);
 
         await render(
@@ -1212,6 +1262,22 @@ export async function handleInstallationCallback(
           cb.message.message_id,
           permissionDocument(chat, check),
         );
+        callbackNotice = check.ok ? "دسترسی‌ها تأیید شد" : "دسترسی‌ها نیاز به بررسی دارد";
+        return true;
+      }
+
+      case "inst:recheck": {
+        invalidatePermissionCache(chat.id);
+        const check = await permissionCheck(chat.id, true);
+        await saveSnapshot(pool, chat.id, check.snapshot);
+
+        await render(
+          chat.id,
+          cb.message.message_id,
+          permissionDocument(chat, check),
+        );
+
+        callbackNotice = check.ok ? "بررسی دسترسی کامل شد" : "چند دسترسی نیاز به اصلاح دارد";
         return true;
       }
 
@@ -1296,7 +1362,7 @@ export async function handleInstallationCallback(
         }
 
         const fresh = await state(pool, chat.id);
-        const check = await permissionCheck(chat.id);
+        const check = await permissionCheck(chat.id, true);
         await saveSnapshot(pool, chat.id, check.snapshot);
 
         await render(
@@ -1304,6 +1370,7 @@ export async function handleInstallationCallback(
           cb.message.message_id,
           installedDocument(chat, fresh, check),
         );
+        callbackNotice = "نصب با موفقیت انجام شد";
         return true;
       }
 
@@ -1327,11 +1394,12 @@ export async function handleInstallationCallback(
           cb.message.message_id,
           installedDocument(chat, fresh, check),
         );
+        callbackNotice = "مرکز نصب آماده است";
         return true;
       }
 
       case "inst:status": {
-        const check = await permissionCheck(chat.id);
+        const check = await permissionCheck(chat.id, true);
         await saveSnapshot(pool, chat.id, check.snapshot);
 
         await render(
@@ -1339,6 +1407,7 @@ export async function handleInstallationCallback(
           cb.message.message_id,
           statusDocument(chat, await state(pool, chat.id), check),
         );
+        callbackNotice = "وضعیت به‌روز شد";
         return true;
       }
 
@@ -1432,10 +1501,12 @@ export async function handleInstallationCallback(
           cb.message.message_id,
           settingsDocument(await state(pool, chat.id)),
         );
+        callbackNotice = "تنظیمات ذخیره شد";
         return true;
       }
 
       default:
+        callbackNotice = "این گزینه دیگر فعال نیست";
         return true;
     }
   } catch (error) {
@@ -1459,6 +1530,9 @@ export async function handleInstallationCallback(
       ]),
     );
 
+    callbackNotice = "عملیات انجام نشد";
     return true;
+  } finally {
+    await answer(cb.id, callbackNotice);
   }
 }
