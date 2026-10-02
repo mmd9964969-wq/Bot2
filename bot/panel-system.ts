@@ -22,6 +22,7 @@ import { handleMemberControlCallback, handleMemberControlTextInput, renderMember
 import { trackMessageAndActivity, handleMessageToolsText, handleMessageToolsCallback } from "../src/lib/bot/message-tools.ts";
 import { ensureStatsCenterSchema, handleStatsTextInput, handleStatsCallback } from "../src/lib/bot/stats-center.ts";
 import { executeRuntimeAction, isRuntimeMaintenance } from "./runtime-control.ts";
+import { ensureOwnerAgentSchema, queueOwnerAgentJob, ownerAgentOverview, setOwnerAgentSetting, cancelOwnerAgentJob } from "./owner-agent.ts";
 import {
   ensurePanelSessionSchema,
   runWithPanelScope,
@@ -679,14 +680,15 @@ function ownerSectionView(section:string){
       body:[
         "★ - ابزارهای اجرایی",
         "",
+        "⛂ - عامل توسعه : بررسی، اصلاح، بروزرسانی و آماده‌سازی خودکار ربات",
         "⛂ - جستجوی سراسری : یافتن کاربر، گروه، لایسنس و رویداد",
         "⛂ - ارسال همگانی : ارتباط با مشتریان سامانه",
-        "⛂ - پیش‌نمایش و تأیید : کنترل قبل از عملیات",
         "",
-        "◂ - ابزارهای سریع در این بخش متمرکز شده‌اند تا صفحه اصلی خلوت بماند."
+        "◂ - عامل توسعه پس از اعتبارسنجی می‌تواند تغییرات امن را خودکار منتشر کند."
       ].join("\n"),
       rows:[
-        [["جستجوی سراسری","o:palette"],["ارسال همگانی","o:broadcast"]],
+        [["عامل توسعه","o:agent"],["جستجوی سراسری","o:palette"]],
+        [["ارسال همگانی","o:broadcast"]],
         [["‹ بازگشت","o:home"]]
       ]
     },
@@ -708,6 +710,64 @@ function ownerSectionView(section:string){
     }
   };
   return views[section];
+}
+async function ownerAgentCenter(pool:Pool,uid:number){
+  const data=await ownerAgentOverview(pool);
+  const running=data.jobs.find((x:any)=>x.status==="running");
+  const queued=data.jobs.filter((x:any)=>x.status==="queued").length;
+  const autopilot=data.settings.autopilot_enabled;
+  const deploy=data.settings.auto_deploy;
+  const body=panelTitle("عامل توسعه",[
+    "★ - Pᴇʀsɪᴀɴ ᴮᵒᵗ · Aɢᴇɴᴛ",
+    "",
+    "⛂ - عامل : "+(data.settings.enabled?"● فعال":"○ خاموش"),
+    "⛂ - اجرای خودکار : "+(autopilot?"● فعال":"○ خاموش"),
+    "⛂ - انتشار خودکار : "+(deploy?"● فعال":"○ خاموش"),
+    "⛂ - صف فعلی : "+queued+" کار",
+    "⛂ - اجرای جاری : "+(running?"#"+running.id+" · "+running.task_type:"ندارد"),
+    "",
+    PANEL_SEPARATOR,
+    "",
+    "عامل می‌تواند کد را بررسی کند، قابلیت بسازد، خطا را رفع کند، طراحی را ممیزی کند، بروزرسانی‌ها را بررسی کند، تست بگیرد و پس از عبور از کنترل‌ها تغییرات امن را منتشر کند.",
+    "",
+    "◂ - تغییرات پرخطر، حذف داده، توکن‌ها و ریشه دسترسی مالک خودکار دستکاری نمی‌شوند."
+  ].join("\n"));
+  return edit(uid===uid?uid:uid,0,body,null).catch(()=>null);
+}
+
+function ownerAgentMarkup(data:any){
+  const s=data.settings;
+  return menu([
+    [["اجرای کامل","o:agent:full"],["رفع باگ","o:agent:fix"]],
+    [["افزودن قابلیت","o:agent:feature"],["ممیزی طراحی","o:agent:design"]],
+    [["بررسی بروزرسانی","o:agent:update"],["ممیزی کامل","o:agent:audit"]],
+    [["دستور سفارشی","o:agent:custom"],["آخرین اجرا","o:agent:last"]],
+    [["تاریخچه اجراها","o:agent:jobs"],["لغو کار در صف","o:agent:cancel_pick"]],
+    [[s.autopilot_enabled?"خاموش‌کردن اجرای خودکار":"فعال‌سازی اجرای خودکار","o:agent:autopilot:"+(s.autopilot_enabled?"off":"on")],
+     [s.auto_deploy?"خاموش‌کردن انتشار خودکار":"فعال‌سازی انتشار خودکار","o:agent:deploy:"+(s.auto_deploy?"off":"on")]],
+    [["‹ بازگشت","o:home"]]
+  ]);
+}
+
+function ownerAgentText(data:any){
+  const s=data.settings;
+  const running=data.jobs.find((x:any)=>x.status==="running");
+  const queued=data.jobs.filter((x:any)=>x.status==="queued").length;
+  return panelTitle("عامل توسعه",[
+    "★ - مرکز عملیات خودکار",
+    "",
+    "⛂ - وضعیت عامل : "+(s.enabled?"● فعال":"○ خاموش"),
+    "⛂ - اجرای خودکار : "+(s.autopilot_enabled?"● فعال":"○ خاموش"),
+    "⛂ - انتشار خودکار : "+(s.auto_deploy?"● فعال":"○ خاموش"),
+    "⛂ - صف : "+queued,
+    "⛂ - اجرای جاری : "+(running?"#"+running.id+" · "+String(running.task_type):"ندارد"),
+    "",
+    PANEL_SEPARATOR,
+    "",
+    "عامل توسعه برای GitHub → تست → اصلاح → انتشار → بررسی نتیجه طراحی شده است.",
+    "",
+    "◂ - قبل از انتشار، typecheck / test / build و diff-check انجام می‌شود."
+  ].join("\n"));
 }
 async function ownerView(pool:Pool,uid:number){
   const [customers,groups,licenses,owners,me]=await Promise.all([
@@ -1085,6 +1145,13 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
   const inputText=String(msg.text||"").trim();
   if(await handleOwnerSudoTextInput(pool,uid,msg.chat.id,inputText,ownerIds))return true;
   if(await handleOwnerLicenseTextInput(pool,uid,msg.chat.id,inputText,ownerIds))return true;
+  if(["agent","ایجنت","عامل"].includes(raw)){
+    if(!isPrivate)return send(msg.chat.id,"عامل توسعه فقط در گفت‌وگوی خصوصی مالک قابل استفاده است.")&&true;
+    const overview=await ownerAgentOverview(pool);
+    await audit(pool,String(uid),"owner_agent_opened",String(uid));
+    return send(msg.chat.id,ownerAgentText(overview),ownerAgentMarkup(overview))&&true;
+  }
+
   if(["owner","مالک"].includes(raw)){
     if(!isPrivate)return send(msg.chat.id,"پنل مالک فقط در گفت‌وگوی خصوصی ربات قابل استفاده است.")&&true;
     await audit(pool,String(uid),"owner_panel_opened",String(uid));await renderOwner(pool,uid,msg.chat.id);return true;
@@ -1111,6 +1178,22 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
   if(["اشتراک لغو","subscription cancel"].includes(subscriptionCommand)){
     session(uid,"owner_subscription_lookup",{step:1,action:"cancel"});
     return send(msg.chat.id,"◈ Sᴜʙsᴄʀɪᴘᴛɪᴏɴ\n\n⛂ آیدی عددی یا @username مشتری را ارسال کنید.",menu([[["‹ بازگشت","o:subscriptions"]]]))&&true;
+  }
+
+  const ownerAgentSession=getSession(uid);
+  if(ownerAgentSession&&ownerAgentSession.flow==="owner_agent_custom"){
+    const instruction=inputText.trim();
+    if(!instruction)return send(msg.chat.id,"دستور خالی است؛ متن خواسته را ارسال کنید.",menu([[["‹ بازگشت","o:agent"]]]))&&true;
+    const job=await queueOwnerAgentJob(pool,uid,"custom",instruction,false);
+    clearSession(uid);
+    return send(msg.chat.id,panelTitle("عامل توسعه · در صف",[
+      "✓ دستور سفارشی ثبت شد.",
+      "",
+      "⛂ - شماره کار : #"+job.id,
+      "⛂ - وضعیت : ● در صف",
+      "",
+      instruction
+    ].join("\n")),menu([[["عامل توسعه","o:agent"],["تاریخچه اجراها","o:agent:jobs"]]]))&&true;
   }
 
   const s=getSession(uid);
@@ -1770,6 +1853,107 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     const view=ownerSectionView(section);
     if(!view)return;
     return edit(msg.chat.id,msg.message_id,panelTitle(view.title,view.body),menu(view.rows));
+  }
+
+  if(data==="o:agent"){
+    const overview=await ownerAgentOverview(pool);
+    return edit(msg.chat.id,msg.message_id,ownerAgentText(overview),ownerAgentMarkup(overview));
+  }
+  if(data==="o:agent:full"||data==="o:agent:fix"||data==="o:agent:feature"||data==="o:agent:design"||data==="o:agent:update"||data==="o:agent:audit"){
+    const tasks:any={
+      "o:agent:full":["full_auto","سامانه را از صفر تا صد بررسی کن؛ مشکلات واقعی را پیدا و رفع کن، قابلیت‌های امن و موردنیاز را پیاده کن، طراحی را یکپارچه کن، تست‌ها را اجرا کن و در صورت عبور از همه کنترل‌ها آماده انتشار کن."],
+      "o:agent:fix":["bug_fix","خطاهای واقعی ربات را پیدا و رفع کن. ابتدا کد و تست‌ها را بررسی کن، علت اصلی را پیدا کن، کمترین تغییر لازم را اعمال کن و صحت را کامل بررسی کن."],
+      "o:agent:feature":["feature","یک قابلیت جدید و حرفه‌ای برای ربات مدیریت گروه اضافه کن؛ قبل از کدنویسی معماری و قابلیت‌های موجود را بررسی و از تکرار یا شکستن رفتار فعلی جلوگیری کن."],
+      "o:agent:design":["design_audit","طراحی فعلی Telegram Rich Message و پنل وب را با BOT_AGENT.md و الگوی panel-design/rich-message مقایسه کن، ناسازگاری‌ها را پیدا کن و اصلاحات امن طراحی را اعمال کن."],
+      "o:agent:update":["update","وابستگی‌ها، امنیت و نسخه‌های قابل‌ارتقا را بررسی کن؛ فقط بروزرسانی‌های قابل‌توجیه و سازگار را اعمال کن و بعد typecheck/test/build بگیر."],
+      "o:agent:audit":["audit","ممیزی کامل کد، سلامت، امنیت، تست، build و طراحی را انجام بده. فقط مشکلات اثبات‌پذیر و اصلاحات کم‌ریسک را اعمال کن."]
+    };
+    const [taskType,instruction]=tasks[data];
+    const job=await queueOwnerAgentJob(pool,uid,taskType,instruction,false);
+    return edit(msg.chat.id,msg.message_id,
+      panelTitle("عامل توسعه · در صف",[
+        "✓ کار جدید ثبت شد.",
+        "",
+        "⛂ - شماره کار : #"+job.id,
+        "⛂ - نوع : "+taskType,
+        "⛂ - وضعیت : ● در صف",
+        "",
+        "عامل پس از دریافت کار، مخزن GitHub را بررسی و چرخه اصلاح و اعتبارسنجی را اجرا می‌کند."
+      ].join("\n")),
+      menu([[["عامل توسعه","o:agent"],["تاریخچه اجراها","o:agent:jobs"]],[["‹ بازگشت","o:home"]]])
+    );
+  }
+  if(data==="o:agent:custom"){
+    session(uid,"owner_agent_custom",{createdAt:Date.now()});
+    return edit(msg.chat.id,msg.message_id,
+      panelTitle("دستور سفارشی عامل","دستور دقیق خود را ارسال کنید. عامل آن را بررسی، اجرا، تست و در صورت امن‌بودن منتشر می‌کند."),
+      menu([[["‹ بازگشت","o:agent"]]])
+    );
+  }
+  if(data==="o:agent:last"){
+    const overview=await ownerAgentOverview(pool);
+    const last=overview.jobs[0];
+    if(!last)return edit(msg.chat.id,msg.message_id,panelTitle("آخرین اجرا","■ هنوز اجرایی ثبت نشده است."),menu([[["‹ بازگشت","o:agent"]]]));
+    return edit(msg.chat.id,msg.message_id,panelTitle("آخرین اجرا",[
+      "⛂ - شماره : #"+last.id,
+      "⛂ - نوع : "+last.task_type,
+      "⛂ - وضعیت : "+last.status,
+      "⛂ - شاخه : "+(last.branch_name||"—"),
+      "⛂ - Commit : "+(last.commit_sha||"—"),
+      "",
+      "⛂ - خلاصه : "+(last.summary||"ثبت نشده"),
+      last.error?"⛂ - خطا : "+last.error:""
+    ].join("\n")),menu([[["عامل توسعه","o:agent"],["تاریخچه اجراها","o:agent:jobs"]]]));
+  }
+  if(data==="o:agent:jobs"){
+    const overview=await ownerAgentOverview(pool);
+    const rows:any[][]=overview.jobs.map((x:any)=>[[ "#"+x.id+" · "+x.task_type+" · "+x.status,"o:agent:job:"+x.id ]]);
+    if(!rows.length)rows.push([["■ هنوز اجرایی ثبت نشده است.","o:agent"]]);
+    rows.push([["‹ بازگشت","o:agent"]]);
+    return edit(msg.chat.id,msg.message_id,panelTitle("تاریخچه اجراها",rows.map((x:any)=>"⛂ - "+String(x[0][0])).join("\n")),menu(rows));
+  }
+  if(data.startsWith("o:agent:job:")){
+    const jobId=Number(data.slice("o:agent:job:".length));
+    const overview=await ownerAgentOverview(pool);
+    const job=overview.jobs.find((x:any)=>Number(x.id)===jobId);
+    if(!job)return edit(msg.chat.id,msg.message_id,panelTitle("اجرای عامل","✗ کار پیدا نشد."),menu([[["‹ بازگشت","o:agent:jobs"]]]));
+    return edit(msg.chat.id,msg.message_id,panelTitle("اجرای عامل · #"+job.id,[
+      "⛂ - نوع : "+job.task_type,
+      "⛂ - وضعیت : "+job.status,
+      "⛂ - شروع : "+(job.created_at||"—"),
+      "⛂ - پایان : "+(job.finished_at||"—"),
+      "⛂ - شاخه : "+(job.branch_name||"—"),
+      "⛂ - Commit : "+(job.commit_sha||"—"),
+      "",
+      "⛂ - خلاصه : "+(job.summary||"—"),
+      job.error?"⛂ - خطا : "+job.error:""
+    ].join("\n")),menu([
+      job.status==="queued"? [["لغو این کار","o:agent:cancel:"+job.id]]:[],
+      [["تاریخچه اجراها","o:agent:jobs"],["‹ بازگشت","o:agent"]]
+    ].filter((row:any[])=>row.length));
+  }
+  if(data==="o:agent:cancel_pick"){
+    return edit(msg.chat.id,msg.message_id,panelTitle("لغو کار","یک کار در صف را از تاریخچه انتخاب کنید."),menu([[["تاریخچه اجراها","o:agent:jobs"],["‹ بازگشت","o:agent"]]]));
+  }
+  if(data.startsWith("o:agent:cancel:")){
+    const jobId=Number(data.slice("o:agent:cancel:".length));
+    if(Number.isSafeInteger(jobId))await cancelOwnerAgentJob(pool,uid,jobId);
+    const overview=await ownerAgentOverview(pool);
+    return edit(msg.chat.id,msg.message_id,ownerAgentText(overview),ownerAgentMarkup(overview));
+  }
+  if(data==="o:agent:autopilot:on"||data==="o:agent:autopilot:off"){
+    const value=data.endsWith(":on");
+    await setOwnerAgentSetting(pool,uid,"autopilot_enabled",value);
+    await audit(pool,String(uid),"agent_autopilot_changed",String(value),{enabled:value});
+    const overview=await ownerAgentOverview(pool);
+    return edit(msg.chat.id,msg.message_id,ownerAgentText(overview),ownerAgentMarkup(overview));
+  }
+  if(data==="o:agent:deploy:on"||data==="o:agent:deploy:off"){
+    const value=data.endsWith(":on");
+    await setOwnerAgentSetting(pool,uid,"auto_deploy",value);
+    await audit(pool,String(uid),"agent_auto_deploy_changed",String(value),{enabled:value});
+    const overview=await ownerAgentOverview(pool);
+    return edit(msg.chat.id,msg.message_id,ownerAgentText(overview),ownerAgentMarkup(overview));
   }
 
   if(data==="o:home")return renderOwner(pool,uid,msg.chat.id,msg.message_id,"main");
