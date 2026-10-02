@@ -698,6 +698,7 @@ async function transitionSession(
     settings?: Record<string, unknown>;
     preflight?: PreflightReport | Record<string, unknown> | null;
     confirmed?: boolean;
+    installType?: InstallType | null;
     lastErrorCode?: string | null;
   } = {},
 ) {
@@ -749,6 +750,9 @@ async function transitionSession(
   }
   if (Object.prototype.hasOwnProperty.call(patch, "confirmed")) {
     addValue("confirmed", Boolean(patch.confirmed));
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "installType")) {
+    addValue("install_type", patch.installType ?? null);
   }
 
   addValue(
@@ -1415,24 +1419,60 @@ async function applyInstallType(
   operation: InstallationOperation,
   messageId: number,
 ) {
-  const session = defaultSession(operation, actorId);
-  session.install_type = type;
-
-  if (type === "quick") {
-    session.version = "latest";
-    session.environment = "production";
-    session.settings = {};
-    session.step = "summary";
-  } else {
-    session.step = "version";
+  const session = await getSession(pool, chat.id);
+  if (
+    !session ||
+    Number(session.actor_id) !== actorId ||
+    String(session.step) !== "install_type" ||
+    String(session.operation) !== operation
+  ) {
+    throw Object.assign(new Error("نشست انتخاب نوع نصب معتبر نیست."), {
+      code: "INSTALLATION_SESSION_CONFLICT",
+    });
   }
 
-  await saveSession(pool, chat.id, session);
+  if (type === "quick") {
+    await transitionSession(
+      pool,
+      chat.id,
+      actorId,
+      "summary",
+      "collecting",
+      {
+        installType: type,
+        version: "latest",
+        environment: "production",
+        settings: {},
+        preflight: {},
+        confirmed: false,
+      },
+    );
+  } else {
+    await transitionSession(
+      pool,
+      chat.id,
+      actorId,
+      "version",
+      "collecting",
+      {
+        installType: type,
+        version: null,
+        environment: null,
+        settings: {},
+        preflight: {},
+        confirmed: false,
+      },
+    );
+  }
+
+  const fresh = await getSession(pool, chat.id);
+  if (!fresh) throw new Error("نشست نصب پس از انتخاب نوع پیدا نشد.");
+
   await render(
     chat.id,
     messageId,
     type === "quick"
-      ? summaryDocument(chat, session, isDestructive(operation))
+      ? summaryDocument(chat, fresh, isDestructive(operation))
       : versionDocument(),
   );
 }
@@ -2888,13 +2928,29 @@ export async function handleInstallationCallback(
         String(session.step) === "version"
       ) {
         await transitionSession(pool, chat.id, cb.from.id, "install_type", "collecting");
+        const fresh = await getSession(pool, chat.id);
+        await render(
+          chat.id,
+          cb.message.message_id,
+          fresh?.operation && ["install", "reinstall"].includes(String(fresh.operation))
+            ? installTypeDocument(String(fresh.operation) as InstallationOperation)
+            : operationSelectionDocument(await state(pool, chat.id)),
+        );
+        return true;
       }
+
+      if (
+        session &&
+        Number(session.actor_id) === cb.from.id &&
+        String(session.step) === "install_type"
+      ) {
+        await clearSession(pool, chat.id, cb.from.id);
+      }
+
       await render(
         chat.id,
         cb.message.message_id,
-        session?.operation && ["install", "reinstall"].includes(String(session.operation))
-          ? installTypeDocument(String(session.operation) as InstallationOperation)
-          : operationSelectionDocument(await state(pool, chat.id)),
+        operationSelectionDocument(await state(pool, chat.id)),
       );
       return true;
     }
