@@ -12,6 +12,26 @@ import {
   preflightStatusSymbol,
   type PreflightReport,
 } from "./installation-preflight.ts";
+import {
+  ensureInstallationProgressSchema,
+  createInstallationProgress,
+  getActiveInstallationProgress,
+  getLatestInstallationProgressForGroup,
+  getInstallationProgress,
+  getInstallationProgressStepStatuses,
+  setInstallationStepProgress,
+  setInstallationPhase,
+  recordInstallationProgressError,
+  attachInstallationProgressMessage,
+  shouldRenderInstallationProgress,
+  markInstallationProgressRendered,
+  startInstallationHeartbeat,
+  listRecoverableInstallationProgress,
+  claimInstallationProgressRecovery,
+  markStaleInstallationProgress,
+  installationProgressDocument,
+  type InstallationProgressSnapshot,
+} from "./installation-progress.ts";
 
 type TgUser = {
   id: number;
@@ -342,6 +362,111 @@ async function answer(id: string, text = "") {
   }).catch(() => ({ ok: false }));
 }
 
+async function renderInstallationProgressSnapshot(
+  pool: Pool,
+  chat: TgChat,
+  snapshot: InstallationProgressSnapshot,
+  detail?: string,
+  force = false,
+) {
+  const shouldRender = await shouldRenderInstallationProgress(
+    pool,
+    snapshot.execution_id,
+    snapshot,
+    force,
+  );
+  if (!shouldRender) return snapshot;
+
+  let result = await render(
+    chat.id,
+    snapshot.last_message_id ?? undefined,
+    installationProgressDocument(chat, snapshot, detail),
+  );
+
+  if (!(result as any)?.ok && snapshot.last_message_id) {
+    result = await render(
+      chat.id,
+      undefined,
+      installationProgressDocument(chat, snapshot, detail),
+    );
+  }
+
+  if ((result as any)?.ok === true) {
+    const sentMessageId = Number((result as any)?.result?.message_id ?? 0);
+    if (sentMessageId > 0) {
+      await attachInstallationProgressMessage(
+        pool,
+        snapshot.execution_id,
+        sentMessageId,
+      );
+    }
+    await markInstallationProgressRendered(pool, snapshot.execution_id);
+  }
+
+  return (await getInstallationProgress(pool, snapshot.execution_id)) ?? snapshot;
+}
+
+function userFacingInstallationError(error: unknown) {
+  const code = String((error as any)?.code ?? "");
+  if (code === "INSTALLATION_EXECUTION_ACTIVE") {
+    return "یک عملیات نصب برای این گروه در حال اجراست.";
+  }
+
+  const message = String((error as any)?.message ?? "").trim();
+  const known = [
+    "گروه از قبل نصب شده است.",
+    "برای به‌روزرسانی، گروه باید نصب شده باشد.",
+    "برای تعمیر، گروه باید نصب شده باشد.",
+    "برای نصب مجدد، گروه باید نصب شده باشد.",
+    "گروه از قبل حذف نصب شده است.",
+  ];
+  if (known.includes(message)) return message;
+
+  if (/not enough rights|administrator|permission|دسترسی/i.test(message)) {
+    return "دسترسی لازم برای اجرای عملیات در Telegram برقرار نیست.";
+  }
+
+  return "اجرای عملیات با یک خطای داخلی متوقف شد. جزئیات فنی در گزارش عملیات ثبت شده است.";
+}
+
+async function installationEffectAlreadyApplied(
+  pool: Pool,
+  chatId: number,
+  session: any,
+  targetVersion: string,
+) {
+  const operation = String(session.operation) as InstallationOperation;
+  const row = (
+    await pool.query(
+      "SELECT installed,installation_version,response_policy,member_message_policy,command_policy,command_mode,automation_enabled,security_mode,audit_enabled " +
+        "FROM bot_group_installations WHERE group_id=$1 LIMIT 1",
+      [String(chatId)],
+    )
+  ).rows[0];
+
+  if (!row) return false;
+
+  if (operation === "uninstall") {
+    return !Boolean(row.installed) && String(row.command_policy) === "disabled";
+  }
+
+  if (!Boolean(row.installed)) return false;
+  if (String(row.installation_version) !== targetVersion) return false;
+
+  if (operation === "repair") return true;
+
+  const patch = operationSettingsPatch(session.settings, operation === "reinstall");
+  for (const [key, value] of Object.entries(patch)) {
+    if (typeof value === "boolean") {
+      if (Boolean(row[key]) !== value) return false;
+    } else if (String(row[key] ?? "") !== String(value)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 async function ensureSchemaInternal(pool: Pool) {
   await pool.query(
     "CREATE TABLE IF NOT EXISTS bot_group_installations (" +
@@ -379,6 +504,8 @@ async function ensureSchemaInternal(pool: Pool) {
     "CREATE INDEX IF NOT EXISTS idx_bot_installation_events_group_time " +
       "ON bot_installation_events(group_id,created_at DESC)",
   );
+
+  await ensureInstallationProgressSchema(pool);
 
   await pool.query(
     "CREATE TABLE IF NOT EXISTS bot_installation_sessions (" +
@@ -1097,6 +1224,9 @@ async function beginOperation(
   const row = await state(pool, chat.id);
   const installed = Boolean(row?.installed);
 
+  const activeProgress = await getActiveInstallationProgress(pool, chat.id);
+  if (activeProgress) return "active_execution";
+
   if (operation === "install" && installed) return "installed";
   if (["update", "repair", "reinstall", "uninstall"].includes(operation) && !installed) return "not_installed";
 
@@ -1185,46 +1315,52 @@ async function renderCurrentSession(pool: Pool, chat: TgChat, messageId: number)
     await render(chat.id, messageId, summaryDocument(chat, session, isDestructive(operation)));
   } else if (session.step === "confirmed") {
     await render(chat.id, messageId, confirmedDocument(chat, session));
-  } else if (session.step === "executing" || session.step === "verifying") {
-    const report = preflightReportFromSession(session);
-    if (report) {
-      const phase = session.step === "executing" ? "EXECUTING" : "VERIFYING";
+  } else if (
+    session.step === "executing" ||
+    session.step === "verifying" ||
+    session.step === "completed" ||
+    session.step === "failed"
+  ) {
+    const latestProgress = await getLatestInstallationProgressForGroup(pool, chat.id);
+    if (
+      latestProgress &&
+      latestProgress.operation === String(session.operation)
+    ) {
       await render(
         chat.id,
         messageId,
-        installationExecutionDocument(
-          chat,
-          String(session.operation) as InstallationOperation,
-          phase,
-          resolveExecutionVersion(session.version),
-        ),
+        installationProgressDocument(chat, latestProgress),
       );
     } else {
-      await render(chat.id, messageId, operationSelectionDocument(await state(pool, chat.id)));
+      const report = preflightReportFromSession(session);
+      if (report) {
+        const phase =
+          session.step === "executing"
+            ? "EXECUTING"
+            : session.step === "verifying"
+              ? "VERIFYING"
+              : session.step === "completed"
+                ? "COMPLETED"
+                : "FAILED";
+        await render(
+          chat.id,
+          messageId,
+          installationExecutionDocument(
+            chat,
+            String(session.operation) as InstallationOperation,
+            phase,
+            resolveExecutionVersion(session.version),
+          ),
+        );
+      } else {
+        await render(
+          chat.id,
+          messageId,
+          operationSelectionDocument(await state(pool, chat.id)),
+        );
+      }
     }
-  } else if (session.step === "completed") {
-    await render(
-      chat.id,
-      messageId,
-      installationExecutionDocument(
-        chat,
-        String(session.operation) as InstallationOperation,
-        "COMPLETED",
-        resolveExecutionVersion(session.version),
-      ),
-    );
-  } else if (session.step === "failed") {
-    await render(
-      chat.id,
-      messageId,
-      installationExecutionDocument(
-        chat,
-        String(session.operation) as InstallationOperation,
-        "FAILED",
-        resolveExecutionVersion(session.version),
-        "آخرین اجرای عملیات ناموفق بوده است؛ ابتدا بررسی مجدد را اجرا کنید.",
-      ),
-    );
+  }
   } else {
     await render(chat.id, messageId, operationSelectionDocument(await state(pool, chat.id)));
   }
@@ -1671,6 +1807,7 @@ async function executeConfirmedInstallationOperation(
   chat: TgChat,
   actorId: number,
   messageId: number,
+  existingExecutionId?: string,
 ) {
   const session = await getSession(pool, chat.id);
   if (!session || Number(session.actor_id) !== actorId) {
@@ -1682,8 +1819,10 @@ async function executeConfirmedInstallationOperation(
     return { ok: false, reason: "invalid_session" as const };
   }
 
+  const recovery = Boolean(existingExecutionId);
   const report = preflightReportFromSession(session);
-  if (!report || report.overall !== "READY") {
+
+  if (!recovery && (!report || report.overall !== "READY")) {
     await render(
       chat.id,
       messageId,
@@ -1694,11 +1833,17 @@ async function executeConfirmedInstallationOperation(
     return { ok: false, reason: "preflight_blocked" as const };
   }
 
-  if (String(session.status) !== "preflight_ready" && String(session.status) !== "ready") {
+  const allowedStatuses = recovery
+    ? ["confirmed", "preflight_ready", "preflight_blocked", "ready", "checking", "executing", "verifying"]
+    : ["preflight_ready", "ready"];
+
+  if (!allowedStatuses.includes(String(session.status))) {
     await render(
       chat.id,
       messageId,
-      preflightSummaryDocument(chat, await state(pool, chat.id), session, report),
+      report
+        ? preflightSummaryDocument(chat, await state(pool, chat.id), session, report)
+        : operationSelectionDocument(await state(pool, chat.id)),
     );
     return { ok: false, reason: "preflight_not_confirmed" as const };
   }
@@ -1710,139 +1855,383 @@ async function executeConfirmedInstallationOperation(
 
   const targetVersion = resolveExecutionVersion(session.version);
 
-  await pool.query(
-    "UPDATE bot_installation_sessions SET status='executing',step='executing',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
-    [String(chat.id), String(actorId)],
-  );
-  await logInstallEvent(pool, chat.id, actorId, "operation_executing", {
-    operation,
-    target_version: targetVersion,
-  });
+  let progress: InstallationProgressSnapshot;
+  try {
+    if (existingExecutionId) {
+      progress = (await getInstallationProgress(pool, existingExecutionId))!;
+      if (!progress) {
+        return { ok: false, reason: "execution_not_found" as const };
+      }
+    } else {
+      progress = await createInstallationProgress(pool, {
+        groupId: chat.id,
+        actorId,
+        operation,
+        messageId,
+        metadata: {
+          target_version: targetVersion,
+          environment: session.environment,
+          install_type: session.install_type,
+        },
+      });
+    }
+  } catch (error) {
+    if (String((error as any)?.code ?? "") === "INSTALLATION_EXECUTION_ACTIVE") {
+      const active =
+        (await getActiveInstallationProgress(pool, chat.id)) ??
+        (String((error as any)?.executionId ?? "")
+          ? await getInstallationProgress(pool, String((error as any).executionId))
+          : null);
 
-  await render(
-    chat.id,
-    messageId,
-    installationExecutionDocument(
-      chat,
-      operation,
-      "EXECUTING",
-      targetVersion,
-      "وضعیت گروه و تنظیمات نصب در یک تراکنش به‌روزرسانی می‌شوند.",
-    ),
-  );
+      if (active) {
+        await renderInstallationProgressSnapshot(
+          pool,
+          chat,
+          active,
+          "یک اجرای فعال برای این گروه وجود دارد؛ اجرای دوم شروع نشد.",
+          true,
+        );
+      }
+      return { ok: false, reason: "active_execution" as const };
+    }
+    throw error;
+  }
+
+  if (!progress.last_message_id && messageId > 0) {
+    await attachInstallationProgressMessage(pool, progress.execution_id, messageId);
+    progress =
+      (await getInstallationProgress(pool, progress.execution_id)) ?? progress;
+  }
+
+  const stopHeartbeat = startInstallationHeartbeat(pool, progress.execution_id);
 
   try {
-    const execution = await executeInstallationOperation(
+    if (!existingExecutionId) {
+      await pool.query(
+        "UPDATE bot_installation_sessions SET status='executing',step='executing',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
+        [String(chat.id), String(actorId)],
+      );
+      await logInstallEvent(pool, chat.id, actorId, "operation_executing", {
+        operation,
+        target_version: targetVersion,
+        execution_id: progress.execution_id,
+      });
+    }
+
+    const steps = await getInstallationProgressStepStatuses(
       pool,
-      chat,
-      actorId,
-      session,
+      progress.execution_id,
     );
+    const completed = new Set(
+      steps.filter((item) => item.status === "COMPLETED").map((item) => item.step_id),
+    );
+
+    const runStep = async (
+      stepId: string,
+      stepProgress: number,
+      status?: "RUNNING" | "COMPLETED" | "FAILED",
+      detail?: string,
+    ) => {
+      const result = await setInstallationStepProgress(
+        pool,
+        progress.execution_id,
+        stepId,
+        stepProgress,
+        status,
+      );
+      progress = await renderInstallationProgressSnapshot(
+        pool,
+        chat,
+        result.snapshot,
+        detail,
+        false,
+      );
+      return result;
+    };
+
+    if (!["verify", "finalize"].includes(String(progress.current_step))) {
+      if (!completed.has("prepare")) {
+        await runStep("prepare", 0, "RUNNING", "مرحلهٔ آماده‌سازی آغاز شد.");
+        await runStep("prepare", 100, "COMPLETED", "آماده‌سازی با موفقیت انجام شد.");
+        completed.add("prepare");
+      }
+
+      if (!completed.has("apply")) {
+        await runStep("apply", 0, "RUNNING", "اجرای عملیات اصلی آغاز شد.");
+
+        const alreadyApplied = await installationEffectAlreadyApplied(
+          pool,
+          chat.id,
+          session,
+          targetVersion,
+        );
+
+        if (!alreadyApplied) {
+          const execution = await executeInstallationOperation(
+            pool,
+            chat,
+            actorId,
+            session,
+          );
+          if (execution.version !== targetVersion) {
+            throw new Error("نسخهٔ هدف پس از اجرا با درخواست نشست یکسان نیست.");
+          }
+        } else {
+          await logInstallEvent(pool, chat.id, actorId, "operation_recovered_without_reexecution", {
+            operation,
+            execution_id: progress.execution_id,
+          });
+        }
+
+        await runStep("apply", 100, "COMPLETED", "عملیات اصلی با موفقیت انجام شد.");
+        completed.add("apply");
+      }
+
+      if (!completed.has("persist")) {
+        await runStep("persist", 100, "COMPLETED", "وضعیت اجرای عملیات در پایگاه داده ثبت شد.");
+        completed.add("persist");
+      }
+    }
 
     await pool.query(
       "UPDATE bot_installation_sessions SET status='verifying',step='verifying',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
       [String(chat.id), String(actorId)],
     );
-    await logInstallEvent(pool, chat.id, actorId, "operation_verifying", {
-      operation,
-      target_version: execution.version,
-    });
 
-    await render(
-      chat.id,
-      messageId,
-      installationExecutionDocument(
-        chat,
-        operation,
+    progress =
+      (await setInstallationPhase(
+        pool,
+        progress.execution_id,
         "VERIFYING",
-        execution.version,
-        "دادهٔ پایگاه داده و دسترسی Telegram دوباره بررسی می‌شوند.",
-      ),
-    );
+        "VERIFYING",
+        { operation, target_version: targetVersion },
+      )) ?? progress;
 
-    const verification = await verifyInstallationOperation(
-      pool,
-      chat,
-      session,
-      execution.version,
-    );
+    if (!completed.has("verify")) {
+      await runStep("verify", 10, "RUNNING", "اعتبارسنجی نهایی آغاز شد.");
 
-    if (!verification.ok) {
-      await pool.query(
-        "UPDATE bot_installation_sessions SET status='failed',step='failed',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
-        [String(chat.id), String(actorId)],
+      const verification = await verifyInstallationOperation(
+        pool,
+        chat,
+        session,
+        targetVersion,
       );
-      await logInstallEvent(pool, chat.id, actorId, "operation_verification_failed", {
-        operation,
-        target_version: execution.version,
-        detail: verification.detail,
-      });
 
-      await render(
-        chat.id,
-        messageId,
-        installationExecutionDocument(
-          chat,
-          operation,
+      if (!verification.ok) {
+        const friendly = verification.detail || "اعتبارسنجی نهایی موفق نبود.";
+        await setInstallationStepProgress(
+          pool,
+          progress.execution_id,
+          "verify",
+          progress.progress,
           "FAILED",
-          execution.version,
-          verification.detail + " اجرای مرحلهٔ بعدی تا بررسی مجدد متوقف شد.",
-        ),
-      );
+          { detail: friendly },
+        );
+        progress = (await recordInstallationProgressError(
+          pool,
+          progress.execution_id,
+          "VERIFICATION_FAILED",
+          friendly,
+          { technical_detail: verification.detail },
+        )) ?? progress;
 
-      return { ok: false, reason: "verification_failed" as const };
+        await pool.query(
+          "UPDATE bot_installation_sessions SET status='failed',step='failed',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
+          [String(chat.id), String(actorId)],
+        );
+
+        await logInstallEvent(pool, chat.id, actorId, "operation_verification_failed", {
+          operation,
+          target_version: targetVersion,
+          detail: verification.detail,
+          execution_id: progress.execution_id,
+        });
+
+        await renderInstallationProgressSnapshot(
+          pool,
+          chat,
+          progress,
+          friendly + " اجرای عملیات تا رفع این مشکل متوقف شد.",
+          true,
+        );
+
+        return { ok: false, reason: "verification_failed" as const };
+      }
+
+      await runStep(
+        "verify",
+        100,
+        "COMPLETED",
+        verification.detail,
+      );
+      completed.add("verify");
     }
 
-    await pool.query(
-      "UPDATE bot_installation_sessions SET status='completed',step='completed',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
-      [String(chat.id), String(actorId)],
-    );
+    if (!completed.has("finalize")) {
+      await runStep("finalize", 0, "RUNNING", "نهایی‌سازی نتیجهٔ عملیات آغاز شد.");
+
+      await pool.query(
+        "UPDATE bot_installation_sessions SET status='completed',step='completed',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
+        [String(chat.id), String(actorId)],
+      );
+
+      await runStep("finalize", 100, "COMPLETED", "نتیجهٔ عملیات ثبت و نهایی شد.");
+      completed.add("finalize");
+    }
+
+    progress =
+      (await setInstallationPhase(
+        pool,
+        progress.execution_id,
+        "COMPLETED",
+        "COMPLETED",
+        {
+          operation,
+          target_version: targetVersion,
+          verification: "ok",
+        },
+      )) ?? progress;
+
     await logInstallEvent(pool, chat.id, actorId, "operation_completed", {
       operation,
-      target_version: execution.version,
-      verification: verification.detail,
+      target_version: targetVersion,
+      execution_id: progress.execution_id,
+      progress: progress.progress,
     });
 
-    await render(
-      chat.id,
-      messageId,
-      installationExecutionDocument(
-        chat,
-        operation,
-        "COMPLETED",
-        execution.version,
-        verification.detail,
-      ),
+    await renderInstallationProgressSnapshot(
+      pool,
+      chat,
+      progress,
+      "عملیات با موفقیت اجرا و اعتبارسنجی شد.",
+      true,
     );
 
     return { ok: true, reason: "completed" as const };
   } catch (error) {
-    const detail = String((error as any)?.message ?? error ?? "خطای نامشخص");
+    const technicalDetail = String(
+      (error as any)?.message ?? error ?? "Unknown installation error",
+    );
+    const friendly = userFacingInstallationError(error);
+    const errorCode =
+      String((error as any)?.code ?? "INSTALLATION_FAILED").slice(0, 80) ||
+      "INSTALLATION_FAILED";
 
     await pool.query(
       "UPDATE bot_installation_sessions SET status='failed',step='failed',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
       [String(chat.id), String(actorId)],
     ).catch(() => {});
 
+    progress = (await recordInstallationProgressError(
+      pool,
+      progress.execution_id,
+      errorCode,
+      friendly,
+      {
+        operation,
+        target_version: targetVersion,
+        technical_detail: technicalDetail,
+      },
+    )) ?? progress;
+
     await logInstallEvent(pool, chat.id, actorId, "operation_failed", {
       operation,
       target_version: targetVersion,
-      detail,
+      execution_id: progress.execution_id,
+      detail: technicalDetail,
+      user_message: friendly,
     }).catch(() => {});
 
-    await render(
-      chat.id,
-      messageId,
-      installationExecutionDocument(
-        chat,
-        operation,
-        "FAILED",
-        targetVersion,
-        "اجرای عملیات ناموفق بود: " + detail,
-      ),
+    await renderInstallationProgressSnapshot(
+      pool,
+      chat,
+      progress,
+      friendly,
+      true,
     );
 
     return { ok: false, reason: "execution_failed" as const };
+  } finally {
+    stopHeartbeat();
+  }
+}
+
+export async function resumeActiveInstallationExecutions(pool: Pool) {
+  await ensureInstallationProgressSchema(pool);
+  const candidates = await listRecoverableInstallationProgress(pool);
+
+  for (const candidate of candidates) {
+    const claimed = await claimInstallationProgressRecovery(
+      pool,
+      candidate.execution_id,
+    );
+    if (!claimed) continue;
+
+    const session = await getSession(pool, Number(claimed.group_id));
+    if (!session) {
+      await recordInstallationProgressError(
+        pool,
+        claimed.execution_id,
+        "SESSION_MISSING",
+        "نشست اجرای عملیات پس از راه‌اندازی مجدد پیدا نشد.",
+        { recovery: true },
+      );
+      continue;
+    }
+
+    const telegramChat = await telegramApi<any>("getChat", {
+      chat_id: Number(claimed.group_id),
+    });
+
+    if (!telegramChat.ok || !telegramChat.result?.id) {
+      await recordInstallationProgressError(
+        pool,
+        claimed.execution_id,
+        "CHAT_RECOVERY_FAILED",
+        "دریافت اطلاعات گروه برای بازیابی عملیات انجام نشد.",
+        { recovery: true, telegram_detail: telegramChat.description ?? null },
+      );
+      continue;
+    }
+
+    const chat: TgChat = {
+      id: Number(telegramChat.result.id),
+      type: String(telegramChat.result.type ?? "supergroup"),
+      title: telegramChat.result.title ?? undefined,
+      username: telegramChat.result.username ?? undefined,
+    };
+
+    let messageId = Number(claimed.last_message_id ?? 0);
+    if (messageId <= 0) {
+      const sent = await render(
+        chat.id,
+        undefined,
+        installationProgressDocument(chat, claimed, "عملیات ناتمام پس از راه‌اندازی مجدد شناسایی شد؛ بازیابی ادامه دارد."),
+      );
+      messageId = Number((sent as any)?.result?.message_id ?? 0);
+      if (messageId > 0) {
+        await attachInstallationProgressMessage(
+          pool,
+          claimed.execution_id,
+          messageId,
+        );
+      }
+    }
+
+    await logInstallEvent(pool, chat.id, Number(session.actor_id), "operation_recovery_started", {
+      execution_id: claimed.execution_id,
+      operation: claimed.operation,
+      previous_status: candidate.status,
+      current_step: candidate.current_step,
+    }).catch(() => {});
+
+    await executeConfirmedInstallationOperation(
+      pool,
+      chat,
+      Number(session.actor_id),
+      messageId,
+      claimed.execution_id,
+    );
   }
 }
 
@@ -2113,24 +2502,27 @@ export async function handleInstallationCallback(
   let notice = "انجام شد";
 
   try {
-    if (data === "inst:home") {
-      await clearSession(pool, chat.id);
-      await render(
-        chat.id,
-        cb.message.message_id,
-        mainCenterDocument(chat, await state(pool, chat.id), null),
-      );
-      return true;
-    }
+    if (data === "inst:home" || data === "inst:cancel") {
+      const activeProgress = await getActiveInstallationProgress(pool, chat.id);
+      if (activeProgress) {
+        await renderInstallationProgressSnapshot(
+          pool,
+          chat,
+          activeProgress,
+          "تا پایان عملیات فعال، نشست اجرا قابل بستن نیست.",
+          true,
+        );
+        notice = "یک عملیات فعال برای این گروه وجود دارد";
+        return true;
+      }
 
-    if (data === "inst:cancel") {
       await clearSession(pool, chat.id);
       await render(
         chat.id,
         cb.message.message_id,
         mainCenterDocument(chat, await state(pool, chat.id), null),
       );
-      notice = "مرکز نصب بسته شد";
+      if (data === "inst:cancel") notice = "مرکز نصب بسته شد";
       return true;
     }
 
@@ -2203,6 +2595,21 @@ export async function handleInstallationCallback(
           operationSelectionDocument(await state(pool, chat.id)),
         );
         notice = "این عملیات برای وضعیت فعلی قابل اجرا نیست";
+        return true;
+      }
+
+      if (result === "active_execution") {
+        const activeProgress = await getActiveInstallationProgress(pool, chat.id);
+        if (activeProgress) {
+          await renderInstallationProgressSnapshot(
+            pool,
+            chat,
+            activeProgress,
+            "اجرای دوم مجاز نیست؛ عملیات فعال همین‌جا دنبال می‌شود.",
+            true,
+          );
+        }
+        notice = "یک عملیات فعال برای این گروه وجود دارد";
         return true;
       }
 
