@@ -16,7 +16,7 @@ import { startOwnerAgentWorker } from "./owner-agent.ts";
 import { bindPanelMessage } from "../src/lib/bot/panel-session.ts";
 import { ensureSpecialUsersSchema, sweepSpecialUsers } from "../src/lib/bot/special-users.ts";
 import { ensureGroupLanguageSchema, getGroupLanguage, normalizeBotLang, setGroupLanguage, languageChangedText, languagePickerText, SUPPORTED_LANGUAGES } from "../src/lib/bot/i18n.ts";
-import { ensureInstallationSchema, installationGate, handleInstallationCallback, handleInstallationInput, resumeActiveInstallationExecutions } from "./installation.ts";
+import { ensureInstallationSchema, installationGate, handleInstallationCallback, handleInstallationInput, resumeActiveInstallationExecutions, sweepExpiredInstallationSessions } from "./installation.ts";
 import { reconcileInstallationState } from "./installation-reconcile.ts";
 import { markStaleInstallationProgress } from "./installation-progress.ts";
 import { ensureModerationSchema, runModerationCommand } from "../src/lib/bot/moderation.ts";
@@ -1750,6 +1750,14 @@ async function poll() {
       );
     }
   }, 30000);
+
+  setInterval(() => {
+    if (studioPool) {
+      void sweepExpiredInstallationSessions(studioPool).catch(error =>
+        console.error("[installation] session sweep failed:", error),
+      );
+    }
+  }, 60000);
   setInterval(() => { if (studioPool) void sweepGroupSubscriptions(studioPool).catch(error => console.error("[subscriptions]", error)); }, 30000);
   setInterval(() => { if (studioPool) void sweepSpecialUsers(studioPool).catch(error => console.error("[special]", error)); }, 15000);
   setInterval(() => { if (studioPool) void runDateReminders(studioPool).catch(error => console.error("[date]", error)); }, 15000);
