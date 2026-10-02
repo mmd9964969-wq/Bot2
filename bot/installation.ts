@@ -3093,12 +3093,12 @@ export async function handleInstallationCallback(
         "collecting",
         { settings: {} },
       );
-      const session = await getSession(pool, chat.id);
-      if (session) {
+      const updatedSession = await getSession(pool, chat.id);
+      if (updatedSession) {
         await render(
           chat.id,
           cb.message.message_id,
-          summaryDocument(chat, session, isDestructive(String(session.operation) as InstallationOperation)),
+          summaryDocument(chat, updatedSession, isDestructive(String(updatedSession.operation) as InstallationOperation)),
         );
       }
       return true;
