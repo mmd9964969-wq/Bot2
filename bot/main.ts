@@ -1231,9 +1231,16 @@ async function processMessage(msg: TgMessage, edited = false) {
       }
     }
   }
-  // Private chat is normally disabled, but the owner panel must remain
-  // reachable from the bot PV. Route panel/owner requests to the dedicated
-  // panel controller before applying the generic private-chat block.
+  // Owner panel entry is interaction-driven rather than command-driven.
+  // The owner never needs to type /start, panel, owner, or another entry command.
+  // Any valid private interaction from the configured owner prepares the
+  // owner-only Rich Message entry with the "پنل مالکیت" button.
+  if (isPrivate && studioPool && !isConfigRequest) {
+    if (await openOwnerPanelEntry(studioPool, msg, config.ownerIds)) return;
+  }
+
+  // Existing panel text handlers remain available for internal flows that
+  // explicitly route through the panel controller.
   if (isPrivate && isPanelRequest && studioPool) {
     if (await dispatchPanelMessage(studioPool, msg, config.ownerIds)) {
       if (!edited) {
@@ -1241,13 +1248,6 @@ async function processMessage(msg: TgMessage, edited = false) {
       }
       return;
     }
-  }
-
-  // Owner panel entry: /start is only the discovery surface.
-  // The panel itself opens exclusively through the owner-only button.
-  if (isPrivate && normalizedEntry === "start" && studioPool) {
-    await openOwnerPanelEntry(studioPool, msg, config.ownerIds);
-    return;
   }
 
   // Private chat is normally disabled, but /config and «پیکربندی» are
