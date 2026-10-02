@@ -223,7 +223,7 @@ export async function ensureInstallationProgressSchema(pool: Pool) {
   );
 
   await pool.query(
-    "CREATE TABLE IF NOT EXISTS bot_installation_progress_steps ("
+    "CREATE TABLE IF NOT EXISTS bot_installation_progress_steps (" +
       "execution_id TEXT NOT NULL REFERENCES bot_installation_progress(execution_id) ON DELETE CASCADE," +
       "step_id TEXT NOT NULL," +
       "step_index INTEGER NOT NULL," +
