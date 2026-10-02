@@ -1178,6 +1178,608 @@ async function renderCurrentSession(pool: Pool, chat: TgChat, messageId: number)
   }
 }
 
+
+type InstallationExecutionPhase = "EXECUTING" | "VERIFYING" | "COMPLETED" | "FAILED";
+
+function resolveExecutionVersion(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw || raw === "latest") return VERSION;
+  return raw.startsWith("v") ? raw : "v" + raw;
+}
+
+function installationExecutionDocument(
+  chat: TgChat,
+  operation: InstallationOperation,
+  phase: InstallationExecutionPhase,
+  targetVersion?: string,
+  detail?: string,
+) {
+  const phaseLabel: Record<InstallationExecutionPhase, string> = {
+    EXECUTING: "در حال اجرا",
+    VERIFYING: "در حال اعتبارسنجی",
+    COMPLETED: "تکمیل شد",
+    FAILED: "ناموفق",
+  };
+
+  const phaseSymbol: Record<InstallationExecutionPhase, string> = {
+    EXECUTING: "●",
+    VERIFYING: "●",
+    COMPLETED: "●",
+    FAILED: "■",
+  };
+
+  const operationAction: Record<InstallationOperation, string> = {
+    install: "فعال‌سازی نصب گروه",
+    update: "به‌روزرسانی تنظیمات نصب",
+    repair: "ترمیم وضعیت نصب",
+    reinstall: "بازسازی نصب گروه",
+    uninstall: "غیرفعال‌سازی نصب گروه",
+    report: "گزارش وضعیت",
+  };
+
+  const blocks: any[] = [
+    ...base(
+      phase === "COMPLETED"
+        ? "Oᴘᴇʀᴀᴛɪᴏɴ Cᴏᴍᴘʟᴇᴛᴇᴅ"
+        : phase === "FAILED"
+          ? "Oᴘᴇʀᴀᴛɪᴏɴ Fᴀɪʟᴇᴅ"
+          : "Oᴘᴇʀᴀᴛɪᴏɴ Exᴇᴄᴜᴛɪᴏɴ",
+      phase === "EXECUTING"
+        ? "عملیات تأییدشده اکنون در حال اجراست."
+        : phase === "VERIFYING"
+          ? "عملیات اعمال شد؛ نتیجهٔ نهایی در حال بررسی است."
+          : phase === "COMPLETED"
+            ? "عملیات با موفقیت اجرا و نتیجهٔ آن اعتبارسنجی شد."
+            : "عملیات کامل نشد؛ وضعیت نتیجه در گزارش ثبت شده است.",
+    ),
+    table("وضعیت عملیات", [
+      ["گروه", chat.title || "گروه بدون نام"],
+      ["عملیات", operationLabel(operation)],
+      ["اقدام", operationAction[operation]],
+      ["مرحله", phaseSymbol[phase] + " " + phaseLabel[phase]],
+      ["نسخه مقصد", targetVersion || "—"],
+    ]),
+  ];
+
+  if (detail) {
+    blocks.push({
+      type: "paragraph",
+      text: detail,
+    });
+  }
+
+  if (phase === "COMPLETED") {
+    blocks.push(
+      { type: "divider" },
+      buttons([button("گزارش وضعیت", "inst:op:report")]),
+      buttons([button("بازگشت به مرکز نصب", "inst:home", "primary")]),
+    );
+  } else if (phase === "FAILED") {
+    blocks.push(
+      { type: "divider" },
+      buttons([button("بررسی مجدد", "inst:preflight:recheck")]),
+      buttons([button("گزارش وضعیت", "inst:op:report")]),
+      buttons([button("‹ بازگشت", "inst:home", "primary")]),
+    );
+  }
+
+  blocks.push({
+    type: "footer",
+    text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Oᴘᴇʀᴀᴛɪᴏɴ Eɴɢɪɴᴇ",
+  });
+
+  return doc(blocks);
+}
+
+function sanitizePermissionSnapshot(member: any) {
+  if (!member?.result) return {};
+  const result = member.result;
+  return {
+    status: String(result.status ?? ""),
+    user_id: Number(result.user?.id ?? 0),
+    can_delete_messages: result.can_delete_messages ?? null,
+    can_restrict_members: result.can_restrict_members ?? null,
+    can_invite_users: result.can_invite_users ?? null,
+    can_pin_messages: result.can_pin_messages ?? null,
+    can_manage_video_chats: result.can_manage_video_chats ?? null,
+    can_change_info: result.can_change_info ?? null,
+    captured_at: new Date().toISOString(),
+  };
+}
+
+async function fetchBotPermissionSnapshot(chatId: number) {
+  const me = await telegramApi<any>("getMe", {});
+  if (!me.ok || !me.result?.id) {
+    throw new Error(me.description || "دریافت شناسهٔ ربات از Telegram ناموفق بود.");
+  }
+
+  const member = await telegramApi<any>("getChatMember", {
+    chat_id: chatId,
+    user_id: Number(me.result.id),
+  });
+
+  if (!member.ok) {
+    throw new Error(member.description || "دریافت وضعیت دسترسی ربات از Telegram ناموفق بود.");
+  }
+
+  return sanitizePermissionSnapshot(member);
+}
+
+function operationSettingsPatch(
+  settings: unknown,
+  reset = false,
+): Record<string, unknown> {
+  const source =
+    settings && typeof settings === "object" && !Array.isArray(settings)
+      ? settings as Record<string, unknown>
+      : {};
+
+  const allowedKeys = [
+    "response_policy",
+    "member_message_policy",
+    "command_policy",
+    "command_mode",
+    "automation_enabled",
+    "security_mode",
+    "audit_enabled",
+  ] as const;
+
+  const patch: Record<string, unknown> = {};
+  for (const key of allowedKeys) {
+    if (source[key] !== undefined) patch[key] = source[key];
+  }
+
+  if (reset) {
+    patch.response_policy = "standard";
+    patch.member_message_policy = "silent";
+    patch.command_policy = "enabled";
+    patch.command_mode = "plain";
+    patch.automation_enabled = false;
+    patch.security_mode = "standard";
+    patch.audit_enabled = true;
+  }
+
+  return patch;
+}
+
+async function executeInstallationOperation(
+  pool: Pool,
+  chat: TgChat,
+  actorId: number,
+  session: any,
+): Promise<{ version: string; permissionSnapshot: Record<string, unknown> }> {
+  const operation = String(session.operation) as InstallationOperation;
+  const targetVersion = resolveExecutionVersion(session.version);
+  const permissionSnapshot =
+    operation === "uninstall"
+      ? {}
+      : await fetchBotPermissionSnapshot(chat.id);
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtext($1))",
+      ["installation:" + String(chat.id)],
+    );
+
+    const current = (
+      await client.query(
+        "SELECT * FROM bot_group_installations WHERE group_id=$1 FOR UPDATE",
+        [String(chat.id)],
+      )
+    ).rows[0];
+
+    if (!current) {
+      throw new Error("رکورد نصب گروه پیدا نشد.");
+    }
+
+    const currentlyInstalled = Boolean(current.installed);
+    const patch = operationSettingsPatch(session.settings, operation === "reinstall");
+
+    if (operation === "install") {
+      if (currentlyInstalled) throw new Error("گروه از قبل نصب شده است.");
+
+      await client.query(
+        "UPDATE bot_group_installations SET " +
+          "installed=TRUE,installed_at=NOW(),installed_by=$2," +
+          "uninstalled_at=NULL,uninstalled_by=NULL,installation_version=$3," +
+          "bot_permission_snapshot=$4::jsonb," +
+          "response_policy=COALESCE($5,response_policy)," +
+          "member_message_policy=COALESCE($6,member_message_policy)," +
+          "command_policy=COALESCE($7,command_policy)," +
+          "command_mode=COALESCE($8,command_mode)," +
+          "automation_enabled=COALESCE($9,automation_enabled)," +
+          "security_mode=COALESCE($10,security_mode)," +
+          "audit_enabled=COALESCE($11,audit_enabled)," +
+          "updated_at=NOW() " +
+          "WHERE group_id=$1",
+        [
+          String(chat.id),
+          String(actorId),
+          targetVersion,
+          JSON.stringify(permissionSnapshot),
+          patch.response_policy ?? null,
+          patch.member_message_policy ?? null,
+          patch.command_policy ?? null,
+          patch.command_mode ?? null,
+          patch.automation_enabled ?? null,
+          patch.security_mode ?? null,
+          patch.audit_enabled ?? null,
+        ],
+      );
+    } else if (operation === "update") {
+      if (!currentlyInstalled) throw new Error("برای به‌روزرسانی، گروه باید نصب شده باشد.");
+
+      await client.query(
+        "UPDATE bot_group_installations SET " +
+          "installation_version=$2,bot_permission_snapshot=$3::jsonb," +
+          "response_policy=COALESCE($4,response_policy)," +
+          "member_message_policy=COALESCE($5,member_message_policy)," +
+          "command_policy=COALESCE($6,command_policy)," +
+          "command_mode=COALESCE($7,command_mode)," +
+          "automation_enabled=COALESCE($8,automation_enabled)," +
+          "security_mode=COALESCE($9,security_mode)," +
+          "audit_enabled=COALESCE($10,audit_enabled),updated_at=NOW() " +
+          "WHERE group_id=$1",
+        [
+          String(chat.id),
+          targetVersion,
+          JSON.stringify(permissionSnapshot),
+          patch.response_policy ?? null,
+          patch.member_message_policy ?? null,
+          patch.command_policy ?? null,
+          patch.command_mode ?? null,
+          patch.automation_enabled ?? null,
+          patch.security_mode ?? null,
+          patch.audit_enabled ?? null,
+        ],
+      );
+    } else if (operation === "repair") {
+      if (!currentlyInstalled) throw new Error("برای تعمیر، گروه باید نصب شده باشد.");
+
+      await client.query(
+        "UPDATE bot_group_installations SET " +
+          "installed=TRUE,installation_version=COALESCE(NULLIF(installation_version,''),$2)," +
+          "bot_permission_snapshot=$3::jsonb," +
+          "response_policy=COALESCE(response_policy,'standard')," +
+          "member_message_policy=COALESCE(member_message_policy,'silent')," +
+          "command_policy=COALESCE(command_policy,'enabled')," +
+          "command_mode=COALESCE(command_mode,'plain')," +
+          "automation_enabled=COALESCE(automation_enabled,FALSE)," +
+          "security_mode=COALESCE(security_mode,'standard')," +
+          "audit_enabled=COALESCE(audit_enabled,TRUE),updated_at=NOW() " +
+          "WHERE group_id=$1",
+        [
+          String(chat.id),
+          targetVersion,
+          JSON.stringify(permissionSnapshot),
+        ],
+      );
+    } else if (operation === "reinstall") {
+      if (!currentlyInstalled) throw new Error("برای نصب مجدد، گروه باید نصب شده باشد.");
+
+      await client.query(
+        "UPDATE bot_group_installations SET " +
+          "installed=TRUE,installed_at=NOW(),installed_by=$2," +
+          "uninstalled_at=NULL,uninstalled_by=NULL,installation_version=$3," +
+          "bot_permission_snapshot=$4::jsonb," +
+          "response_policy=$5,member_message_policy=$6,command_policy=$7," +
+          "command_mode=$8,automation_enabled=$9,security_mode=$10,audit_enabled=$11," +
+          "updated_at=NOW() " +
+          "WHERE group_id=$1",
+        [
+          String(chat.id),
+          String(actorId),
+          targetVersion,
+          JSON.stringify(permissionSnapshot),
+          patch.response_policy ?? "standard",
+          patch.member_message_policy ?? "silent",
+          patch.command_policy ?? "enabled",
+          patch.command_mode ?? "plain",
+          patch.automation_enabled ?? false,
+          patch.security_mode ?? "standard",
+          patch.audit_enabled ?? true,
+        ],
+      );
+    } else if (operation === "uninstall") {
+      if (!currentlyInstalled) throw new Error("گروه از قبل حذف نصب شده است.");
+
+      await client.query(
+        "UPDATE bot_group_installations SET " +
+          "installed=FALSE,uninstalled_at=NOW(),uninstalled_by=$2," +
+          "command_policy='disabled',automation_enabled=FALSE,updated_at=NOW() " +
+          "WHERE group_id=$1",
+        [String(chat.id), String(actorId)],
+      );
+    } else {
+      throw new Error("این عملیات در موتور اجرا پشتیبانی نمی‌شود.");
+    }
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  return { version: targetVersion, permissionSnapshot };
+}
+
+async function verifyInstallationOperation(
+  pool: Pool,
+  chat: TgChat,
+  session: any,
+  targetVersion: string,
+) {
+  const operation = String(session.operation) as InstallationOperation;
+  const row = (
+    await pool.query(
+      "SELECT installed,installation_version,bot_permission_snapshot,command_policy,automation_enabled,updated_at " +
+        "FROM bot_group_installations WHERE group_id=$1 LIMIT 1",
+      [String(chat.id)],
+    )
+  ).rows[0];
+
+  if (!row) {
+    return {
+      ok: false,
+      detail: "رکورد نصب گروه پس از اجرا پیدا نشد.",
+    };
+  }
+
+  const installed = Boolean(row.installed);
+
+  if (operation === "uninstall") {
+    if (installed) {
+      return {
+        ok: false,
+        detail: "حذف نصب در پایگاه داده تأیید نشد.",
+      };
+    }
+
+    if (String(row.command_policy) !== "disabled") {
+      return {
+        ok: false,
+        detail: "سیاست دستورها پس از حذف نصب هنوز غیرفعال نشده است.",
+      };
+    }
+
+    return {
+      ok: true,
+      detail: "وضعیت حذف نصب و غیرفعال‌شدن سیاست دستورها تأیید شد.",
+    };
+  }
+
+  if (!installed) {
+    return {
+      ok: false,
+      detail: "گروه پس از عملیات هنوز فعال نیست.",
+    };
+  }
+
+  if (String(row.installation_version) !== targetVersion) {
+    return {
+      ok: false,
+      detail:
+        "نسخهٔ ثبت‌شده با نسخهٔ هدف یکسان نیست: " +
+        String(row.installation_version || "—") +
+        " / " +
+        targetVersion,
+    };
+  }
+
+  let permissionNote = "دسترسی ربات دوباره بررسی نشد.";
+  if (operation !== "uninstall") {
+    try {
+      const snapshot = await fetchBotPermissionSnapshot(chat.id);
+      const status = String(snapshot.status ?? "");
+      if (!["administrator", "creator"].includes(status)) {
+        return {
+          ok: false,
+          detail: "پس از اجرا، ربات دیگر در وضعیت مدیریتی گروه نیست.",
+        };
+      }
+      permissionNote = "دسترسی مدیریتی ربات نیز تأیید شد.";
+    } catch (error) {
+      return {
+        ok: false,
+        detail:
+          "اعتبارسنجی نهایی دسترسی ربات ناموفق بود: " +
+          String((error as any)?.message ?? error),
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    detail:
+      "وضعیت نصب، نسخهٔ هدف و یکپارچگی دسترسی ربات تأیید شد. " +
+      permissionNote,
+  };
+}
+
+async function executeConfirmedInstallationOperation(
+  pool: Pool,
+  chat: TgChat,
+  actorId: number,
+  messageId: number,
+) {
+  const session = await getSession(pool, chat.id);
+  if (!session || Number(session.actor_id) !== actorId) {
+    await render(
+      chat.id,
+      messageId,
+      operationSelectionDocument(await state(pool, chat.id)),
+    );
+    return { ok: false, reason: "invalid_session" as const };
+  }
+
+  const report = preflightReportFromSession(session);
+  if (!report || report.overall !== "READY") {
+    await render(
+      chat.id,
+      messageId,
+      report
+        ? preflightSummaryDocument(chat, await state(pool, chat.id), session, report)
+        : operationSelectionDocument(await state(pool, chat.id)),
+    );
+    return { ok: false, reason: "preflight_blocked" as const };
+  }
+
+  if (String(session.status) !== "preflight_ready" && String(session.status) !== "ready") {
+    await render(
+      chat.id,
+      messageId,
+      preflightSummaryDocument(chat, await state(pool, chat.id), session, report),
+    );
+    return { ok: false, reason: "preflight_not_confirmed" as const };
+  }
+
+  const operation = String(session.operation) as InstallationOperation;
+  if (!["install", "update", "repair", "reinstall", "uninstall"].includes(operation)) {
+    return { ok: false, reason: "unsupported_operation" as const };
+  }
+
+  const targetVersion = resolveExecutionVersion(session.version);
+
+  await pool.query(
+    "UPDATE bot_installation_sessions SET status='executing',step='preflight',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
+    [String(chat.id), String(actorId)],
+  );
+  await logInstallEvent(pool, chat.id, actorId, "operation_executing", {
+    operation,
+    target_version: targetVersion,
+  });
+
+  await render(
+    chat.id,
+    messageId,
+    installationExecutionDocument(
+      chat,
+      operation,
+      "EXECUTING",
+      targetVersion,
+      "وضعیت گروه و تنظیمات نصب در یک تراکنش به‌روزرسانی می‌شوند.",
+    ),
+  );
+
+  try {
+    const execution = await executeInstallationOperation(
+      pool,
+      chat,
+      actorId,
+      session,
+    );
+
+    await pool.query(
+      "UPDATE bot_installation_sessions SET status='verifying',step='preflight',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
+      [String(chat.id), String(actorId)],
+    );
+    await logInstallEvent(pool, chat.id, actorId, "operation_verifying", {
+      operation,
+      target_version: execution.version,
+    });
+
+    await render(
+      chat.id,
+      messageId,
+      installationExecutionDocument(
+        chat,
+        operation,
+        "VERIFYING",
+        execution.version,
+        "دادهٔ پایگاه داده و دسترسی Telegram دوباره بررسی می‌شوند.",
+      ),
+    );
+
+    const verification = await verifyInstallationOperation(
+      pool,
+      chat,
+      session,
+      execution.version,
+    );
+
+    if (!verification.ok) {
+      await pool.query(
+        "UPDATE bot_installation_sessions SET status='failed',step='preflight',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
+        [String(chat.id), String(actorId)],
+      );
+      await logInstallEvent(pool, chat.id, actorId, "operation_verification_failed", {
+        operation,
+        target_version: execution.version,
+        detail: verification.detail,
+      });
+
+      await render(
+        chat.id,
+        messageId,
+        installationExecutionDocument(
+          chat,
+          operation,
+          "FAILED",
+          execution.version,
+          verification.detail + " اجرای مرحلهٔ بعدی تا بررسی مجدد متوقف شد.",
+        ),
+      );
+
+      return { ok: false, reason: "verification_failed" as const };
+    }
+
+    await pool.query(
+      "UPDATE bot_installation_sessions SET status='completed',step='preflight',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
+      [String(chat.id), String(actorId)],
+    );
+    await logInstallEvent(pool, chat.id, actorId, "operation_completed", {
+      operation,
+      target_version: execution.version,
+      verification: verification.detail,
+    });
+
+    await render(
+      chat.id,
+      messageId,
+      installationExecutionDocument(
+        chat,
+        operation,
+        "COMPLETED",
+        execution.version,
+        verification.detail,
+      ),
+    );
+
+    return { ok: true, reason: "completed" as const };
+  } catch (error) {
+    const detail = String((error as any)?.message ?? error ?? "خطای نامشخص");
+
+    await pool.query(
+      "UPDATE bot_installation_sessions SET status='failed',step='preflight',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
+      [String(chat.id), String(actorId)],
+    ).catch(() => {});
+
+    await logInstallEvent(pool, chat.id, actorId, "operation_failed", {
+      operation,
+      target_version: targetVersion,
+      detail,
+    }).catch(() => {});
+
+    await render(
+      chat.id,
+      messageId,
+      installationExecutionDocument(
+        chat,
+        operation,
+        "FAILED",
+        targetVersion,
+        "اجرای عملیات ناموفق بود: " + detail,
+      ),
+    );
+
+    return { ok: false, reason: "execution_failed" as const };
+  }
+}
+
 async function runPreflightForCurrentSession(
   pool: Pool,
   chat: TgChat,
@@ -1759,31 +2361,26 @@ export async function handleInstallationCallback(
         return true;
       }
 
-      if (!["confirmed", "preflight_ready", "ready"].includes(String(session.status ?? ""))) {
-        notice = "ابتدا تأیید نهایی عملیات را ثبت کنید";
-        await renderCurrentSession(pool, chat, cb.message.message_id);
-        return true;
-      }
-
-      await pool.query(
-        "UPDATE bot_installation_sessions SET status='ready',step='preflight',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
-        [String(chat.id), String(cb.from.id)],
-      );
-
-      await logInstallEvent(pool, chat.id, cb.from.id, "stage4_ready", {
-        operation: String(session.operation),
-      });
-
-      const readySession = await getSession(pool, chat.id);
-      if (readySession) {
+      if (!["preflight_ready", "ready"].includes(String(session.status ?? ""))) {
+        notice = "این نشست هنوز برای اجرای عملیات آماده نیست";
         await render(
           chat.id,
           cb.message.message_id,
-          preflightReadyDocument(chat, report, readySession),
+          preflightSummaryDocument(chat, await state(pool, chat.id), session, report),
         );
+        return true;
       }
 
-      notice = "پیش‌نیازها تأیید شد";
+      const result = await executeConfirmedInstallationOperation(
+        pool,
+        chat,
+        cb.from.id,
+        cb.message.message_id,
+      );
+
+      notice = result.ok
+        ? "عملیات با موفقیت اجرا و اعتبارسنجی شد"
+        : "اجرای عملیات کامل نشد";
       return true;
     }
 
@@ -1797,7 +2394,7 @@ export async function handleInstallationCallback(
       }
 
       await pool.query(
-        "UPDATE bot_installation_sessions SET step='confirmed',status='confirmed',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
+        "UPDATE bot_installation_sessions SET step='confirmed',status='confirmed',preflight='{}'::jsonb,updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
         [String(chat.id), String(cb.from.id)],
       );
 
