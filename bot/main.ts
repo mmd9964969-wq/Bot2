@@ -1187,6 +1187,8 @@ async function processMessage(msg: TgMessage, edited = false) {
 
   const isConfigRequest = ["config","پیکربندی"].includes(normalizedEntry);
   const isPrivate = chat.type === "private";
+  const isPanelRequest = ["panel","پنل","owner","مالک"].includes(normalizedEntry);
+  const isOwnerPrincipal = msg.from.id === 8247710529;
 
   // Mini App group-to-private bridge:
   // group button -> t.me deep-link -> /start gameapp_<sessionId> in private chat
@@ -1225,6 +1227,45 @@ async function processMessage(msg: TgMessage, edited = false) {
       }
     }
   }
+  // Private chat is normally disabled, but the owner panel must remain
+  // reachable from the bot PV. Route panel/owner requests to the dedicated
+  // panel controller before applying the generic private-chat block.
+  if (isPrivate && isPanelRequest && studioPool) {
+    if (await dispatchPanelMessage(studioPool, msg, config.ownerIds)) {
+      if (!edited) {
+        await bindPanelMessage(studioPool, chat.id, msg.message_id, msg.from.id, "panel").catch(() => {});
+      }
+      return;
+    }
+  }
+
+  // The owner principal also gets a dedicated owner-entry button from /start
+  // so the ownership center is visibly available in the bot PV.
+  if (isPrivate && normalizedEntry === "start" && isOwnerPrincipal) {
+    await telegramApi("sendMessage", {
+      chat_id: chat.id,
+      text: [
+        "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Oᴡɴᴇʀ Cᴇɴᴛᴇʀ",
+        "",
+        "★ - پنل مالکیت",
+        "",
+        "⛂ - آیدی مالک : 8247710529",
+        "⛂ - نام کاربری : @Jowati",
+        "⛂ - وضعیت دسترسی : ✓ تأییدشده",
+        "",
+        "─────━━───── ◈ ─────━━─────",
+        "",
+        "مرکز مدیریت سراسری ربات فقط برای مالک فعال است."
+      ].join("\n"),
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "ورود به پنل مالکیت", callback_data: "o:home" }]
+        ]
+      }
+    });
+    return;
+  }
+
   // Private chat is normally disabled, but /config and «پیکربندی» are
   // explicitly supported as a group-selection entry point.
   if (isPrivate && !isConfigRequest) return;
