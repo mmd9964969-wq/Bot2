@@ -214,6 +214,7 @@ function defaultSession(operation: InstallationOperation, actorId: number) {
     settings: {} as Record<string, unknown>,
     step: "operation" as SessionStep,
     status: "collecting",
+    confirmed: false,
     preflight: null as PreflightReport | null,
   };
 }
@@ -391,6 +392,7 @@ async function ensureSchemaInternal(pool: Pool) {
       "step TEXT NOT NULL DEFAULT 'operation'," +
       "status TEXT NOT NULL DEFAULT 'collecting'," +
       "preflight JSONB NOT NULL DEFAULT '{}'::jsonb," +
+      "confirmed BOOLEAN NOT NULL DEFAULT FALSE," +
       "updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()," +
       "expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '15 minutes')" +
       ")",
@@ -404,6 +406,11 @@ async function ensureSchemaInternal(pool: Pool) {
   await pool.query(
     "ALTER TABLE bot_installation_sessions " +
       "ADD COLUMN IF NOT EXISTS preflight JSONB NOT NULL DEFAULT '{}'::jsonb",
+  );
+
+  await pool.query(
+    "ALTER TABLE bot_installation_sessions " +
+      "ADD COLUMN IF NOT EXISTS confirmed BOOLEAN NOT NULL DEFAULT FALSE",
   );
 }
 
@@ -478,12 +485,12 @@ async function saveSession(
 ) {
   await pool.query(
     "INSERT INTO bot_installation_sessions(" +
-      "group_id,actor_id,operation,install_type,version,environment,settings,step,status,preflight,updated_at,expires_at" +
-      ") VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10::jsonb,NOW(),NOW()+INTERVAL '15 minutes') " +
+      "group_id,actor_id,operation,install_type,version,environment,settings,step,status,preflight,confirmed,updated_at,expires_at" +
+      ") VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10::jsonb,$11,NOW(),NOW()+INTERVAL '15 minutes') " +
       "ON CONFLICT(group_id) DO UPDATE SET " +
       "actor_id=EXCLUDED.actor_id,operation=EXCLUDED.operation,install_type=EXCLUDED.install_type," +
       "version=EXCLUDED.version,environment=EXCLUDED.environment,settings=EXCLUDED.settings," +
-      "step=EXCLUDED.step,status=EXCLUDED.status,preflight=EXCLUDED.preflight,updated_at=NOW()," +
+      "step=EXCLUDED.step,status=EXCLUDED.status,preflight=EXCLUDED.preflight,confirmed=EXCLUDED.confirmed,updated_at=NOW()," +
       "expires_at=NOW()+INTERVAL '15 minutes'",
     [
       String(groupId),
@@ -496,6 +503,7 @@ async function saveSession(
       session.step,
       session.status,
       JSON.stringify(session.preflight ?? {}),
+      Boolean(session.confirmed),
     ],
   );
 }
@@ -1369,8 +1377,22 @@ function operationSettingsPatch(
   ] as const;
 
   const patch: Record<string, unknown> = {};
-  for (const key of allowedKeys) {
-    if (source[key] !== undefined) patch[key] = source[key];
+  const stringKeys = [
+    "response_policy",
+    "member_message_policy",
+    "command_policy",
+    "command_mode",
+    "security_mode",
+  ] as const;
+  for (const key of stringKeys) {
+    if (source[key] !== undefined && typeof source[key] === "string") {
+      patch[key] = source[key];
+    }
+  }
+  for (const key of ["automation_enabled", "audit_enabled"] as const) {
+    if (source[key] !== undefined && typeof source[key] === "boolean") {
+      patch[key] = source[key];
+    }
   }
 
   if (reset) {
@@ -1859,6 +1881,12 @@ async function runPreflightForCurrentSession(
 
   const installationState = await state(pool, chat.id);
   const operation = String(session.operation) as InstallationOperation;
+
+  await pool.query(
+    "UPDATE bot_installation_sessions SET status='checking',step='preflight',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
+    [String(chat.id), String(actorId)],
+  );
+
   const report = await runInstallationPreflight({
     pool,
     chatId: chat.id,
@@ -1868,9 +1896,7 @@ async function runPreflightForCurrentSession(
     version: session.version,
     environment: session.environment,
     settings: session.settings,
-    sessionConfirmed: ["confirmed", "preflight_ready", "preflight_blocked", "ready"].includes(
-      String(session.status ?? ""),
-    ),
+    sessionConfirmed: Boolean(session.confirmed),
     autoFix,
     ensureSchema: () => ensureSchema(pool),
   });
@@ -2438,7 +2464,7 @@ export async function handleInstallationCallback(
       }
 
       await pool.query(
-        "UPDATE bot_installation_sessions SET step='confirmed',status='confirmed',preflight='{}'::jsonb,updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
+        "UPDATE bot_installation_sessions SET step='confirmed',status='confirmed',confirmed=TRUE,preflight='{}'::jsonb,updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
         [String(chat.id), String(cb.from.id)],
       );
 
