@@ -103,16 +103,9 @@ async function render(chatId:number,messageId:number|undefined,document:RichDocu
   const plain=richDocumentToPlainText(rich);
   const reply_markup=richReplyMarkup(rich);
 
-  try{
-    const richResult=messageId
-      ? await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,rich_message:rich})
-      : await telegramApi("sendRichMessage",{chat_id:chatId,rich_message:rich});
-    if((richResult as any)?.ok===true)return richResult;
-    console.warn("[owner-sudo] rich render unavailable; using legacy Telegram message");
-  }catch(error){
-    console.warn("[owner-sudo] rich render failed; using legacy Telegram message",error);
-  }
-
+  // Sudo controls must use Telegram's native inline keyboard directly.
+  // This avoids routing interactive sudo controls through the custom Rich-message
+  // transport, which is not a Telegram Bot API method.
   return messageId
     ? telegramApi("editMessageText",{
         chat_id:chatId,
@@ -125,6 +118,21 @@ async function render(chatId:number,messageId:number|undefined,document:RichDocu
         text:plain,
         ...(reply_markup?{reply_markup}:{}),
       });
+}
+
+function normalizeDigits(value:string){
+  return String(value??"")
+    .replace(/[۰-۹]/g,ch=>String("۰۱۲۳۴۵۶۷۸۹".indexOf(ch)))
+    .replace(/[٠-٩]/g,ch=>String("٠١٢٣٤٥٦٧٨٩".indexOf(ch)));
+}
+
+function normalizeSudoLevel(value:string):SudoLevel|null{
+  const v=normalizeDigits(String(value??"")).trim().toLowerCase();
+  if(["low","پایین","پایین‌تر","سودو پایین","۱"].includes(v))return "low";
+  if(["medium","mid","متوسط","سودو متوسط","۲"].includes(v))return "medium";
+  if(["pro","professional","حرفه‌ای","حرفه ای","سودو حرفه‌ای","۳"].includes(v))return "pro";
+  if(["security","امنیتی","سودو امنیتی","امنیت","۴"].includes(v))return "security";
+  return null;
 }
 
 export function isManagedOwnerSudo(userId:number){
@@ -406,7 +414,7 @@ export async function handleOwnerSudoTextInput(pool:Pool,actor:number,chatId:num
   }
   if(!level)return false;
 
-  const clean=String(text||"").trim().replace(/^\s*\+?/,"");
+  const clean=normalizeDigits(String(text||"")).trim().replace(/^\s*\+?/,"");
   if(!/^\d{5,20}$/.test(clean)){
     await render(chatId,undefined,doc([
       ...baseBlocks("ثبت سودو","شناسه عددی معتبر ارسال کنید."),
