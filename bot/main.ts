@@ -17,6 +17,7 @@ import { bindPanelMessage } from "../src/lib/bot/panel-session.ts";
 import { ensureSpecialUsersSchema, sweepSpecialUsers } from "../src/lib/bot/special-users.ts";
 import { ensureGroupLanguageSchema, getGroupLanguage, normalizeBotLang, setGroupLanguage, languageChangedText, languagePickerText, SUPPORTED_LANGUAGES } from "../src/lib/bot/i18n.ts";
 import { ensureInstallationSchema, installationGate, handleInstallationCallback, handleInstallationInput, resumeActiveInstallationExecutions } from "./installation.ts";
+import { reconcileInstallationState } from "./installation-reconcile.ts";
 import { markStaleInstallationProgress } from "./installation-progress.ts";
 import { ensureModerationSchema, runModerationCommand } from "../src/lib/bot/moderation.ts";
 import { sweepGroupSubscriptions } from "../src/lib/bot/group-subscriptions.ts";
@@ -1719,6 +1720,11 @@ async function poll() {
   if (studioPool) {
     await ensureCleanupSchema(studioPool);
     await ensureInstallationSchema(studioPool);
+    await reconcileInstallationState(studioPool).then((result) => {
+      console.log("[installation-reconcile] startup complete:", result);
+    }).catch((error) => {
+      console.error("[installation-reconcile] startup failed:", error);
+    });
     await resumeActiveInstallationExecutions(studioPool).catch((error) => {
       console.error("[installation-progress] startup recovery failed:", error);
     });
