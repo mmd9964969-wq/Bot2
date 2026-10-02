@@ -752,14 +752,17 @@ async function transitionSession(
 
   const groupParam = values.length + 1;
   const actorParam = values.length + 2;
+  const versionParam = values.length + 3;
   const result = await pool.query(
     "UPDATE bot_installation_sessions SET " +
       sets.join(",") +
       " WHERE group_id=$" +
       groupParam +
       " AND actor_id=$" +
-      actorParam,
-    [...values, String(groupId), String(actorId)],
+      actorParam +
+      " AND state_version=$" +
+      versionParam,
+    [...values, String(groupId), String(actorId), Number(current.state_version ?? 1)],
   );
 
   if (result.rowCount !== 1) {
