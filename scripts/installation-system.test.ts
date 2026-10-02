@@ -62,3 +62,32 @@ test("installation UI emits only contract-approved callback data", async () => {
   }
   assert.equal(source.includes('data === "inst:uninstall:confirm"'), false);
 });
+
+
+test("all five installation operations share one execution engine", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../bot/installation.ts", import.meta.url), "utf8");
+  for (const operation of ["install","update","repair","reinstall","uninstall"]) {
+    assert.equal(source.includes('"'+operation+'"'), true, "operation missing: "+operation);
+  }
+  assert.equal(
+    source.includes("const operation = String(session.operation) as InstallationOperation;"),
+    true,
+  );
+  assert.equal(
+    source.includes("executeInstallationOperation("),
+    true,
+  );
+  assert.equal(
+    source.includes("executeInstallationOrchestration(client, {"),
+    true,
+  );
+});
+
+test("recovery transitions are explicitly permitted", () => {
+  assert.equal(canTransitionInstallationSession("confirmed","confirmed","executing","executing"), true);
+  assert.equal(canTransitionInstallationSession("preflight","checking","executing","executing"), true);
+  assert.equal(canTransitionInstallationSession("failed","failed","preflight","checking"), true);
+  assert.equal(canTransitionInstallationSession("completed","completed","preflight","checking"), true);
+  assert.equal(canTransitionInstallationSession("completed","completed","executing","executing"), false);
+});
