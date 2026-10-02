@@ -3373,20 +3373,40 @@ export async function handleInstallationCallback(
         return true;
       }
 
-      if (String(session.step) === "failed" && String(session.status) === "failed") {
+      const wasFailed = String(session.step) === "failed" && String(session.status) === "failed";
+      if (wasFailed) {
         await transitionSession(pool, chat.id, cb.from.id, "preflight", "checking");
       } else if (String(session.step) !== "preflight") {
         notice = "بررسی مجدد فقط در نشست بررسی یا پس از خطا مجاز است";
         return true;
       }
 
-      await runPreflightForCurrentSession(
+      const report = await runPreflightForCurrentSession(
         pool,
         chat,
         cb.from.id,
         cb.message.message_id,
         false,
       );
+
+      if (wasFailed && report?.overall === "READY") {
+        const fresh = await getSession(pool, chat.id);
+        if (fresh) {
+          await transitionSession(
+            pool,
+            chat.id,
+            cb.from.id,
+            "preflight",
+            "preflight_ready",
+          ).catch(() => {});
+          await executeConfirmedInstallationOperation(
+            pool,
+            chat,
+            cb.from.id,
+            cb.message.message_id,
+          );
+        }
+      }
       return true;
     }
 
