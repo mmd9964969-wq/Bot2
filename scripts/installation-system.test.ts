@@ -153,3 +153,45 @@ test("production hardening primitives are present", async () => {
   assert.equal(installation.includes("sweepExpiredInstallationSessions"), true);
   assert.equal(state.includes("INSTALLATION_SESSION_INVALID_TRANSITION"), true);
 });
+
+
+test("every installation callback family has a real handler branch", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../bot/installation.ts", import.meta.url), "utf8");
+  const handlerStart = source.indexOf("export async function handleInstallationCallback");
+  const handlerEnd = source.indexOf("export async function handleInstallationInput", handlerStart);
+  assert.ok(handlerStart >= 0 && handlerEnd > handlerStart);
+  const handler = source.slice(handlerStart, handlerEnd);
+
+  const exactBranches = [
+    "inst:operations",
+    "inst:health",
+    "inst:manage",
+    "inst:check",
+    "inst:preflight:details",
+    "inst:preflight:summary",
+    "inst:preflight:recheck",
+    "inst:preflight:fix",
+    "inst:preflight:continue",
+    "inst:confirm",
+    "inst:type:back",
+    "inst:version",
+    "inst:environment",
+    "inst:settings:standard",
+    "inst:settings:input",
+    "inst:settings",
+    "inst:summary:back",
+    "inst:retry",
+  ];
+
+  for (const value of exactBranches) {
+    assert.equal(handler.includes('data === "' + value + '"'), true, "missing handler: " + value);
+  }
+
+  assert.equal(handler.includes('data === "inst:home" || data === "inst:cancel"'), true);
+  assert.equal(handler.includes('data.startsWith("inst:op:")'), true);
+  assert.equal(handler.includes('data.startsWith("inst:type:")'), true);
+  assert.equal(handler.includes('data === "inst:version:latest" || data === "inst:version:current"'), true);
+  assert.equal(handler.includes('data === "inst:version:input"'), true);
+  assert.equal(handler.includes('data.startsWith("inst:env:")'), true);
+});
