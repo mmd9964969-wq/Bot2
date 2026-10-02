@@ -453,6 +453,7 @@ async function verifyRailway(commitSha: string) {
 
 async function processJob(pool: Pool, job: AgentJob) {
   const settings = await getSettings(pool);
+  await notifyOwner("◈ عامل توسعه\n\n● اجرای کار #"+job.id+" آغاز شد.\n⛂ - نوع : "+job.task_type);
   if (!settings.enabled) {
     await q(pool, "UPDATE agent_jobs SET status='needs_owner',finished_at=NOW(),error='agent_disabled' WHERE id=$1", [job.id]);
     return;
@@ -460,7 +461,9 @@ async function processJob(pool: Pool, job: AgentJob) {
 
   const missing = ["OPENAI_API_KEY", "GITHUB_TOKEN"].filter(x => !env(x));
   if (missing.length) {
-    await q(pool, "UPDATE agent_jobs SET status='needs_owner',finished_at=NOW(),error=$2 WHERE id=$1", [job.id, "Missing configuration: " + missing.join(", ")]);
+    const reason = "Missing configuration: " + missing.join(", ");
+    await q(pool, "UPDATE agent_jobs SET status='needs_owner',finished_at=NOW(),error=$2 WHERE id=$1", [job.id, reason]);
+    await notifyOwner("◈ عامل توسعه\n\n⛂ - کار : #"+job.id+"\n⛂ - وضعیت : نیازمند تنظیمات\n⛂ - دلیل : "+reason+"\n\nکلیدهای لازم را در Railway Variables تنظیم کنید.");
     return;
   }
 
