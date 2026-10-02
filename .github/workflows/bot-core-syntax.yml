@@ -1,0 +1,23 @@
+name: Bot Core Syntax Validation
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  bot-core-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Validate bot TypeScript syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' file; do
+            node --experimental-strip-types --check "$file"
+          done < <(find bot -type f -name '*.ts' -print0)
