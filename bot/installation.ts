@@ -1917,13 +1917,17 @@ async function executeConfirmedInstallationOperation(
   }
 
   const stopHeartbeat = startInstallationHeartbeat(pool, progress.execution_id);
+  let executionStage = "execution_initialized";
 
   try {
     if (!existingExecutionId) {
+      executionStage = "session_update";
       await pool.query(
         "UPDATE bot_installation_sessions SET status='executing',step='executing',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
         [String(chat.id), String(actorId)],
       );
+
+      executionStage = "operation_event";
       await logInstallEvent(pool, chat.id, actorId, "operation_executing", {
         operation,
         target_version: targetVersion,
@@ -1931,6 +1935,10 @@ async function executeConfirmedInstallationOperation(
       });
     }
 
+    executionStage = "progress_schema_check";
+    await ensureInstallationProgressSchema(pool);
+
+    executionStage = "progress_steps_read";
     const steps = await getInstallationProgressStepStatuses(
       pool,
       progress.execution_id,
@@ -2133,17 +2141,21 @@ async function executeConfirmedInstallationOperation(
     await pool.query(
       "UPDATE bot_installation_sessions SET status='failed',step='failed',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
       [String(chat.id), String(actorId)],
-    ).catch(() => {});
+    ).catch((sessionError) => {
+      console.error("[installation] failed-session update error:", sessionError);
+    });
 
     progress = (await recordInstallationProgressError(
       pool,
       progress.execution_id,
       errorCode,
-      friendly,
+      technicalDetail,
       {
         operation,
         target_version: targetVersion,
+        execution_stage: executionStage,
         technical_detail: technicalDetail,
+        user_message: friendly,
       },
     )) ?? progress;
 
@@ -2151,9 +2163,14 @@ async function executeConfirmedInstallationOperation(
       operation,
       target_version: targetVersion,
       execution_id: progress.execution_id,
+      error_code: errorCode,
+      error_message: technicalDetail,
+      execution_stage: executionStage,
       detail: technicalDetail,
       user_message: friendly,
-    }).catch(() => {});
+    }).catch((logError) => {
+      console.error("[installation] failure event log error:", logError);
+    });
 
     await renderInstallationProgressSnapshot(
       pool,
