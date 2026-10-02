@@ -3287,6 +3287,47 @@ export async function handleInstallationCallback(
     }
 
     if (data === "inst:retry") {
+      const retrySession = await getSession(pool, chat.id);
+      if (!retrySession || Number(retrySession.actor_id) !== cb.from.id) {
+        notice = "نشست نصب معتبر نیست";
+        return true;
+      }
+
+      const retryStatus = String(retrySession.status || "");
+      const retryStep = String(retrySession.step || "");
+
+      // Resume from the current execution state instead of forcing the owner
+      // back through the configuration screens.
+      if (retryStatus === "failed" || retryStep === "failed") {
+        await transitionSession(pool, chat.id, cb.from.id, "preflight", "checking").catch(() => {});
+        const report = await runPreflightForCurrentSession(
+          pool,
+          chat,
+          cb.from.id,
+          cb.message.message_id,
+          false,
+        );
+        if (report?.overall === "READY") {
+          const fresh = await getSession(pool, chat.id);
+          if (fresh) {
+            await transitionSession(
+              pool,
+              chat.id,
+              cb.from.id,
+              "preflight",
+              "preflight_ready",
+            ).catch(() => {});
+            await executeConfirmedInstallationOperation(
+              pool,
+              chat,
+              cb.from.id,
+              cb.message.message_id,
+            );
+          }
+        }
+        return true;
+      }
+
       await renderCurrentSession(pool, chat, cb.message.message_id);
       return true;
     }
