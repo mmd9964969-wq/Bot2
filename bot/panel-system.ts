@@ -1480,6 +1480,55 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   }
 
 
+
+  if(data==="o:palette"){
+    session(uid,"owner_command_palette",{createdAt:Date.now()});
+    return edit(msg.chat.id,msg.message_id,panelTitle("جستجوی سراسری",[
+      "★ Command Palette",
+      "",
+      "هر چیزی را که لازم دارید یک‌جا جستجو کنید.",
+      "",
+      "⛂ کاربر : آیدی، @username یا نام",
+      "⛂ گروه : شناسه یا نام",
+      "⛂ لایسنس : کد",
+      "⛂ فعالیت : نام رویداد یا شناسه",
+      "",
+      "نمونه :",
+      "8247710529",
+      "@Jowati",
+      "PBS-ABCD1234",
+      "اشتراک"
+    ].join("\n")),menu([
+      [["کاربر","o:palette:hint:customer"],["گروه","o:palette:hint:group"]],
+      [["لایسنس","o:palette:hint:license"],["فعالیت","o:palette:hint:audit"]],
+      [["‹ بازگشت","o:home"]]
+    ]));
+  }
+  if(data.startsWith("o:palette:hint:")){
+    const hint=data.slice("o:palette:hint:".length);
+    session(uid,"owner_command_palette",{hint,createdAt:Date.now()});
+    const prompts:any={
+      customer:"شناسه یا @username کاربر را ارسال کنید.",
+      group:"شناسه یا نام گروه را ارسال کنید.",
+      license:"کد لایسنس را ارسال کنید.",
+      audit:"عبارت یا شناسه رویداد را ارسال کنید."
+    };
+    return edit(msg.chat.id,msg.message_id,panelTitle("جستجوی سراسری","⛂ - "+(prompts[hint]||"عبارت جستجو را ارسال کنید.")),menu([[[\"‹ بازگشت\",\"o:home\"]]]));
+  }
+  if(data==="o:operation_policy"){
+    return edit(msg.chat.id,msg.message_id,await ownerOperationPolicy(pool),menu([
+      [["جستجوی سراسری","o:palette"]],
+      [["‹ بازگشت","o:home"]]
+    ]));
+  }
+  if(data.startsWith("o:op:confirm:"))return completeOwnerOperation(pool,uid,msg,data);
+  if(data.startsWith("o:op:cancel:")){
+    const token=data.slice("o:op:cancel:".length),cur=getSession(uid);
+    if(cur&&cur.flow==="owner_operation_confirm"&&String(cur.data.token)===token)clearSession(uid);
+    await audit(pool,String(uid),"owner_operation_confirmation_cancelled","owner_operation",{token});
+    return edit(msg.chat.id,msg.message_id,panelTitle("عملیات لغو شد","⛂ - وضعیت : عملیات اجرا نشد.\n⛂ - Session تأیید بسته شد."),menu([[[\"‹ بازگشت\",\"o:home\"]]]));
+  }
+
   if(data.startsWith("o:palette:open:")){
     const parts=data.split(":"),kind=parts[3],id=Number(parts[4]);
     if(!kind||!Number.isSafeInteger(id))return;
