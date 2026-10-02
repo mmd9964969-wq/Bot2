@@ -94,6 +94,7 @@ const K={
     [["مدیریت گروه‌ها","o:groups"]],
     [["زبان گروه‌ها","o:languages"],["ارسال همگانی","o:broadcast"]],
     [["کنترل اجرایی","o:runtime"],["ممیزی سیستم","o:audit"]],
+    [["جستجوی سراسری","o:palette"],["سطح عملیات","o:operation_policy"]],
     [["امنیت و دسترسی","o:security"]],
     [["پشتیبان‌گیری و بازیابی","o:backup"]],
     [["تنظیمات پیشرفته","o:settings"],["وضعیت سرور و منابع","o:server"]],
@@ -169,6 +170,8 @@ const BUTTON_LABELS:Record<string,Partial<Record<BotLang,string>>> = {
   "فهرست سیاه مشتریان":{en:"Customer blacklist",ar:"حظر العملاء",ru:"Черный список",tr:"Müşteri kara listesi",zh:"客户黑名单"},
   "مدیریت قابلیت‌ها":{en:"Feature center",ar:"إدارة الميزات",ru:"Функции",tr:"Özellikler",zh:"功能中心"},
   "مرکز هوش مصنوعی":{en:"AI center",ar:"الذكاء الاصطناعي",ru:"Центр ИИ",tr:"Yapay zeka",zh:"AI 中心"},
+  "جستجوی سراسری":{en:"Global search",ar:"البحث الشامل",ru:"Глобальный поиск",tr:"Global arama",zh:"全局搜索"},
+  "سطح عملیات":{en:"Operation level",ar:"مستوى العملية",ru:"Уroveň العملية",tr:"İşlem seviyesi",zh:"操作级别"},
   "خروج از پنل مالک":{en:"Exit owner panel",ar:"خروج",ru:"Выход",tr:"Çıkış",zh:"退出"},
   "وضعیت و نمای کلی":{en:"Overview & status",ar:"النظرة والحالة",ru:"Обзор и статус",tr:"Genel bakış",zh:"概览与状态"},
   "مرکز قفل و فیلتر":{en:"Lock & filter",ar:"القفل والتصفية",ru:"Блокировки и фильтры",tr:"Kilit ve filtre",zh:"锁定与过滤"},
@@ -567,6 +570,81 @@ async function isGroupAdmin(chatId:number,uid:number){
 }
 function mainOwnerMessage(){return "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Oᴡɴᴇʀ Cᴏɴᴛʀᴏʟ\n\n⛂ - سطح دسترسی : OWNER\n⛂ - وضعیت هسته : فعال\n⛂ - وضعیت پنل : آماده\n\nمرکز کنترل مالک برای مدیریت مشتریان، لایسنس‌ها، گروه‌ها، Runtime و Audit.";};
 function mainCustomerMessage(){return "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Gʀᴏᴜᴘ Cᴏɴᴛʀᴏʟ\n\n⛂ - دسترسی : مدیر گروه\n⛂ - هسته قفل : آماده\n⛂ - موتور کنترل : فعال\n\nمرکز کنترل عملیاتی گروه از همین پنل در دسترس است.";};
+type OwnerOperationLevel="normal"|"sensitive"|"critical";
+function ownerOperationMeta(action:string):{level:OwnerOperationLevel;label:string;notice:string}{
+  const key=String(action||"").trim().toLowerCase();
+  if(["backup_restore","owner_change","token_change","data_reset","runtime_restart","runtime_reset"].includes(key))
+    return {level:"critical",label:"عملیات بحرانی",notice:"این عملیات می‌تواند روی امنیت، داده یا سرویس اصلی اثر مستقیم بگذارد."};
+  if(["group_subscription_cancel","group_subscription_renew","license_create","license_disable","customer_block","customer_unblock","group_disable","group_reset","settings_change","maintenance_enable","maintenance_disable","owner_add"].includes(key))
+    return {level:"sensitive",label:"عملیات حساس",notice:"این عملیات تغییر قابل‌توجهی در سامانه ایجاد می‌کند و قبل از اجرا تأیید می‌شود."};
+  return {level:"normal",label:"عملیات عادی",notice:"این عملیات بدون مرحله تأیید اضافه اجرا می‌شود."};
+}
+function ownerOperationLevelFa(level:OwnerOperationLevel){return level==="critical"?"بحرانی":level==="sensitive"?"حساس":"عادی";}
+function ownerOperationToken(uid:number){return uid.toString(36)+"-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,8);}
+function ownerOperationConfirmView(action:string,token:string,level:OwnerOperationLevel,summary:string,finalStep=false){
+  return {
+    text:panelTitle(finalStep?"تأیید نهایی":"تأیید عملیات",[
+      finalStep?"■ عملیات بحرانی":"● عملیات "+(level==="critical"?"بحرانی":"حساس"),"",
+      "⛂ - عملیات : "+action,"⛂ - سطح : "+ownerOperationLevelFa(level),
+      "⛂ - وضعیت : "+(finalStep?"آماده تأیید نهایی":"در انتظار تأیید"),"",
+      PANEL_SEPARATOR,"","⛂ - "+summary,"",
+      finalStep?"این مرحله جداگانه برای جلوگیری از اجرای ناخواسته است.":"قبل از اجرا، مشخصات عملیات را یک‌بار بررسی کنید."
+    ].join("\n")),
+    markup:{inline_keyboard:[
+      [{text:finalStep?"تأیید نهایی":"تأیید عملیات",callback_data:"o:op:confirm:"+token,style:finalStep?"danger":"success"}],
+      [{text:"لغو عملیات",callback_data:"o:op:cancel:"+token}],
+      [{text:"‹ بازگشت",callback_data:"o:home",style:"primary"}]
+    ]}
+  };
+}
+async function beginOwnerOperation(pool:Pool,uid:number,chatId:number,messageId:number,action:string,summary:string,payload:Record<string,any>={}){
+  const meta=ownerOperationMeta(action);
+  if(meta.level==="normal")return null;
+  const token=ownerOperationToken(uid);
+  session(uid,"owner_operation_confirm",{action,summary,payload,level:meta.level,token,createdAt:Date.now()});
+  await audit(pool,String(uid),"owner_operation_confirmation_started",action,{level:meta.level,summary,payload});
+  const view=ownerOperationConfirmView(action,token,meta.level,summary,false);
+  return edit(chatId,messageId,view.text,view.markup);
+}
+async function ownerOperationPolicy(pool:Pool){
+  const r=await pool.query("SELECT COUNT(*)::int n FROM audit_logs WHERE action='owner_operation_confirmation_started' AND created_at>=CURRENT_DATE").catch(()=>({rows:[{n:0}]}));
+  return [
+    "◈ سطح عملیات","",
+    "● عملیات عادی","⛂ - مشاهده، جستجو، بروزرسانی و ورود به بخش‌ها","⛂ - تأیید اضافه لازم نیست","",
+    "● عملیات حساس","⛂ - تغییر تنظیمات، لغو اشتراک، تغییر وضعیت مشتری و موارد مشابه","⛂ - قبل از اجرا یک تأیید روشن نمایش داده می‌شود","",
+    "● عملیات بحرانی","⛂ - تغییرات امنیتی یا داده‌ای با اثر بالا","⛂ - تأیید نهایی جداگانه دارد","",
+    PANEL_SEPARATOR,"","⛂ - تأییدهای امروز : "+Number(r.rows[0]?.n||0),"⛂ - Session تأیید : ۱۰ دقیقه"
+  ].join("\n");
+}
+async function completeOwnerOperation(pool:Pool,uid:number,msg:TgMessage,data:string){
+  const token=data.slice("o:op:confirm:".length), current=getSession(uid);
+  if(!current||current.flow!=="owner_operation_confirm"||String(current.data.token)!==token)return;
+  const level=String(current.data.level||"sensitive") as OwnerOperationLevel;
+  if(level==="critical"&&current.data.finalStep!=="yes"){
+    current.data.finalStep="yes";session(uid,current.flow,current.data);
+    const view=ownerOperationConfirmView(String(current.data.action||""),token,level,String(current.data.summary||""),true);
+    return edit(msg.chat.id,msg.message_id,view.text,view.markup);
+  }
+  const action=String(current.data.action||""),payload=current.data.payload||{};
+  let ok=false,resultText="عملیات اجرا نشد.";
+  try{
+    if(action==="group_subscription_cancel"){
+      const subscriptionId=Number(payload.subscriptionId);
+      if(!Number.isSafeInteger(subscriptionId))throw new Error("invalid subscription id");
+      const result=await cancelGroupSubscription(pool,subscriptionId);
+      ok=Boolean(result.ok);
+      resultText=result.ok?"اشتراک لغو شد.\n⛂ - گروه : "+String(result.row.group_title||"—"):"اشتراک فعال پیدا نشد.";
+      if(result.ok)await audit(pool,String(uid),"group_subscription_cancelled",String(subscriptionId),{confirmedVia:"operation_center"});
+    }else resultText="این عملیات هنوز به اجراکننده مرکزی متصل نشده است.";
+  }catch(error){console.error("[owner-operation] execution failed:",error);resultText="خطای داخلی هنگام اجرای عملیات.";}
+  clearSession(uid);
+  await audit(pool,String(uid),ok?"owner_operation_completed":"owner_operation_failed",action,{level,payload,ok});
+  return edit(msg.chat.id,msg.message_id,panelTitle("نتیجه عملیات",[
+    ok?"✓ عملیات با موفقیت انجام شد":"✗ عملیات انجام نشد","",
+    "⛂ - عملیات : "+action,"⛂ - سطح : "+ownerOperationLevelFa(level),"⛂ - نتیجه : "+resultText
+  ].join("\n")),menu([[["‹ بازگشت","o:home"]]]));
+}
+
 async function renderStatsEntry(pool:Pool,chatId:number,messageId:number,actorId:number,ownerIds:string[]){
   return handleStatsCallback(pool,{id:"internal",from:{id:actorId},message:{message_id:messageId,chat:{id:chatId,type:"supergroup"}},data:"sx:home"},ownerIds);
 }
@@ -860,6 +938,37 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
   }
 
   const s=getSession(uid);
+  if(s&&s.flow==="owner_command_palette"){
+    const hint=String(s.data.hint||"").trim().toLowerCase();
+    const q=inputText.trim();
+    if(!q)return send(msg.chat.id,panelTitle("جستجوی سراسری","⛂ - عبارت جستجو خالی است. دوباره ارسال کنید."),menu([[["‹ بازگشت","o:home"]]]))&&true;
+    const searchValue=q.replace(/^@/,"");
+    const results:any[]=[];
+    if(!hint||hint==="customer"){
+      const r=await pool.query("SELECT user_id,username,first_name,status FROM bot_customers WHERE user_id::text=$1 OR LOWER(COALESCE(username,''))=LOWER($1) OR LOWER(COALESCE(first_name,'')) LIKE '%'||LOWER($1)||'%' ORDER BY last_active_at DESC NULLS LAST LIMIT 8",[searchValue]).catch(()=>({rows:[]}));
+      for(const x of r.rows)results.push({kind:"customer",id:Number(x.user_id),title:x.username?"@"+x.username:String(x.user_id),meta:(x.first_name||"")+" · "+String(x.status||"active")});
+    }
+    if(!hint||hint==="group"){
+      const r=await pool.query("SELECT id,title,type,is_active FROM bot_groups WHERE id::text=$1 OR LOWER(COALESCE(title,'')) LIKE '%'||LOWER($1)||'%' ORDER BY updated_at DESC NULLS LAST LIMIT 8",[searchValue]).catch(()=>({rows:[]}));
+      for(const x of r.rows)results.push({kind:"group",id:Number(x.id),title:String(x.title||"گروه بدون نام"),meta:String(x.id)+" · "+String(x.type||"—")});
+    }
+    if(!hint||hint==="license"){
+      const r=await pool.query("SELECT id,code,customer_id,license_type,status,expires_at FROM bot_licenses WHERE LOWER(COALESCE(code,'')) LIKE '%'||LOWER($1)||'%' OR customer_id::text=$1 ORDER BY id DESC LIMIT 8",[searchValue]).catch(()=>({rows:[]}));
+      for(const x of r.rows)results.push({kind:"license",id:Number(x.id),title:String(x.code||"—"),meta:"مشتری "+String(x.customer_id)+" · "+String(x.status||"—")});
+    }
+    if(!hint||hint==="audit"){
+      const r=await pool.query("SELECT id,action,target,created_at,actor_id FROM audit_logs WHERE id::text=$1 OR LOWER(COALESCE(action,'')) LIKE '%'||LOWER($1)||'%' OR LOWER(COALESCE(target,'')) LIKE '%'||LOWER($1)||'%' ORDER BY created_at DESC LIMIT 8",[searchValue]).catch(()=>({rows:[]}));
+      for(const x of r.rows)results.push({kind:"audit",id:Number(x.id),title:String(x.action||"رویداد"),meta:String(x.target||"—")+" · "+faDate(x.created_at)});
+    }
+    clearSession(uid);
+    if(!results.length)return send(msg.chat.id,panelTitle("نتیجه جستجو",["■ نتیجه‌ای پیدا نشد.","","⛂ - عبارت : "+q,"⛂ - پیشنهاد : شناسه عددی، @username، نام گروه یا کد لایسنس را دقیق‌تر وارد کنید."].join("\n")),menu([[["جستجوی مجدد","o:palette"],["‹ بازگشت","o:home"]]]))&&true;
+    const max=results.slice(0,16);
+    const body=["◈ نتیجه جستجوی سراسری","","⛂ - عبارت : "+q,"⛂ - نتایج : "+max.length,"",PANEL_SEPARATOR,"",...max.map((x:any,i:number)=>"● "+(i+1)+" · "+(x.kind==="customer"?"کاربر":x.kind==="group"?"گروه":x.kind==="license"?"لایسنس":"رویداد")+" · "+x.title+"\n⛂ - "+x.meta)].join("\n");
+    const rows:any[][]=max.map((x:any)=>[{text:"› "+(x.kind==="customer"?"کاربر":x.kind==="group"?"گروه":x.kind==="license"?"لایسنس":"رویداد")+" #"+x.id,callback_data:"o:palette:open:"+x.kind+":"+x.id}]);
+    rows.push([{text:"جستجوی جدید",callback_data:"o:palette"}]);
+    rows.push([{text:"‹ بازگشت",callback_data:"o:home",style:"primary"}]);
+    return send(msg.chat.id,panelTitle("نتیجه جستجو",body),{inline_keyboard:rows})&&true;
+  }
   if(s&&s.flow==="owner_subscription_create"){
     const step=Number(s.data.step||1);
     if(step===1){
@@ -1251,12 +1360,9 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   if(data.startsWith("o:sub_cancel_confirm:")){
     const subscriptionId=Number(data.slice("o:sub_cancel_confirm:".length));
     if(!Number.isSafeInteger(subscriptionId))return;
-    const result=await cancelGroupSubscription(pool,subscriptionId);
-    if(!result.ok)return edit(msg.chat.id,msg.message_id,"✗ اشتراک فعال پیدا نشد.",menu([[["‹ بازگشت","o:subscriptions"]]]));
-    await audit(pool,String(uid),"group_subscription_cancelled",String(subscriptionId),{});
-    clearSession(uid);
-    return edit(msg.chat.id,msg.message_id,"◈ Sᴜʙsᴄʀɪᴘᴛɪᴏɴ\n\n✓ اشتراک لغو شد.\n⛂ گروه : "+String(result.row.group_title||"—"),menu([[["‹ بازگشت","o:subscriptions"]]]));
+    return beginOwnerOperation(pool,uid,msg.chat.id,msg.message_id,"group_subscription_cancel","لغو اشتراک شماره "+subscriptionId,{subscriptionId});
   }
+
   if(data==="o:sub_customer_confirm"){
     const s=getSession(uid);
     if(!s||s.flow!=="owner_subscription_create"||Number(s.data.step)!==1.5)return;
@@ -1370,13 +1476,47 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   if(data.startsWith("o:sub_cancel_prompt:")){
     const subscriptionId=Number(data.slice("o:sub_cancel_prompt:".length));
     if(!Number.isSafeInteger(subscriptionId))return;
-    return edit(msg.chat.id,msg.message_id,
-      "◈ Sᴜʙsᴄʀɪᴘᴛɪᴏɴ\n\n⛂ آیا از لغو این اشتراک مطمئن هستید؟",
-      {inline_keyboard:[
-        [subscriptionActionButton("› لغو اشتراک","o:sub_cancel_confirm:"+subscriptionId,"danger")],
-        [{text:"‹ بازگشت",callback_data:"o:subscriptions",style:"primary"}]
-      ]}
-    );
+    return beginOwnerOperation(pool,uid,msg.chat.id,msg.message_id,"group_subscription_cancel","لغو اشتراک شماره "+subscriptionId,{subscriptionId});
+  }
+
+
+  if(data.startsWith("o:palette:open:")){
+    const parts=data.split(":"),kind=parts[3],id=Number(parts[4]);
+    if(!kind||!Number.isSafeInteger(id))return;
+    if(kind==="customer"){
+      const row=(await pool.query("SELECT user_id,username,first_name,status,last_active_at FROM bot_customers WHERE user_id=$1 LIMIT 1",[id]).catch(()=>({rows:[]}))).rows[0];
+      if(!row)return edit(msg.chat.id,msg.message_id,panelTitle("نتیجه","✗ کاربر پیدا نشد."),menu([[["‹ بازگشت","o:palette"]]]));
+      return edit(msg.chat.id,msg.message_id,panelTitle("اطلاعات کاربر",[
+        "⛂ - آیدی : "+row.user_id,"⛂ - یوزرنیم : "+(row.username?"@"+row.username:"ثبت نشده"),
+        "⛂ - نام : "+(row.first_name||"ثبت نشده"),"⛂ - وضعیت : "+(row.status||"active"),
+        "⛂ - آخرین فعالیت : "+faDate(row.last_active_at)
+      ].join("\n")),menu([[["مدیریت مشتریان","o:customers"],["‹ بازگشت","o:palette"]]]));
+    }
+    if(kind==="group"){
+      const row=(await pool.query("SELECT id,title,type,is_active FROM bot_groups WHERE id=$1 LIMIT 1",[id]).catch(()=>({rows:[]}))).rows[0];
+      const fallback=row||((await pool.query("SELECT group_id AS id,title,is_active FROM bot_customer_groups WHERE group_id=$1 LIMIT 1",[id]).catch(()=>({rows:[]}))).rows[0]);
+      if(!fallback)return edit(msg.chat.id,msg.message_id,panelTitle("نتیجه","✗ گروه پیدا نشد."),menu([[["‹ بازگشت","o:palette"]]]));
+      return edit(msg.chat.id,msg.message_id,panelTitle("اطلاعات گروه",[
+        "⛂ - عنوان : "+String(fallback.title||"گروه بدون نام"),"⛂ - شناسه : "+fallback.id,
+        "⛂ - وضعیت : "+(fallback.is_active===false?"غیرفعال":"فعال")
+      ].join("\n")),menu([[["مدیریت گروه‌ها","o:groups"],["‹ بازگشت","o:palette"]]]));
+    }
+    if(kind==="license"){
+      const row=(await pool.query("SELECT id,code,customer_id,license_type,status,expires_at FROM bot_licenses WHERE id=$1 LIMIT 1",[id]).catch(()=>({rows:[]}))).rows[0];
+      if(!row)return edit(msg.chat.id,msg.message_id,panelTitle("نتیجه","✗ لایسنس پیدا نشد."),menu([[["‹ بازگشت","o:palette"]]]));
+      return edit(msg.chat.id,msg.message_id,panelTitle("جزئیات لایسنس",[
+        "⛂ - کد : "+row.code,"⛂ - مشتری : "+row.customer_id,"⛂ - نوع : "+row.license_type,
+        "⛂ - وضعیت : "+row.status,"⛂ - انقضا : "+(row.expires_at?faDate(row.expires_at):"مادام‌العمر")
+      ].join("\n")),menu([[["مدیریت لایسنس‌ها","o:licenses"],["‹ بازگشت","o:palette"]]]));
+    }
+    if(kind==="audit"){
+      const row=(await pool.query("SELECT id,action,target,created_at,actor_id FROM audit_logs WHERE id=$1 LIMIT 1",[id]).catch(()=>({rows:[]}))).rows[0];
+      if(!row)return edit(msg.chat.id,msg.message_id,panelTitle("نتیجه","✗ رویداد پیدا نشد."),menu([[["‹ بازگشت","o:palette"]]]));
+      return edit(msg.chat.id,msg.message_id,panelTitle("جزئیات رویداد",[
+        "⛂ - شناسه : "+row.id,"⛂ - عملیات : "+row.action,"⛂ - هدف : "+(row.target||"—"),
+        "⛂ - زمان : "+faDate(row.created_at),"⛂ - اجراکننده : "+(row.actor_id||"—")
+      ].join("\n")),menu([[["ممیزی سیستم","o:audit"],["‹ بازگشت","o:palette"]]]));
+    }
   }
 
   if(data==="o:home")return renderOwner(pool,uid,msg.chat.id,msg.message_id,"main");
