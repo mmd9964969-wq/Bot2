@@ -718,7 +718,7 @@ function ownerAgentMarkup(data:any){
     [["افزودن قابلیت","o:agent:feature"],["ممیزی طراحی","o:agent:design"]],
     [["بررسی بروزرسانی","o:agent:update"],["ممیزی کامل","o:agent:audit"]],
     [["دستور سفارشی","o:agent:custom"],["آخرین اجرا","o:agent:last"]],
-    [["تاریخچه اجراها","o:agent:jobs"],["لغو کار در صف","o:agent:cancel_pick"]],
+    [["تاریخچه اجراها","o:agent:jobs"],["وضعیت اتصال","o:agent:config"]],
     [[s.autopilot_enabled?"خاموش‌کردن اجرای خودکار":"فعال‌سازی اجرای خودکار","o:agent:autopilot:"+(s.autopilot_enabled?"off":"on")],
      [s.auto_deploy?"خاموش‌کردن انتشار خودکار":"فعال‌سازی انتشار خودکار","o:agent:deploy:"+(s.auto_deploy?"off":"on")]],
     [["‹ بازگشت","o:home"]]
@@ -1880,6 +1880,26 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
       "⛂ - خلاصه : "+(last.summary||"ثبت نشده"),
       last.error?"⛂ - خطا : "+last.error:""
     ].join("\n")),menu([[["عامل توسعه","o:agent"],["تاریخچه اجراها","o:agent:jobs"]]]));
+  }
+  if(data==="o:agent:config"){
+    const states=[
+      ["OpenAI API","OPENAI_API_KEY"],
+      ["GitHub write","GITHUB_TOKEN"],
+      ["Railway verify","RAILWAY_TOKEN"]
+    ];
+    const body=panelTitle("وضعیت اتصال عامل",[
+      "★ - دسترسی‌های لازم",
+      "",
+      ...states.map(([label,key])=>"⛂ - "+label+" : "+(process.env[String(key)]?"● تنظیم‌شده":"○ تنظیم نشده")),
+      "",
+      PANEL_SEPARATOR,
+      "",
+      "OpenAI برای اجرای هوشمند و GitHub برای خواندن/ثبت تغییرات لازم است.",
+      "Railway Token برای بررسی نتیجه Deploy استفاده می‌شود.",
+      "",
+      "◂ - مقدار هیچ کلیدی در ربات نمایش داده نمی‌شود؛ فقط وجود آن بررسی می‌شود."
+    ].join("\n"));
+    return edit(msg.chat.id,msg.message_id,body,menu([[["عامل توسعه","o:agent"]],[["‹ بازگشت","o:agent"]]]));
   }
   if(data==="o:agent:jobs"){
     const overview=await ownerAgentOverview(pool);
