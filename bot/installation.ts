@@ -19,6 +19,7 @@ import {
   getLatestInstallationProgressForGroup,
   getInstallationProgress,
   getInstallationProgressStepStatuses,
+  ensureInstallationProgressSteps,
   setInstallationStepProgress,
   setInstallationPhase,
   recordInstallationProgressError,
@@ -1933,23 +1934,48 @@ async function executeConfirmedInstallationOperation(
       await pool.query(
         "UPDATE bot_installation_sessions SET status='executing',step='executing',updated_at=NOW(),expires_at=NOW()+INTERVAL '15 minutes' WHERE group_id=$1 AND actor_id=$2",
         [String(chat.id), String(actorId)],
-      );
+      ).catch((error) => {
+        console.error("[installation] execution session state update failed:", {
+          execution_id: progress.execution_id,
+          error: String((error as any)?.message ?? error),
+        });
+      });
 
       executionStage = "operation_event";
       await logInstallEvent(pool, chat.id, actorId, "operation_executing", {
         operation,
         target_version: targetVersion,
         execution_id: progress.execution_id,
+      }).catch((error) => {
+        console.error("[installation] operation event log failed:", {
+          execution_id: progress.execution_id,
+          error: String((error as any)?.message ?? error),
+        });
       });
     }
 
     // Progress schema is prepared during startup/preflight. Do not run DDL
     // in the critical execution path; only read the prepared step records.
     executionStage = "progress_steps_read";
-    const steps = await getInstallationProgressStepStatuses(
-      pool,
-      progress.execution_id,
-    );
+    let steps;
+    try {
+      steps = await getInstallationProgressStepStatuses(
+        pool,
+        progress.execution_id,
+      );
+    } catch (progressReadError) {
+      console.error("[installation] progress step read failed; repairing:", {
+        execution_id: progress.execution_id,
+        error: String((progressReadError as any)?.message ?? progressReadError),
+      });
+      executionStage = "progress_steps_repair";
+      await ensureInstallationProgressSchema(pool);
+      steps = await ensureInstallationProgressSteps(
+        pool,
+        progress.execution_id,
+        operation,
+      );
+    }
     const completed = new Set(
       steps.filter((item) => item.status === "COMPLETED").map((item) => item.step_id),
     );
