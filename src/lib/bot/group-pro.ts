@@ -141,7 +141,7 @@ async function countTable(pool:Pool,table:string,where="TRUE",params:any[]=[]){
     [table]
   ).catch(()=>({rows:[{e:false}]}));
   if(!exists.rows[0]?.e)return 0;
-  const r=await pool.query("SELECT COUNT(*)::int AS n FROM "" + table + "" WHERE "+where,params).catch(()=>({rows:[{n:0}]}));
+  const r=await pool.query('SELECT COUNT(*)::int AS n FROM "' + table + '" WHERE ' + where,params).catch(()=>({rows:[{n:0}]}));
   return n(r.rows[0]?.n);
 }
 
