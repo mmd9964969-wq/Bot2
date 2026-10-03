@@ -4460,6 +4460,45 @@ export async function dispatchPanelMessage(pool:Pool,msg:TgMessage,ownerIds:stri
     // Panel throttling must never consume group messages; content-lock
     // enforcement needs to see every message, including rapid photo bursts.
     if(msg.chat.type==="private" && !allowed(msg.from.id))return false;
+    const groupFlow=getSession(msg.from.id);
+    if(groupFlow?.flow==="owner_group_resolver"){
+      clearSession(msg.from.id);
+      const targetMessageId=Number(groupFlow.data.panelMessageId||0);
+      try{
+        const result=await resolveGroupInput(pool,msg.from.id,msg.text||msg.caption||"");
+        const lines:string[]=[
+          "◈ نتیجه شناسایی گروه",
+          "",
+          PANEL_SEPARATOR,
+          "",
+          result.group ? "⚣ - نام : "+result.group.title : "⛂ - وضعیت : "+(result.status==="UNSUPPORTED"?"لینک خصوصی":"✗ شناسایی ناموفق"),
+          ...(result.group?[
+            "⚣ - شناسه : "+result.group.telegramChatId,
+            "⚣ - وضعیت ثبت : "+(result.registrationStatus==="REGISTERED"?"● ثبت‌شده":"■ ثبت‌نشده"),
+            "⚣ - وضعیت ربات : "+(result.botStatus||"UNKNOWN"),
+            "⚣ - نصب : "+(result.installationStatus||"NOT_INSTALLED")
+          ]:[]),
+          "",
+          PANEL_SEPARATOR,
+          "",
+          result.message||"بررسی کامل شد."
+        ];
+        const markup=result.group
+          ? (result.nextAction==="MANAGE"
+              ? menu([[["› مدیریت گروه","gm:view:"+result.group.groupId]],[["‹ بازگشت","o:groups"]]])
+              : result.nextAction==="REGISTER"
+                ? menu([[["ثبت گروه","gm:register:"+result.group.groupId]],[["‹ بازگشت","o:groups"]]])
+                : menu([[["‹ بازگشت","o:groups"]]]))
+          : menu([[["‹ بازگشت","o:groups"]]]);
+        if(targetMessageId) await edit(msg.chat.id,targetMessageId,lines.join("\n"),markup);
+        else await send(msg.chat.id,lines.join("\n"),markup);
+      }catch(error){
+        const errorText="✗ بررسی گروه انجام نشد.\n\n⛂ - دلیل : "+(error instanceof Error?error.message:String(error));
+        if(targetMessageId) await edit(msg.chat.id,targetMessageId,errorText,menu([[["‹ بازگشت","o:groups"]]]));
+        else await send(msg.chat.id,errorText,menu([[["‹ بازگشت","o:groups"]]]));
+      }
+      return true;
+    }
     await ensureStatsCenterSchema(pool);
     await trackMessageAndActivity(pool,msg);
     if(await handleStatsTextInput(pool,msg))return true;
