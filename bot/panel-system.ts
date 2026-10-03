@@ -531,81 +531,26 @@ async function isOwner(pool:Pool,uid:number,envOwners:string[]){const all=new Se
 
 export async function openOwnerPanelEntry(pool:Pool,msg:TgMessage,ownerIds:string[]):Promise<boolean>{
   if(!msg.from||msg.chat.type!=="private")return false;
+
   const uid=msg.from.id;
   if(!await isOwner(pool,uid,ownerIds))return false;
+
+  const raw=String(msg.text||"").trim().replace(/^[/!]/,"").trim().toLowerCase();
+  const ownerEntryCommands=new Set(["start","restart","ری‌استارت","ری استارت","رستارت","استارت"]);
+  if(!ownerEntryCommands.has(raw))return false;
+
   await ensurePanelSessionSchema(pool);
-
-  const existing=await pool.query(
-    `SELECT message_id
-       FROM bot_panel_sessions
-      WHERE chat_id=$1 AND user_id=$2 AND panel_kind='owner_entry' AND expires_at>NOW()
-      ORDER BY updated_at DESC
-      LIMIT 1`,
-    [String(msg.chat.id),String(uid)],
-  ).catch(()=>({rows:[]}));
-
-  if(existing.rows.length) return true;
 
   return runWithPanelScope(uid,pool,async()=>{
     setCurrentPanelKind("owner");
-    await audit(pool,String(uid),"owner_panel_entry_shown",String(uid),{entry:"private_auto_button",stage:"0"});
-
-    const richMessage={
-      blocks:[
-        {type:"heading",text:"پنل مالکیت",size:1},
-        {
-          type:"paragraph",
-          text:"دسترسی مالک تأیید شد. برای ورود به پنل فقط دکمه زیر را انتخاب کنید.",
-        },
-        {
-          type:"table",
-          caption:"وضعیت دسترسی",
-          is_bordered:true,
-          is_striped:true,
-          is_compact:true,
-          cells:[
-            [
-              {text:"عنوان",is_header:true,align:"right",valign:"middle"},
-              {text:"مقدار",is_header:true,align:"right",valign:"middle"},
-            ],
-            [
-              {text:"هویت",align:"right",valign:"middle"},
-              {text:"مالک",align:"right",valign:"middle"},
-            ],
-            [
-              {text:"دسترسی",align:"right",valign:"middle"},
-              {text:"تأیید شده",align:"right",valign:"middle"},
-            ],
-            [
-              {text:"وضعیت",align:"right",valign:"middle"},
-              {text:"فعال",align:"right",valign:"middle"},
-            ],
-          ],
-        },
-      ],
-      is_rtl:true,
-    };
-
-    const result=await telegramApi("sendRichMessage",{
-      chat_id:msg.chat.id,
-      rich_message:richMessage,
-      reply_markup:{
-        inline_keyboard:[[
-          styledGlassButton("پنل مالکیت","o:home","success")
-        ]],
-      },
-    }).catch(error=>{
-      console.error("[owner-entry] rich message failed:",error);
-      return null;
+    await audit(pool,String(uid),"owner_panel_entry_shown",String(uid),{
+      entry:raw,
+      stage:"private_direct",
     });
 
-    if(!result?.ok)return false;
-
-    const messageId=Number((result.result as any)?.message_id);
-    if(Number.isSafeInteger(messageId)&&messageId>0){
-      await bindPanelMessage(pool,msg.chat.id,messageId,uid,"owner_entry").catch(()=>{});
-    }
-
+    // مالک مستقیماً خود پنل را داخل همان PV دریافت می‌کند.
+    // هیچ WebApp / Mini App / glass button برای ورود استفاده نمی‌شود.
+    await renderOwner(pool,uid,msg.chat.id);
     return true;
   });
 }
