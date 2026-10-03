@@ -2213,7 +2213,7 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   if(data.startsWith("gm:view:")){
     const groupId=data.slice(8);
     let overview:any=null;
-    try{ overview=await inspectGroup(pool,groupId); }catch{ overview=await getGroupOverview(pool,groupId); }
+    overview=await getGroupOverview(pool,groupId);
     if(!overview)return edit(msg.chat.id,msg.message_id,panelTitle("مدیریت گروه","⛂ - گروه پیدا نشد."),menu([[["‹ بازگشت","gm:list:"]]]));
     const security:any=await getModuleState(pool,groupId,"security").catch(()=>null);
     const securityLabel=security?.state==="ACTIVE"?"● فعال":security?.state==="DEGRADED"?"◐ نیازمند بررسی":security?.state==="FAILED"?"✗ خطا":"○ آماده";
@@ -2392,27 +2392,23 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   if(data==="og:auth"){
     authenticateOwnerGroup(uid);
     await audit(pool,String(uid),"owner_group_authenticated","owner-group-center",{ttlMs:OWNER_GROUP_AUTH_TTL});
-    await ensureOwnerGroupSchema(pool);
-    const overview=await ownerGroupOverview(pool);
+    await ensureGroupManagementCoreSchema(pool);
+    const overview=await groupManagementOverview(pool);
     return edit(msg.chat.id,msg.message_id,panelTitle("مدیریت گروه‌ها",[
-      "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Gʀᴏᴜᴘ Cᴇɴᴛᴇʀ",
+      "★ انتخاب محدوده مدیریت",
       "",
-      "⛂ - احراز هویت : ✓ فعال",
-      "⛂ - اعتبار جلسه : ۳۰ دقیقه",
-      "⛂ - گروه‌های ثبت‌شده : "+Number(overview.total||0),
+      "⛂ - گروه‌های ثبت‌شده و در دسترس",
+      "⛂ - مدیریت یک گروه یا بررسی یک گروه خارج از سامانه",
       "",
-      PANEL_SEPARATOR,
+      "⛂ - ثبت‌شده : "+overview.total,
+      "⛂ - فعال : "+overview.active,
+      "⛂ - نیازمند بررسی : "+overview.needsReview,
       "",
-      "مرکز کامل کنترل و مدیریت گروه‌های ربات."
+      PANEL_SEPARATOR
     ].join("\n")),menu([
-      [["› لیست تمام گروه‌ها","og:list:1"]],
-      [["› جستجوی گروه","o:group_search"]],
-      [["› گروه‌های فعال","og:list:1:ACTIVE"],["› گروه‌های غیرفعال","og:list:1:DISABLED"]],
-      [["› گروه‌های پرمصرف","og:heavy"],["› گروه‌های دارای خطا","og:list:1:ERROR"]],
-      [["› عملیات گروهی","og:bulk:1"],["› آمار کلی گروه‌ها","og:stats"]],
-      [["› همگام‌سازی","og:sync"]],
-      [["› خروج از احراز هویت","og:auth:logout"]],
-      [["‹ بازگشت به پنل مالک","o:home"]]
+      [["یک گروه","gm:list:"]],
+      [["سراسری گروه","gm:global"]],
+      [["‹ بازگشت","o:home"]]
     ]));
   }
   if(data==="og:auth:logout"){
