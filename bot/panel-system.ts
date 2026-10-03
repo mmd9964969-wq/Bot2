@@ -2334,21 +2334,40 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     const action=data.startsWith("gm:archive:")?"archive":"restore";const groupId=data.split(":")[2];
     if(action==="archive"){
       session(uid,"owner_group_confirm",{action:"archive",gid:groupId,step:1});
-      return edit(msg.chat.id,msg.message_id,panelTitle("تأیید آرشیو",[
+      return edit(msg.chat.id,msg.message_id,panelTitle("بررسی آرشیو گروه",[
         "⛂ - عملیات : آرشیو گروه",
         "⛂ - گروه : "+groupId,
         "",
-        "سرویس متوقف و ماژول‌های فعال غیرفعال می‌شوند.",
-        "اطلاعات و Audit حفظ خواهد شد."
-      ].join("\n")),menu([[["› تأیید نهایی","gm:archive_confirm:"+groupId]],[["‹ لغو","gm:view:"+groupId]]]));
+        "سرویس متوقف می‌شود و ماژول‌های فعال غیرفعال می‌شوند.",
+        "اطلاعات گروه، آمار و Audit حذف نمی‌شوند.",
+        "",
+        "◂ این عملیات باید دو مرحله تأیید شود."
+      ].join("\n")),menu([[["› ادامه بررسی","gm:archive_review:"+groupId]],[["‹ لغو","gm:view:"+groupId]]]));
     }
     try{const x=await restoreGroup(pool,uid,groupId);return edit(msg.chat.id,msg.message_id,panelTitle("بازیابی گروه","● ثبت گروه بازیابی شد.\n\n⛂ - وضعیت : "+valueOrDash(x?.registration_status)),menu([[["› مشاهده گروه","gm:view:"+groupId]],[["‹ بازگشت","gm:list:"]]]));}
     catch(error){return edit(msg.chat.id,msg.message_id,panelTitle("بازیابی گروه","✗ بازیابی انجام نشد.\n\n"+(error instanceof Error?error.message:String(error))),menu([[["‹ بازگشت","gm:view:"+groupId]]]));}
   }
 
-  if(data.startsWith("gm:archive_confirm:")){
-    const groupId=data.slice(19);const s=getSession(uid);
+  if(data.startsWith("gm:archive_review:")){
+    const groupId=data.slice(18);const s=getSession(uid);
     if(!s||s.flow!=="owner_group_confirm"||s.data.action!=="archive"||String(s.data.gid)!==groupId)return;
+    session(uid,"owner_group_confirm",{action:"archive",gid:groupId,step:2});
+    return edit(msg.chat.id,msg.message_id,panelTitle("تأیید نهایی آرشیو",[
+      "⛂ - عملیات : آرشیو گروه",
+      "⛂ - مرحله : تأیید دوم",
+      "",
+      "با اجرای عملیات:",
+      "● سرویس گروه متوقف می‌شود.",
+      "● ماژول‌های فعال غیرفعال می‌شوند.",
+      "● اطلاعات و Audit حفظ می‌شوند.",
+      "",
+      "آماده اجرای نهایی."
+    ].join("\n")),menu([[["› تأیید نهایی","gm:archive_execute:"+groupId]],[["‹ لغو","gm:view:"+groupId]]]));
+  }
+
+  if(data.startsWith("gm:archive_execute:")){
+    const groupId=data.slice(19);const s=getSession(uid);
+    if(!s||s.flow!=="owner_group_confirm"||s.data.action!=="archive"||Number(s.data.step)!==2||String(s.data.gid)!==groupId)return;
     clearSession(uid);
     try{await archiveGroup(pool,uid,groupId);return edit(msg.chat.id,msg.message_id,panelTitle("آرشیو گروه","● گروه آرشیو شد.\n\n⛂ - داده‌ها : حفظ شد\n⛂ - سرویس : متوقف"),menu([[["› مشاهده گروه","gm:view:"+groupId]],[["‹ بازگشت","gm:list:"]]]));}
     catch(error){return edit(msg.chat.id,msg.message_id,panelTitle("آرشیو گروه","✗ آرشیو انجام نشد.\n\n"+(error instanceof Error?error.message:String(error))),menu([[["‹ بازگشت","gm:view:"+groupId]]]));}
