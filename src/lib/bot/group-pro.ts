@@ -2,6 +2,7 @@ import type { Pool } from "pg";
 import { telegramApi } from "../telegram/api.ts";
 import { prepareRichDocument, validateRichDocument } from "./rich-message.ts";
 import { styledGlassButton } from "./panel-design.ts";
+import { bindPanelMessage, touchPanelMessage } from "./panel-session.ts";
 import {
   ensureGroupManagementCoreSchema,
   groupManagementOverview,
@@ -29,7 +30,7 @@ import {
 
 type TgUser={id:number;first_name?:string;last_name?:string;username?:string};
 type TgChat={id:number;type:string;title?:string;username?:string};
-type TgMessage={message_id:number;chat:TgChat;from?:TgUser;text?:string;caption?:string};
+type TgMessage={message_id?:number;chat:TgChat;from?:TgUser;text?:string;caption?:string};
 type TgCallback={id:string;from:TgUser;message?:TgMessage;data?:string};
 
 const BUILTIN_OWNER_IDS=["8247710529"];
@@ -110,17 +111,13 @@ async function sendRich(pool:Pool,uid:number,chatId:number,richMessage:any,marku
   const result=messageId
     ? await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,...payload}).catch(error=>{console.error("[group-pro] edit failed",error);return null;})
     : await telegramApi("sendRichMessage",{chat_id:chatId,...payload}).catch(error=>{console.error("[group-pro] send failed",error);return null;});
-  if(result?.ok&&Number.isSafeInteger(Number((result.result as any)?.message_id))){
-    const mid=Number((result.result as any)?.message_id);
-    await pool.query(
-      "INSERT INTO bot_panel_sessions(chat_id,message_id,user_id,panel_kind,expires_at) VALUES($1,$2,$3,'owner',$4) ON CONFLICT(chat_id,message_id,user_id) DO UPDATE SET expires_at=EXCLUDED.expires_at,panel_kind='owner'",
-      [String(chatId),mid,String(uid),new Date(Date.now()+30*60*1000)]
-    ).catch(()=>{});
-  }else if(result?.ok){
-    await pool.query(
-      "UPDATE bot_panel_sessions SET expires_at=$4 WHERE chat_id=$1 AND message_id=$2 AND user_id=$3",
-      [String(chatId),String(messageId||0),String(uid),new Date(Date.now()+30*60*1000)]
-    ).catch(()=>{});
+  if(result?.ok){
+    if(messageId){
+      await touchPanelMessage(pool,chatId,messageId,uid).catch(()=>{});
+    }else{
+      const mid=Number((result.result as any)?.message_id);
+      if(Number.isSafeInteger(mid)&&mid>0)await bindPanelMessage(pool,chatId,mid,uid,"owner").catch(()=>{});
+    }
   }
   return result;
 }
@@ -530,7 +527,7 @@ async function handleService(pool:Pool,uid:number,chatId:number,messageId:number
   const d=await getGroupData(pool,groupId);
   const telegramChatId=Number(d.overview.telegram_chat_id);
   try{
-    await syncOwnerGroup(pool,telegramChatId,true);
+    await syncOwnerGroup(pool,telegramChatId);
     const updated=await setOwnerGroupEnabled(pool,uid,telegramChatId,enabled);
     await pool.query(
       "UPDATE gm_group_runtime SET service_status=$2,runtime_revision=runtime_revision+1,updated_at=NOW() WHERE group_id=$1",
