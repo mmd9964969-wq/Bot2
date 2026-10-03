@@ -1229,11 +1229,10 @@ async function processMessage(msg: TgMessage, edited = false) {
       }
     }
   }
-  // Owner panel entry is interaction-driven rather than command-driven.
-  // The owner never needs to type /start, panel, owner, or another entry command.
-  // Any valid private interaction from the configured owner prepares the
-  // owner-only Rich Message entry with the "پنل مالکیت" button.
-  if (isPrivate && studioPool) {
+  // Stage 0 owner entry uses explicit Telegram commands only.
+  // /start and /restart render the owner-only Rich Message entry.
+  const ownerEntryCommand = ["start","restart","ری‌استارت","ری استارت","رستارت","استارت"].includes(normalizedEntry);
+  if (isPrivate && studioPool && ownerEntryCommand) {
     if (await openOwnerPanelEntry(studioPool, msg, config.ownerIds)) return;
   }
 
