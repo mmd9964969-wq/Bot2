@@ -127,7 +127,8 @@ async function ensureGroupRecord(db:Db,chat:any){
   return String((await db.query<{group_id:string}>("SELECT group_id FROM gm_groups WHERE telegram_chat_id=$1 LIMIT 1",[chatId])).rows[0]?.group_id??groupId);
 }
 async function audit(db:Db,actor:number|null,groupId:string,action:string,result:"SUCCESS"|"FAILURE"|"DENIED"|"NOOP",beforeData?:any,afterData?:any,reason?:string){
-  await db.query("INSERT INTO gm_group_audit_log(audit_id,group_id,actor_type,actor_user_id,source,action,before_data,after_data,result,reason) VALUES($1,$2,'USER',$3,'TELEGRAM',$4,$5::jsonb,$6::jsonb,$7,$8)",[uuid(),groupId,actor,action,beforeData==null?null:JSON.stringify(beforeData),afterData==null?null:JSON.stringify(afterData),result,reason||null]).catch(()=>{});
+  const actorType=actor==null?"SYSTEM":"USER";
+  await db.query("INSERT INTO gm_group_audit_log(audit_id,group_id,actor_type,actor_user_id,source,action,before_data,after_data,result,reason) VALUES($1,$2,$3,$4,'TELEGRAM',$5,$6::jsonb,$7::jsonb,$8,$9)",[uuid(),groupId,actorType,actor,action,beforeData==null?null:JSON.stringify(beforeData),afterData==null?null:JSON.stringify(afterData),result,reason||null]).catch(()=>{});
 }
 async function event(db:Db,groupId:string,eventType:string,version:number,payload:any){ await db.query("INSERT INTO gm_domain_events(event_id,group_id,event_type,aggregate_version,payload) VALUES($1,$2,$3,$4,$5::jsonb)",[uuid(),groupId,eventType,version,JSON.stringify(payload??{})]).catch(()=>{}); }
 
