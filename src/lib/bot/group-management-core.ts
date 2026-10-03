@@ -25,7 +25,7 @@ function parseInput(raw:unknown){
   const chatId=value.match(/^-100\d{5,}$/);
   if(chatId)return {type:"CHAT_ID" as const,reference:chatId[0],fingerprint:sha256(chatId[0])};
   const privateInvite=value.match(/^(?:https?:\/\/)?t\.me\/\+([A-Za-z0-9_-]+)\/?$/i);
-  if(privateInvite){ const token=privateInvite[1]; return {type:"PRIVATE_INVITE" as const,reference:"t.me/+"+token,fingerprint:sha256("private-invite:"+token)}; }
+  if(privateInvite){ const token=privateInvite[1]; return {type:"PRIVATE_INVITE" as const,reference:null,fingerprint:sha256("private-invite:"+token)}; }
   const publicLink=value.match(/^(?:https?:\/\/)?t\.me\/([A-Za-z0-9_]{5,32})\/?$/i);
   if(publicLink){ const username=normalizeUsername(publicLink[1]); return {type:"PUBLIC_LINK" as const,reference:"@"+username,fingerprint:sha256("username:"+username)}; }
   if(/^@[A-Za-z0-9_]{5,32}$/.test(value)){ const username=normalizeUsername(value); return {type:"USERNAME" as const,reference:"@"+username,fingerprint:sha256("username:"+username)}; }
@@ -181,7 +181,7 @@ export async function inspectGroup(db:Db,groupId:string){
   else service="STOPPED";
   const rights=member.result;
   const snapshot={membership_status:membership,is_anonymous:rights.is_anonymous===true,can_manage_chat:rights.can_manage_chat===true,can_delete_messages:rights.can_delete_messages===true,can_manage_video_chats:rights.can_manage_video_chats===true,can_restrict_members:rights.can_restrict_members===true,can_promote_members:rights.can_promote_members===true,can_change_info:rights.can_change_info===true,can_invite_users:rights.can_invite_users===true,can_post_stories:rights.can_post_stories===true,can_edit_stories:rights.can_edit_stories===true,can_delete_stories:rights.can_delete_stories===true,can_pin_messages:rights.can_pin_messages===true,can_manage_topics:rights.can_manage_topics===true,can_manage_tags:rights.can_manage_tags===true,can_send_welcome_messages:rights.can_manage_chat===true,can_be_edited:rights.can_be_edited===true,custom_title:rights.custom_title||null,rights_json:rights};
-  await withTx(db,async client=>{
+  await withTx(db,groupId,async client=>{
     await client.query("UPDATE gm_groups SET title=$2,username=$3,description=$4,is_forum=$5,last_seen_at=NOW(),updated_at=NOW() WHERE group_id=$1",[groupId,String(chat.result.title||group.title),chat.result.username||null,chat.result.description||null,chat.result.is_forum===true]);
     await client.query("UPDATE gm_group_permission_snapshots SET is_current=FALSE WHERE group_id=$1 AND is_current=TRUE",[groupId]);
     await client.query("INSERT INTO gm_group_permission_snapshots(snapshot_id,group_id,is_current,membership_status,is_anonymous,can_manage_chat,can_delete_messages,can_manage_video_chats,can_restrict_members,can_promote_members,can_change_info,can_invite_users,can_post_stories,can_edit_stories,can_delete_stories,can_pin_messages,can_manage_topics,can_manage_tags,can_send_welcome_messages,can_be_edited,custom_title,rights_json,source) VALUES($1,$2,TRUE,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,'telegram')",[uuid(),groupId,snapshot.membership_status,snapshot.is_anonymous,snapshot.can_manage_chat,snapshot.can_delete_messages,snapshot.can_manage_video_chats,snapshot.can_restrict_members,snapshot.can_promote_members,snapshot.can_change_info,snapshot.can_invite_users,snapshot.can_post_stories,snapshot.can_edit_stories,snapshot.can_delete_stories,snapshot.can_pin_messages,snapshot.can_manage_topics,snapshot.can_manage_tags,snapshot.can_send_welcome_messages,snapshot.can_be_edited,snapshot.custom_title,JSON.stringify(snapshot.rights_json)]);
@@ -231,13 +231,15 @@ export async function registerGroup(db:Db,actorUserId:number,groupId:string){
   if(!inspected)throw new Error("گروه پیدا نشد.");
   if(["LEFT","BANNED"].includes(String(inspected.bot_membership_status)))throw new Error("ربات فعلاً به این گروه دسترسی ندارد.");
   const group=await getGroup(db,groupId); if(!group)throw new Error("گروه پیدا نشد.");
-  return withTx(db,async client=>{
+  return withTx(db,groupId,async client=>{
     const runtime=(await client.query("SELECT bot_membership_status FROM gm_group_runtime WHERE group_id=$1 LIMIT 1 FOR UPDATE",[groupId])).rows[0];
     if(["LEFT","BANNED"].includes(String(runtime?.bot_membership_status||"")))throw new Error("ربات فعلاً به این گروه دسترسی ندارد.");
     const cur=(await client.query("SELECT * FROM gm_group_registrations WHERE group_id=$1 LIMIT 1 FOR UPDATE",[groupId])).rows[0];
     if(cur?.status==="ARCHIVED")throw new Error("گروه آرشیو شده است؛ ابتدا بازیابی شود.");
     const previous=cur?.status??"UNREGISTERED";
-    await client.query("INSERT INTO gm_group_registrations(registration_id,group_id,status,registered_by_user_id,registered_at,registration_version,updated_at) VALUES($1,$2,'REGISTERED',$3,NOW(),1,NOW()) ON CONFLICT(group_id) DO UPDATE SET status='REGISTERED',registered_by_user_id=$3,registered_at=COALESCE(gm_group_registrations.registered_at,NOW()),disabled_by_user_id=NULL,disabled_at=NULL,archived_at=NULL,registration_version=gm_group_registrations.registration_version+1,updated_at=NOW()",[cur?.registration_id??uuid(),groupId,actorUserId]);
+    const registrationId=cur?.registration_id??uuid();
+    await client.query("INSERT INTO gm_group_registrations(registration_id,group_id,status,registered_by_user_id,registration_version,updated_at) VALUES($1,$2,'REGISTERING',$3,COALESCE($4,1),NOW()) ON CONFLICT(group_id) DO UPDATE SET status='REGISTERING',registered_by_user_id=$3,updated_at=NOW()",[registrationId,groupId,actorUserId,cur?.registration_version??1]);
+    await client.query("UPDATE gm_group_registrations SET status='REGISTERED',registered_at=COALESCE(registered_at,NOW()),disabled_by_user_id=NULL,disabled_at=NULL,archived_at=NULL,registration_version=registration_version+1,updated_at=NOW() WHERE group_id=$1",[groupId]);
     await client.query("INSERT INTO gm_group_settings(group_settings_id,group_id,settings_profile_id,security_profile_key,updated_by_user_id) SELECT $1,$2,settings_profile_id,'default',$3 FROM gm_settings_profiles WHERE profile_key='default' LIMIT 1 ON CONFLICT(group_id) DO NOTHING",[uuid(),groupId,actorUserId]);
     for(const key of MODULES)await client.query("INSERT INTO gm_group_module_states(module_state_id,group_id,module_key,state,enabled,updated_by_user_id) VALUES($1,$2,$3,'READY',FALSE,$4) ON CONFLICT(group_id,module_key) DO NOTHING",[uuid(),groupId,key,actorUserId]);
     await client.query("INSERT INTO gm_group_installations(installation_id,group_id,status,current_version,target_version,attempt_no,config_version) VALUES($1,$2,'NOT_INSTALLED',0,1,0,1) ON CONFLICT(group_id) DO NOTHING",[uuid(),groupId]);
@@ -277,7 +279,7 @@ export async function installGroup(db:Db,actorUserId:number,groupId:string){
 
 export async function archiveGroup(db:Db,actorUserId:number,groupId:string){
   await ensureGroupManagementCoreSchema(db);
-  return withTx(db,async client=>{
+  return withTx(db,groupId,async client=>{
     const cur=(await client.query("SELECT * FROM gm_group_registrations WHERE group_id=$1 LIMIT 1 FOR UPDATE",[groupId])).rows[0]; if(!cur)throw new Error("رکورد ثبت گروه پیدا نشد.");
     if(cur.status==="ARCHIVED")return getGroupOverview(client as any,groupId);
     await client.query("UPDATE gm_group_registrations SET status='ARCHIVED',archived_at=NOW(),registration_version=registration_version+1,updated_at=NOW() WHERE group_id=$1",[groupId]);
@@ -290,7 +292,10 @@ export async function archiveGroup(db:Db,actorUserId:number,groupId:string){
 }
 export async function restoreGroup(db:Db,actorUserId:number,groupId:string){
   await ensureGroupManagementCoreSchema(db);
-  return withTx(db,async client=>{
+  const inspected=await inspectGroup(db,groupId);
+  if(!inspected)throw new Error("گروه پیدا نشد.");
+  if(["LEFT","BANNED"].includes(String(inspected.bot_membership_status)))throw new Error("ربات هنوز به گروه دسترسی ندارد.");
+  return withTx(db,groupId,async client=>{
     const cur=(await client.query("SELECT * FROM gm_group_registrations WHERE group_id=$1 LIMIT 1 FOR UPDATE",[groupId])).rows[0]; if(!cur)throw new Error("رکورد ثبت گروه پیدا نشد.");
     if(cur.status!=="ARCHIVED")return getGroupOverview(client as any,groupId);
     await client.query("UPDATE gm_group_registrations SET status='REGISTERED',archived_at=NULL,registration_version=registration_version+1,updated_at=NOW() WHERE group_id=$1",[groupId]);
