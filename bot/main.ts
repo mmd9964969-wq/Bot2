@@ -28,7 +28,8 @@ import { handleWorldCallback, handleWorldText } from "../src/lib/bot/game-world.
 import { handleFrontierExpansionCallback } from "../src/lib/bot/frontier-expansion.ts";
 import { renderGameText } from "../src/lib/bot/game-emoji.ts";
 import { ensureCleanupSchema, trackCleanupMessage, handleCleanupText, handleCleanupCallback } from "../src/lib/bot/cleanup-engine.ts";
-import { ensureOwnerGroupSchema, upsertOwnerGroupFromChat, touchOwnerGroupActivity } from "../src/lib/bot/owner-groups.ts";\nimport { ensureGroupManagementCoreSchema } from "../src/lib/bot/group-management-core.ts";
+import { ensureOwnerGroupSchema, upsertOwnerGroupFromChat, touchOwnerGroupActivity } from "../src/lib/bot/owner-groups.ts";
+import { ensureGroupManagementCoreSchema } from "../src/lib/bot/group-management-core.ts";
 import { ensureDateSchema, handleDateTextInput, handleDateCallback, openDateCenterFromCommand, runDateReminders } from "../src/lib/bot/date-center.ts";
 import { decodeRichDocument, prepareRichDocument, richDocumentToPlainText, renderStudioTemplate, validateRichDocument } from "../src/lib/bot/rich-message.ts";
 import { ensureOwnerSudoSchema, loadOwnerSudoCache, isManagedOwnerSudo, getOwnerSudo, ownerSudoAllowsCommand } from "../src/lib/bot/owner-sudo.ts";
@@ -1713,7 +1714,8 @@ async function poll() {
     await ensureSpecialUsersSchema(studioPool);
     await ensureGroupInfoSchema(studioPool);
     await ensureStatsCenterSchema(studioPool);
-    await ensureOwnerGroupSchema(studioPool);\n    await ensureGroupManagementCoreSchema(studioPool);
+    await ensureOwnerGroupSchema(studioPool);
+    await ensureGroupManagementCoreSchema(studioPool);
     await ensureDateSchema(studioPool);
     await ensureOwnerSudoSchema(studioPool);
     await loadOwnerSudoCache(studioPool);
