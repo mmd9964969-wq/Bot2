@@ -14,6 +14,7 @@ import { AUTOMATION_ACTIONS } from "../src/lib/bot/automation-engine.ts";
 import { getGroupStats } from "../src/lib/bot/runtime.ts";
 import { ensureOwnerGroupSchema, listOwnerGroups, ownerGroupOverview, getOwnerGroup, getOwnerGroupLogs, setOwnerGroupEnabled, leaveOwnerGroup, resetOwnerGroup, sendMessageToOwnerGroup, syncAllOwnerGroups } from "../src/lib/bot/owner-groups.ts";
 import { ensureGroupManagementCoreSchema, groupManagementOverview, listManagedGroups, getGroupOverview, resolveGroupInput, registerGroup, installGroup, inspectGroup, archiveGroup, restoreGroup, getModuleState, groupStatusLabel, botMembershipLabel } from "../src/lib/bot/group-management-core.ts";
+import { groupProCallback, handleGroupProTextInput } from "../src/lib/bot/group-pro.ts";
 import { ensureGroupConfigSchema, handleGroupConfigMessage, handleGroupConfigInput, handleGroupConfigCallback } from "../src/lib/bot/group-config.ts";
 import { handleInviteLinkCallback, handleInviteLinkTextInput } from "../src/lib/bot/invite-links.ts";
 import { handleSpecialCallback, handleSpecialCommand, handleSpecialTextInput } from "../src/lib/bot/special-users.ts";
@@ -2403,32 +2404,21 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   if(data==="o:groups"){
     if(!ownerGroupAuthenticated(uid)){
       return edit(msg.chat.id,msg.message_id,panelTitle("احراز هویت مدیریت گروه‌ها",[
-        "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Gʀᴏᴜᴘ Mᴀɴᴀɢᴇᴍᴇɴᴛ",
+        "★ مرکز مدیریت گروه‌ها",
         "",
-        "⛂ - هویت مالک : ✓ تأییدشده",
+        "⛂ - دسترسی مالک : ● تأیید شده",
+        "⛂ - نشست مرکز : ۳۰ دقیقه",
         "",
         PANEL_SEPARATOR,
         "",
-        "برای ورود به مرکز مدیریت گروه‌ها، احراز هویت این مرکز را تأیید کنید.",
-        "اعتبار دسترسی این مرکز: ۳۰ دقیقه."
+        "این بخش کاملاً جدا از پنل مشتری است. پس از ورود، هر گروه Context و پنل اختصاصی خودش را خواهد داشت."
       ].join("\n")),menu([
         [["› احراز هویت و ورود","og:auth"]],
         [["‹ بازگشت به پنل مالک","o:home"]]
       ]));
     }
     await ensureGroupManagementCoreSchema(pool);
-    return edit(msg.chat.id,msg.message_id,panelTitle("مدیریت گروه‌ها",[
-      "★ انتخاب محدوده مدیریت",
-      "",
-      "⛂ - گروه‌های ثبت‌شده و در دسترس",
-      "⛂ - مدیریت یک گروه یا بررسی یک گروه خارج از سامانه",
-      "",
-      PANEL_SEPARATOR
-    ].join("\n")),menu([
-      [["یک گروه","gm:list:"]],
-      [["سراسری گروه","gm:global"]],
-      [["‹ بازگشت","o:home"]]
-    ]));
+    return groupProCallback(pool,{...cb,data:"g:home"},ownerIds,true);
   }
 
   if(data.startsWith("gm:") && !ownerGroupAuthenticated(uid)){
@@ -2687,23 +2677,7 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     authenticateOwnerGroup(uid);
     await audit(pool,String(uid),"owner_group_authenticated","owner-group-center",{ttlMs:OWNER_GROUP_AUTH_TTL});
     await ensureGroupManagementCoreSchema(pool);
-    const overview=await groupManagementOverview(pool);
-    return edit(msg.chat.id,msg.message_id,panelTitle("مدیریت گروه‌ها",[
-      "★ انتخاب محدوده مدیریت",
-      "",
-      "⛂ - گروه‌های ثبت‌شده و در دسترس",
-      "⛂ - مدیریت یک گروه یا بررسی یک گروه خارج از سامانه",
-      "",
-      "⛂ - ثبت‌شده : "+overview.total,
-      "⛂ - فعال : "+overview.active,
-      "⛂ - نیازمند بررسی : "+overview.needsReview,
-      "",
-      PANEL_SEPARATOR
-    ].join("\n")),menu([
-      [["یک گروه","gm:list:"]],
-      [["سراسری گروه","gm:global"]],
-      [["‹ بازگشت","o:home"]]
-    ]));
+    return groupProCallback(pool,{...cb,data:"g:home"},ownerIds,true);
   }
   if(data==="og:auth:logout"){
     revokeOwnerGroupAuth(uid);
@@ -4750,6 +4724,7 @@ export async function dispatchPanelMessage(pool:Pool,msg:TgMessage,ownerIds:stri
     // Panel throttling must never consume group messages; content-lock
     // enforcement needs to see every message, including rapid photo bursts.
     if(msg.chat.type==="private" && !allowed(msg.from.id))return false;
+    if(await handleGroupProTextInput(pool,msg))return true;
     const groupFlow=getSession(msg.from.id);
     if(groupFlow?.flow==="owner_group_resolver"){
       clearSession(msg.from.id);
@@ -4860,6 +4835,29 @@ export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:str
     // through the message throttle. The old shared throttle could silently drop
     // panel clicks arriving shortly after a panel-opening message or another click.
     // License callbacks keep the generic owner routing.
+    if(data.startsWith("gm:")){
+      const legacy=data;
+      let next=legacy;
+      if(legacy==="gm:global"||legacy==="gm:list:"||legacy.startsWith("gm:list:")) next="g:list";
+      else if(legacy.startsWith("gm:view:")) next="g:view:"+legacy.slice(8);
+      else if(legacy.startsWith("gm:module:")){
+        const parts=legacy.split(":");
+        if(parts[2]&&parts[3])next="g:module:"+parts[2]+":"+parts.slice(3).join(":");
+      } else if(legacy.startsWith("gm:status:")) next="g:module:"+legacy.slice(10)+":health";
+      else if(legacy.startsWith("gm:stats:")) next="g:module:"+legacy.slice(9)+":stats";
+      else if(legacy.startsWith("gm:activity:")) next="g:module:"+legacy.slice(12)+":activity";
+      else if(legacy.startsWith("gm:install:")) next="g:install:"+legacy.slice(10);
+      else if(legacy.startsWith("gm:reconcile:")) next="g:reconcile:"+legacy.slice(13);
+      else if(legacy.startsWith("gm:register_install:")) next="g:register_install:"+legacy.slice(20);
+      else if(legacy.startsWith("gm:register:")) next="g:register:"+legacy.slice(12);
+      else if(legacy.startsWith("gm:archive_execute:")) next="g:archive_execute:"+legacy.slice(19);
+      else if(legacy.startsWith("gm:archive_review:")) next="g:archive:"+legacy.slice(18);
+      else if(legacy.startsWith("gm:archive:")) next="g:archive:"+legacy.slice(11);
+      else if(legacy.startsWith("gm:restore:")) next="g:restore:"+legacy.slice(11);
+      const translated={...cb,data:next};
+      return groupProCallback(pool,translated,ownerIds,ownerGroupAuthenticated(cb.from.id));
+    }
+    if(data.startsWith("g:")) return groupProCallback(pool,cb,ownerIds,ownerGroupAuthenticated(cb.from.id));
     if(data.startsWith("lic:")) return ownerCallback(pool,cb,ownerIds);
     // Route panel callbacks before secondary feature handlers so every main
     // customer/owner navigation callback reaches its dedicated controller.
