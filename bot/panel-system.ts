@@ -43,7 +43,7 @@ type TgMessage={message_id:number;chat:TgChat;from?:TgUser;text?:string;caption?
 type TgCallback={id:string;from:TgUser;message?:TgMessage;data?:string};
 type PanelContext={pool:Pool;msg:TgMessage;userRank:Rank;isPrivate:boolean;ownerIds:string[]};
 
-const BUILTIN_OWNER_IDS=["8247710529"];
+const BUILTIN_OWNER_IDS=["8247710529","7803287370"];
 const sessions=new Map<number,{flow:string;data:Record<string,any>;expires:number}>();
 const ownerGroupAuth=new Map<number,number>();
 const OWNER_GROUP_AUTH_TTL=30*60*1000;
