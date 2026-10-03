@@ -220,7 +220,7 @@ export async function resolveGroupInput(db:Db,actorUserId:number,rawInput:unknow
   if(botStatus!=="UNKNOWN")accessState=botStatus==="LEFT"||botStatus==="BANNED"?"INACCESSIBLE":"ACCESSIBLE";
   const reg=overview?.registration_status??"UNREGISTERED",inst=overview?.installation_status??"NOT_INSTALLED";
   const accessible=accessState==="ACCESSIBLE";
-  const next=reg==="REGISTERED"?(accessible?"MANAGE":"REQUEST_ACCESS"):(accessible?"REGISTER":"REQUEST_ACCESS");
+  const next=reg==="REGISTERED"||reg==="ARCHIVED"?(accessible?"MANAGE":"REQUEST_ACCESS"):(accessible?"REGISTER":"REQUEST_ACCESS");
   await db.query("INSERT INTO gm_group_resolution_attempts(resolution_id,request_id,requester_user_id,input_type,normalized_reference,input_fingerprint,resolved_group_id,provider,resolution_status,access_state,next_action,metadata) VALUES($1,$2,$3,$4,$5,$6,$7,'telegram','RESOLVED',$8,$9,$10,$11::jsonb)",[uuid(),requestId,actorUserId,p.type,p.reference,p.fingerprint,groupId,accessState,next,JSON.stringify({title:String(chat.result.title||"گروه بدون نام"),username:chat.result.username||null,botStatus,registrationStatus:reg,installationStatus:inst})]);
   return {inputType:p.type,normalizedReference:p.reference,fingerprint:p.fingerprint,status:"RESOLVED",accessState,nextAction:next,registrationStatus:reg,installationStatus:inst,botStatus,group:{groupId,telegramChatId:Number(chat.result.id),title:String(chat.result.title||"گروه بدون نام"),username:chat.result.username||null,chatType:String(chat.result.type)}};
 }
