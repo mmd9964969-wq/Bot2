@@ -12,7 +12,8 @@ import { ensureOwnerSudoSchema, ownerSudoCallback, handleOwnerSudoTextInput, sen
 import { ownerLicenseCallback, handleOwnerLicenseTextInput } from "../src/lib/bot/owner-license.ts";
 import { AUTOMATION_ACTIONS } from "../src/lib/bot/automation-engine.ts";
 import { getGroupStats } from "../src/lib/bot/runtime.ts";
-import { ensureOwnerGroupSchema, listOwnerGroups, ownerGroupOverview, getOwnerGroup, getOwnerGroupLogs, setOwnerGroupEnabled, leaveOwnerGroup, resetOwnerGroup, sendMessageToOwnerGroup, syncAllOwnerGroups } from "../src/lib/bot/owner-groups.ts";\nimport { ensureGroupManagementCoreSchema, groupManagementOverview, listManagedGroups, getGroupOverview, resolveGroupInput, registerGroup, installGroup, inspectGroup, archiveGroup, restoreGroup, getModuleState, groupStatusLabel, botMembershipLabel } from "../src/lib/bot/group-management-core.ts";
+import { ensureOwnerGroupSchema, listOwnerGroups, ownerGroupOverview, getOwnerGroup, getOwnerGroupLogs, setOwnerGroupEnabled, leaveOwnerGroup, resetOwnerGroup, sendMessageToOwnerGroup, syncAllOwnerGroups } from "../src/lib/bot/owner-groups.ts";
+import { ensureGroupManagementCoreSchema, groupManagementOverview, listManagedGroups, getGroupOverview, resolveGroupInput, registerGroup, installGroup, inspectGroup, archiveGroup, restoreGroup, getModuleState, groupStatusLabel, botMembershipLabel } from "../src/lib/bot/group-management-core.ts";
 import { ensureGroupConfigSchema, handleGroupConfigMessage, handleGroupConfigInput, handleGroupConfigCallback } from "../src/lib/bot/group-config.ts";
 import { handleInviteLinkCallback, handleInviteLinkTextInput } from "../src/lib/bot/invite-links.ts";
 import { handleSpecialCallback, handleSpecialCommand, handleSpecialTextInput } from "../src/lib/bot/special-users.ts";
