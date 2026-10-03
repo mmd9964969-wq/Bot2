@@ -34,7 +34,7 @@ import {
   setCurrentPanelKind,
 } from "../src/lib/bot/panel-session.ts";
 
-type TgUser={id:number;first_name?:string;username?:string};
+type TgUser={id:number;first_name?:string;last_name?:string;username?:string};
 type TgChat={id:number;type:string;title?:string;username?:string};
 type TgMessage={message_id:number;chat:TgChat;from?:TgUser;text?:string;caption?:string;reply_to_message?:{from?:TgUser};photo?:unknown[];video?:unknown;audio?:unknown;document?:unknown;animation?:unknown;sticker?:unknown;voice?:unknown;video_note?:unknown;new_chat_members?:TgUser[];left_chat_member?:TgUser[]};
 type TgCallback={id:string;from:TgUser;message?:TgMessage;data?:string};
@@ -531,27 +531,33 @@ async function isOwner(pool:Pool,uid:number,envOwners:string[]){const all=new Se
 
 export async function openOwnerPanelEntry(pool:Pool,msg:TgMessage,ownerIds:string[]):Promise<boolean>{
   if(!msg.from||msg.chat.type!=="private")return false;
-
   const uid=msg.from.id;
   if(!await isOwner(pool,uid,ownerIds))return false;
-
   const raw=String(msg.text||"").trim().replace(/^[/!]/,"").trim().toLowerCase();
-  const ownerEntryCommands=new Set(["start","restart","ری‌استارت","ری استارت","رستارت","استارت"]);
-  if(!ownerEntryCommands.has(raw))return false;
-
+  const commands=new Set(["start","restart","ری‌استارت","ری استارت","رستارت","استارت"]);
+  if(!commands.has(raw))return false;
   await ensurePanelSessionSchema(pool);
+
+  if(raw==="restart"){
+    const old=await pool.query("SELECT message_id FROM bot_panel_sessions WHERE chat_id=$1 AND user_id=$2 AND panel_kind IN ('owner','owner_entry')",[String(msg.chat.id),String(uid)]).catch(()=>({rows:[]}));
+    for(const row of old.rows){const messageId=Number(row.message_id);if(Number.isSafeInteger(messageId)&&messageId>0)await telegramApi("deleteMessage",{chat_id:msg.chat.id,message_id:messageId}).catch(()=>{});}
+    await pool.query("DELETE FROM bot_panel_sessions WHERE chat_id=$1 AND user_id=$2 AND panel_kind IN ('owner','owner_entry')",[String(msg.chat.id),String(uid)]).catch(()=>{});
+  }else{
+    const existing=await pool.query("SELECT message_id FROM bot_panel_sessions WHERE chat_id=$1 AND user_id=$2 AND panel_kind IN ('owner','owner_entry') AND expires_at>NOW() ORDER BY updated_at DESC LIMIT 1",[String(msg.chat.id),String(uid)]).catch(()=>({rows:[]}));
+    if(existing.rows.length)return true;
+  }
 
   return runWithPanelScope(uid,pool,async()=>{
     setCurrentPanelKind("owner");
-    await audit(pool,String(uid),"owner_panel_entry_shown",String(uid),{
-      entry:raw,
-      stage:"private_direct",
+    const snapshot=await ownerAccessSnapshot(pool,uid,msg.from!);
+    await audit(pool,String(uid),"owner_panel_entry_shown",String(uid),{entry:raw,stage:"0"});
+    const result=await sendOwnerRich(pool,uid,msg.chat.id,buildOwnerEntryRich(snapshot),{
+      inline_keyboard:[
+        [ownerButton("پنل مالکیت","o:home","success")],
+        [ownerButton("خروج از پنل","o:exit","primary")],
+      ],
     });
-
-    // مالک مستقیماً خود پنل را داخل همان PV دریافت می‌کند.
-    // هیچ WebApp / Mini App / glass button برای ورود استفاده نمی‌شود.
-    await renderOwner(pool,uid,msg.chat.id);
-    return true;
+    return !!result?.ok;
   });
 }
 async function customerEnsure(pool:Pool,uid:number,u:TgUser){await pool.query("INSERT INTO bot_customers(user_id,username,first_name,last_active_at) VALUES($1,$2,$3,NOW()) ON CONFLICT(user_id) DO UPDATE SET username=EXCLUDED.username,first_name=EXCLUDED.first_name,last_active_at=NOW()",[uid,u.username||null,u.first_name||""]);}
@@ -597,22 +603,92 @@ async function customerAllowedForChat(pool:Pool,uid:number,chatId:number){
 async function isGroupAdmin(chatId:number,uid:number){
   const r=await telegramApi<any>("getChatMember",{chat_id:chatId,user_id:uid});return !!(r.ok&&["administrator","creator"].includes(String(r.result?.status||"")));
 }
-function mainOwnerMessage(){return [
-  "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Oᴡɴᴇʀ Cᴇɴᴛᴇʀ",
-  "",
-  "★ - مرکز فرمان مالک",
-  "",
-  "⛂ - سطح دسترسی : OWNER",
-  "⛂ - وضعیت هسته : ● فعال",
-  "⛂ - وضعیت پنل : ● آماده",
-  "",
-  PANEL_SEPARATOR,
-  "",
-  "یک مرکز را انتخاب کنید.",
-  "تمام کنترل‌های تخصصی داخل مرکز مربوطه قرار دارند تا صفحه اصلی خلوت و مسیرها واضح بمانند.",
-  "",
-  "◂ - عملیات حساس و بحرانی پیش از اجرا وارد مرحله تأیید می‌شوند."
-].join("\n");}
+function ownerButton(text:string,callback_data:string,style:"primary"|"success"|"danger"="success"){
+  return {text,callback_data,style};
+}
+function ownerMainMarkup(){
+  return {inline_keyboard:[
+    [ownerButton("سامانه","o:section:system"),ownerButton("مشتریان","o:section:customers")],
+    [ownerButton("گروه‌ها","o:section:groups"),ownerButton("امنیت","o:section:security")],
+    [ownerButton("گزارش‌ها","o:section:reports"),ownerButton("ابزارها","o:section:tools")],
+    [ownerButton("تنظیمات مالک","o:section:settings")],
+    [ownerButton("بروزرسانی","o:home:refresh"),ownerButton("خروج از پنل","o:exit","primary")],
+  ]};
+}
+async function ownerAccessSnapshot(pool:Pool,uid:number,user:TgUser){
+  const [lastLogin,activeSessions]=await Promise.all([
+    pool.query("SELECT created_at FROM audit_logs WHERE actor_id=$1 AND action IN ('owner_panel_entry_shown','owner_panel_opened','owner_home_opened') ORDER BY created_at DESC LIMIT 1",[String(uid)]).catch(()=>({rows:[]})),
+    pool.query("SELECT COUNT(*)::int n FROM bot_panel_sessions WHERE user_id=$1 AND expires_at>NOW()",[String(uid)]).catch(()=>({rows:[{n:0}]})),
+  ]);
+  const name=[user.first_name,user.last_name].filter(Boolean).join(" ").trim();
+  const username=String(user.username||"").trim();
+  return {
+    name:name||"نامشخص",username:username?"@"+username:"نامشخص",id:String(uid),
+    accessLevel:"مالک",accountStatus:"فعال",verification:"تأیید شده",sessionStatus:"معتبر",
+    lastLogin:lastLogin.rows[0]?.created_at?faDate(lastLogin.rows[0].created_at):"نامشخص",
+    activeSessions:String(Number(activeSessions.rows[0]?.n||0)),
+    managementAccess:"کامل",securityStatus:"محافظت شده",accessValidity:"بدون انقضا",
+  };
+}
+function ownerAccessRows(s:Awaited<ReturnType<typeof ownerAccessSnapshot>>){
+  return [
+    ["نام مالک",s.name],["نام کاربری",s.username],["شناسه مالک",s.id],["سطح دسترسی",s.accessLevel],
+    ["وضعیت حساب",s.accountStatus],["احراز هویت",s.verification],["وضعیت نشست",s.sessionStatus],
+    ["آخرین ورود",s.lastLogin],["نشست‌های فعال",s.activeSessions],["دسترسی مدیریتی",s.managementAccess],
+    ["وضعیت امنیت",s.securityStatus],["اعتبار دسترسی",s.accessValidity],
+  ];
+}
+function ownerAccessTable(caption:string,rows:string[][]){
+  return {type:"table",caption,is_bordered:true,is_striped:false,is_compact:false,cells:[
+    [{text:"عنوان",is_header:true,align:"right",valign:"middle"},{text:"مقدار",is_header:true,align:"right",valign:"middle"}],
+    ...rows.map(([label,value])=>[
+      {text:label,align:"right",valign:"middle"},{text:value||"نامشخص",align:"right",valign:"middle"}
+    ]),
+  ]};
+}
+function buildOwnerEntryRich(s:Awaited<ReturnType<typeof ownerAccessSnapshot>>){
+  return {version:1,is_rtl:true,blocks:[
+    {type:"heading",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ Owner Center",size:1},
+    {type:"paragraph",text:"مرکز مدیریت اختصاصی مالک"},
+    {type:"divider"},
+    ownerAccessTable("اطلاعات دسترسی مالک",ownerAccessRows(s)),
+    {type:"divider"},
+    {type:"heading",text:"ورود به پنل",size:2},
+    {type:"paragraph",text:"برای ورود به منوی اصلی مدیریت، پنل مالکیت را انتخاب کنید."},
+    {type:"footer",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ"},
+  ]};
+}
+function buildOwnerHomeRich(s:Awaited<ReturnType<typeof ownerAccessSnapshot>>){
+  return {version:1,is_rtl:true,blocks:[
+    {type:"heading",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ Owner Center",size:1},
+    {type:"paragraph",text:"مرکز اصلی مدیریت و کنترل مالک"},
+    {type:"divider"},
+    ownerAccessTable("اطلاعات دسترسی مالک",ownerAccessRows(s)),
+    {type:"divider"},
+    {type:"heading",text:"منوی اصلی",size:2},
+    {type:"paragraph",text:"بخش موردنظر را برای ادامهٔ مدیریت انتخاب کنید."},
+    {type:"footer",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ"},
+  ]};
+}
+async function sendOwnerRich(pool:Pool,uid:number,chatId:number,rich:any,markup:any){
+  const prepared=prepareRichDocument(rich);const validation=validateRichDocument(prepared);
+  if(!validation.ok){console.error("[owner-rich] validation failed:",validation.errors);return null;}
+  const result=await telegramApi("sendRichMessage",{chat_id:chatId,rich_message:{blocks:prepared.blocks,is_rtl:prepared.is_rtl},reply_markup:markup}).catch(error=>{console.error("[owner-rich] send failed:",error);return null;});
+  if(result?.ok){const id=Number((result.result as any)?.message_id);if(Number.isSafeInteger(id)&&id>0)await bindPanelMessage(pool,chatId,id,uid,"owner");}
+  return result;
+}
+async function editOwnerRich(pool:Pool,uid:number,chatId:number,messageId:number,rich:any,markup:any){
+  const prepared=prepareRichDocument(rich);const validation=validateRichDocument(prepared);
+  if(!validation.ok){console.error("[owner-rich] edit validation failed:",validation.errors);return null;}
+  const result=await telegramApi("editMessageText",{chat_id:chatId,message_id:messageId,rich_message:{blocks:prepared.blocks,is_rtl:prepared.is_rtl},reply_markup:markup}).catch(error=>{console.error("[owner-rich] edit failed:",error);return null;});
+  if(result?.ok)await touchPanelMessage(pool,chatId,messageId,uid).catch(()=>{});
+  return result;
+}
+async function renderOwnerHome(pool:Pool,uid:number,chatId:number,msgId?:number,user?:TgUser){
+  const snapshot=await ownerAccessSnapshot(pool,uid,user||{id:uid});
+  const rich=buildOwnerHomeRich(snapshot);const markup=ownerMainMarkup();
+  return msgId?editOwnerRich(pool,uid,chatId,msgId,rich,markup):sendOwnerRich(pool,uid,chatId,rich,markup);
+}
 function ownerSectionView(section:string){
   const views:Record<string,{title:string;body:string;rows:string[][][]}> = {
     system:{
@@ -1125,10 +1201,9 @@ async function customerStatus(pool:Pool,uid:number,chatId:number,period:Customer
   return {text,markup};
 }
 
-async function renderOwner(pool:Pool,uid:number,chatId:number,msgId?:number,view="main"){
-  const body=view==="main"?mainOwnerMessage():await ownerStats(pool);
-  const markup=view==="main"?menu(K.ownerMain):menu([[["بروزرسانی آمار","o:stats"],["‹ بازگشت","o:home"]]]);
-  return msgId?edit(chatId,msgId,body,markup):send(chatId,body,markup);
+async function renderOwner(pool:Pool,uid:number,chatId:number,msgId?:number,view="main",user?:TgUser){
+  if(view==="main")return renderOwnerHome(pool,uid,chatId,msgId,user);
+  return msgId?edit(chatId,msgId,await ownerStats(pool),menu([[["بروزرسانی آمار","o:stats"],["‹ بازگشت","o:home"]]])):send(chatId,await ownerStats(pool),menu([[["بروزرسانی آمار","o:stats"],["‹ بازگشت","o:home"]]]));
 }
 
 function customerUsernameForDisplay(username:unknown,id:number){const value=String(username||"").trim();return value?"@"+value.replace(/^@/,""):String(id);}
@@ -1978,8 +2053,15 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     return edit(msg.chat.id,msg.message_id,ownerAgentText(overview),ownerAgentMarkup(overview));
   }
 
-  if(data==="o:home")return renderOwner(pool,uid,msg.chat.id,msg.message_id,"main");
-  if(data==="o:stats")return renderOwner(pool,uid,msg.chat.id,msg.message_id,"stats");
+  if(data==="o:home"){
+    await audit(pool,String(uid),"owner_home_opened",String(uid),{stage:"0"});
+    return renderOwner(pool,uid,msg.chat.id,msg.message_id,"main",cb.from);
+  }
+  if(data==="o:home:refresh"){
+    await audit(pool,String(uid),"owner_home_refreshed",String(uid),{stage:"0"});
+    return renderOwner(pool,uid,msg.chat.id,msg.message_id,"main",cb.from);
+  }
+  if(data==="o:stats")return renderOwner(pool,uid,msg.chat.id,msg.message_id,"stats",cb.from);
   if(data==="o:customers"){
     return edit(msg.chat.id,msg.message_id,
       "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Cᴜsᴛᴏᴍᴇʀ Cᴇɴᴛᴇʀ\n\n⛂ مدیریت ثبت‌شده‌های سامانه",
@@ -2659,7 +2741,13 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   if(data==="o:backup")return edit(msg.chat.id,msg.message_id,"◈ پشتیبان‌گیری و بازیابی\n\nتهیه نسخه SQL/تنظیمات به محیط اجرای فعلی وابسته است. این پنل نسخه وضعیت جداول مدیریتی را نیز ثبت می‌کند.",menu([[["تهیه پشتیبان همین حالا","b:make"],["لیست پشتیبان‌ها","b:list"]],[["بازیابی از پشتیبان","b:restore"],["حذف پشتیبان‌های قدیمی","b:cleanup"]],[["‹ بازگشت","o:home"]]]));
   if(data==="o:server"){const m=process.memoryUsage();const cpu=os.loadavg()[0];const uptime=Math.floor(os.uptime());return edit(msg.chat.id,msg.message_id,["◈ وضعیت سرور و منابع","","⛂ Load : "+cpu.toFixed(2),"⛂ RAM فرآیند : "+(m.rss/1048576).toFixed(1)+" MB","⛂ Heap : "+(m.heapUsed/1048576).toFixed(1)+" MB","⛂ Uptime : "+uptime+" sec","⛂ Node : "+process.version].join("\n"),menu([[["بروزرسانی","o:server"],["‹ بازگشت","o:home"]]]));}
   if(data==="o:blacklist"){const r=await pool.query("SELECT user_id,reason,created_at FROM bot_blacklist ORDER BY created_at DESC LIMIT 100");const rows=r.rows.map((x:any)=>[[("⊘ "+x.user_id+" · "+(x.reason||"بدون دلیل")),"bl:remove:"+x.user_id]]);rows.push([["افزودن به لیست سیاه","bl:add"]],[["‹ بازگشت","o:home"]]);return edit(msg.chat.id,msg.message_id,"◈ لیست سیاه مشتریان\n\nهر ردیف برای رفع مسدودیت قابل انتخاب است.",menu(rows));}
-  if(data==="o:exit"){await edit(msg.chat.id,msg.message_id,"از پنل مالک خارج شدید.",null);clearSession(uid);return;}
+  if(data==="o:exit"){
+    await unbindPanelMessage(pool,msg.chat.id,msg.message_id,uid).catch(()=>{});
+    clearSession(uid);
+    await telegramApi("deleteMessage",{chat_id:msg.chat.id,message_id:msg.message_id}).catch(()=>{});
+    await audit(pool,String(uid),"owner_panel_exited",String(uid),{stage:"0"});
+    return;
+  }
   if(data.startsWith("u:")){
     const parts=data.split(":");const act=parts[1],id=Number(parts[2]);if(!Number.isSafeInteger(id))return;
     if(["lic_off","block","unblock"].includes(act)){session(uid,"confirm_owner_action",{act,id});return send(msg.chat.id,"مرحله ۱ از ۲: این عملیات حساس است. برای ادامه «تأیید نهایی» را ارسال کنید.");}
