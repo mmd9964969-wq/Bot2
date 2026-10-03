@@ -1869,6 +1869,156 @@ async function executeDirectUninstallOperation(
   }
 }
 
+async function executeDirectMaintenanceOperation(
+  pool: Pool,
+  chat: TgChat,
+  actorId: number,
+  operation: "repair" | "reinstall",
+  messageId: number,
+) {
+  const current = await state(pool, chat.id);
+  if (!Boolean(current?.installed)) {
+    await render(
+      chat.id,
+      messageId,
+      operationSelectionDocument(current),
+    );
+    return { ok: false, reason: "not_installed" as const };
+  }
+
+  const activeProgress = await getActiveInstallationProgress(pool, chat.id);
+  if (activeProgress) {
+    await renderInstallationProgressSnapshot(
+      pool,
+      chat,
+      activeProgress,
+      "یک عملیات دیگر برای این گروه فعال است؛ اجرای موازی انجام نمی‌شود.",
+      true,
+    );
+    return { ok: false, reason: "active_execution" as const };
+  }
+
+  await clearSession(pool, chat.id, actorId);
+
+  const session = defaultSession(operation, actorId);
+  session.install_type = "quick";
+  session.version = "latest";
+  session.environment = "production";
+  session.settings = {};
+  session.confirmed = true;
+  session.step = "executing";
+  session.status = "executing";
+  await saveSession(pool, chat.id, session);
+
+  const freshSession = await getSession(pool, chat.id);
+  if (!freshSession) throw new Error("نشست عملیات ایجاد نشد.");
+
+  try {
+    const execution = await executeInstallationOperation(
+      pool,
+      chat,
+      actorId,
+      freshSession,
+      "",
+    );
+
+    const verification = await verifyInstallationOperation(
+      pool,
+      chat,
+      freshSession,
+      execution.version,
+    );
+
+    if (!verification.ok) {
+      throw new Error(verification.detail);
+    }
+
+    await transitionSession(
+      pool,
+      chat.id,
+      actorId,
+      "completed",
+      "completed",
+    ).catch(() => {});
+    await logInstallEvent(pool, chat.id, actorId, operation + "_direct_completed", {
+      version: execution.version,
+    }).catch(() => {});
+    await clearSession(pool, chat.id, actorId);
+
+    await render(
+      chat.id,
+      messageId,
+      doc([
+        ...base(
+          operation === "repair" ? "Rᴇᴘᴀɪʀ Cᴏᴍᴘʟᴇᴛᴇᴅ" : "Rᴇɪɴsᴛᴀʟʟ Cᴏᴍᴘʟᴇᴛᴇᴅ",
+          operation === "repair"
+            ? "وضعیت نصب گروه مستقیماً ترمیم و اعتبارسنجی شد."
+            : "نصب گروه مستقیماً بازسازی و اعتبارسنجی شد.",
+        ),
+        table("نتیجه", [
+          ["گروه", chat.title || "گروه بدون نام"],
+          ["عملیات", operation === "repair" ? "تعمیر نصب" : "نصب مجدد"],
+          ["نسخه", execution.version],
+          ["وضعیت", "● فعال"],
+        ]),
+        { type: "divider" },
+        {
+          type: "paragraph",
+          text: verification.detail,
+        },
+        buttons([button("بررسی سلامت نصب", "inst:health")]),
+        buttons([button("‹ بازگشت", "inst:home", "primary")]),
+        {
+          type: "footer",
+          text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Oᴘᴇʀᴀᴛɪᴏɴ Eɴɢɪɴᴇ",
+        },
+      ]),
+    );
+
+    return { ok: true, reason: "completed" as const };
+  } catch (error) {
+    const detail = String((error as any)?.message ?? error);
+    await transitionSession(
+      pool,
+      chat.id,
+      actorId,
+      "failed",
+      "failed",
+      { lastErrorCode: String((error as any)?.code ?? "MAINTENANCE_FAILED") },
+    ).catch(() => {});
+    await logInstallEvent(pool, chat.id, actorId, operation + "_direct_failed", {
+      error: detail,
+    }).catch(() => {});
+    await clearSession(pool, chat.id, actorId);
+
+    await render(
+      chat.id,
+      messageId,
+      doc([
+        ...base(
+          operation === "repair" ? "Rᴇᴘᴀɪʀ Fᴀɪʟᴇᴅ" : "Rᴇɪɴsᴛᴀʟʟ Fᴀɪʟᴇᴅ",
+          "عملیات کامل نشد؛ وضعیت فعلی گروه حفظ شد.",
+        ),
+        table("نتیجه", [
+          ["گروه", chat.title || "گروه بدون نام"],
+          ["عملیات", operation === "repair" ? "تعمیر نصب" : "نصب مجدد"],
+          ["وضعیت", "■ ناموفق"],
+        ]),
+        { type: "divider" },
+        { type: "paragraph", text: detail.slice(0, 700) },
+        buttons([button("تلاش دوباره", "inst:op:" + operation, "danger")]),
+        buttons([button("‹ بازگشت", "inst:manage", "primary")]),
+        {
+          type: "footer",
+          text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Oᴘᴇʀᴀᴛɪᴏɴ Eɴɢɪɴᴇ",
+        },
+      ]),
+    );
+
+    return { ok: false, reason: "failed" as const };
+  }
+}
+
 async function executeInstallationOperation(
   pool: Pool,
   chat: TgChat,
@@ -3069,6 +3219,17 @@ export async function handleInstallationCallback(
           pool,
           chat,
           cb.from.id,
+          cb.message.message_id,
+        );
+        return true;
+      }
+
+      if (operation === "repair" || operation === "reinstall") {
+        await executeDirectMaintenanceOperation(
+          pool,
+          chat,
+          cb.from.id,
+          operation,
           cb.message.message_id,
         );
         return true;
