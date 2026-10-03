@@ -1613,6 +1613,71 @@ async function handleOwner(pool:Pool,msg:TgMessage,ownerIds:string[]){
     clearSession(uid);
     return sendCustomer(pool,uid,msg.chat.id,customer);
   }
+  if(s&&s.flow==="owner_customer_rich_search"){
+    clearSession(uid);
+    const customer=await ownerCustomerFind(pool,raw);
+    if(!customer){
+      return sendRichCustomerFallback(pool,uid,msg.chat.id,msg.message_id,"مشتری پیدا نشد.","ocm:search");
+    }
+    return editOwnerRich(
+      pool,uid,msg.chat.id,msg.message_id,
+      ownerCustomerRich("نتیجه جستجو",[
+        {type:"paragraph",text:"مشتری شناسایی شد."},
+        ownerCustomerTable("مشخصات",[
+          ["شناسه",String(customer.user_id)],
+          ["نام کاربری",customer.username?"@"+customer.username:"ثبت نشده"],
+          ["نام",customer.first_name||"ثبت نشده"],
+          ["وضعیت",String(customer.status)==="blocked"?"غیرفعال":"فعال"],
+        ]),
+      ]),
+      ownerCustomerKeyboard([[ownerCustomerButton("مشاهده مشتری","ocm:view:"+customer.user_id)],ownerCustomerBack("ocm:home")]),
+    ) as any;
+  }
+
+  if(s&&s.flow==="owner_customer_rich_add"){
+    const customerId=Number(raw);
+    if(!Number.isSafeInteger(customerId)||customerId<=0){
+      return sendRichCustomerFallback(pool,uid,msg.chat.id,msg.message_id,"آیدی عددی معتبر نیست.","ocm:add");
+    }
+    const existing=await ownerCustomerFind(pool,String(customerId));
+    if(existing){
+      clearSession(uid);
+      return renderOwnerCustomer(pool,uid,msg.chat.id,msg.message_id,customerId);
+    }
+    await pool.query(
+      "INSERT INTO bot_customers(user_id,status,last_active_at) VALUES($1,'active',NOW())",
+      [customerId],
+    ).catch(async()=>{
+      await pool.query(
+        "INSERT INTO bot_customers(user_id,status) VALUES($1,'active') ON CONFLICT(user_id) DO NOTHING",
+        [customerId],
+      );
+    });
+    clearSession(uid);
+    await audit(pool,String(uid),"customer_registered",String(customerId),{source:"owner_customer_center"});
+    return renderOwnerCustomer(pool,uid,msg.chat.id,msg.message_id,customerId);
+  }
+
+  if(s&&s.flow==="owner_customer_message"){
+    const customerId=Number(s.data.customerId);
+    if(!Number.isSafeInteger(customerId)||customerId<=0)return false;
+    clearSession(uid);
+    try{
+      await telegramApi("sendMessage",{chat_id:customerId,text:raw});
+      await audit(pool,String(uid),"customer_message_sent",String(customerId),{});
+      return editOwnerRich(
+        pool,uid,msg.chat.id,msg.message_id,
+        ownerCustomerRich("ارسال پیام",[
+          {type:"paragraph",text:"پیام با موفقیت برای مشتری ارسال شد."},
+          ownerCustomerTable("مقصد",[["شناسه مشتری",String(customerId)]]),
+        ]),
+        ownerCustomerKeyboard([[ownerCustomerButton("مشاهده مشتری","ocm:view:"+customerId)],ownerCustomerBack("ocm:home")]),
+      ) as any;
+    }catch(error){
+      return sendRichCustomerFallback(pool,uid,msg.chat.id,msg.message_id,"ارسال پیام انجام نشد.","ocm:view:"+customerId);
+    }
+  }
+
   if(s&&s.flow==="owner_customer_search"){
     clearSession(uid);const q=raw.replace(/^@/,"");const r=await pool.query("SELECT * FROM bot_customers WHERE user_id::text=$1 OR LOWER(username)=LOWER($1) LIMIT 1",[q]);
     if(!r.rowCount)return send(msg.chat.id,"مشتری با این مشخصات یافت نشد.",menu([[["جستجوی مجدد","o:customers"],["‹ بازگشت","o:home"]]]))&&true;
@@ -1689,6 +1754,627 @@ async function sendCustomer(pool:Pool,ownerId:number,chatId:number,row:any){
   return send(chatId,text,menu(buttons));
 }
 
+
+
+// ─────────────────────────────────────────────────────────────
+// مالک · مدیریت مشتریان (Rich Message)
+// ─────────────────────────────────────────────────────────────
+
+function ownerCustomerButton(label:string,callbackData:string){
+  return {text:label,callback_data:callbackData};
+}
+
+function ownerCustomerColored(label:string,callbackData:string,style:"primary"|"success"|"danger"){
+  return styledGlassButton(label,callbackData,style);
+}
+
+function ownerCustomerKeyboard(rows:any[][]){
+  return {inline_keyboard:rows};
+}
+
+function ownerCustomerTable(caption:string,rows:Array<[string,string]>){
+  return {
+    type:"table",
+    caption,
+    is_bordered:true,
+    is_striped:false,
+    is_compact:true,
+    cells:[
+      [
+        {text:"عنوان",is_header:true,align:"right",valign:"middle"},
+        {text:"مقدار",is_header:true,align:"right",valign:"middle"},
+      ],
+      ...rows.map(([label,value])=>[
+        {text:label,align:"right",valign:"middle"},
+        {text:String(value??"ثبت نشده"),align:"right",valign:"middle"},
+      ]),
+    ],
+  };
+}
+
+function ownerCustomerRich(title:string,blocks:any[]){
+  return {
+    version:1,
+    is_rtl:true,
+    blocks:[
+      {type:"heading",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ · "+title,size:1},
+      {type:"divider"},
+      ...blocks,
+      {type:"footer",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ · Cᴜsᴛᴏᴍᴇʀ Mᴀɴᴀɢᴇᴍᴇɴᴛ"},
+    ],
+  };
+}
+
+function ownerCustomerBack(callbackData:string){
+  return [[ownerCustomerColored("‹ بازگشت",callbackData,"primary")]];
+}
+
+async function ownerCustomerStats(pool:Pool){
+  const [all,active,blocked,groups,licenses,subscriptions]=await Promise.all([
+    pool.query("SELECT COUNT(*)::int n FROM bot_customers").catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(*)::int n FROM bot_customers WHERE status='active'").catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(*)::int n FROM bot_customers WHERE status='blocked'").catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(DISTINCT customer_id)::int n FROM bot_customer_groups WHERE is_active=TRUE").catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(*)::int n FROM bot_licenses WHERE status='active' AND (expires_at IS NULL OR expires_at>NOW())").catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(*)::int n FROM bot_group_subscriptions WHERE status IN ('ACTIVE','EXPIRING','LIFETIME')").catch(()=>({rows:[{n:0}]})),
+  ]);
+  return {
+    total:Number(all.rows[0]?.n||0),
+    active:Number(active.rows[0]?.n||0),
+    blocked:Number(blocked.rows[0]?.n||0),
+    withGroups:Number(groups.rows[0]?.n||0),
+    activeLicenses:Number(licenses.rows[0]?.n||0),
+    activeSubscriptions:Number(subscriptions.rows[0]?.n||0),
+  };
+}
+
+async function ownerCustomerInstallCount(pool:Pool,customerId:number){
+  return Number((await pool.query(
+    `
+      SELECT COUNT(*)::int n
+      FROM gm_group_installations i
+      JOIN gm_groups g ON g.group_id=i.group_id
+      JOIN bot_customer_groups cg ON cg.group_id=g.telegram_chat_id
+      WHERE cg.customer_id=$1 AND cg.is_active=TRUE
+    `,
+    [customerId],
+  ).catch(()=>({rows:[{n:0}]}))).rows[0]?.n||0);
+}
+
+async function ownerCustomerFind(pool:Pool,reference:string){
+  const raw=String(reference??"").trim().replace(/^@/,"");
+  if(!raw)return null;
+  const result=await pool.query(
+    "SELECT user_id,username,first_name,status,first_installed_at,last_active_at FROM bot_customers WHERE user_id::text=$1 OR LOWER(username)=LOWER($1) LIMIT 1",
+    [raw],
+  ).catch(()=>({rows:[]}));
+  return result.rows?.[0]??null;
+}
+
+async function renderOwnerCustomers(
+  pool:Pool,
+ uid:number,
+ chatId:number,
+ messageId:number,
+){
+  const stats=await ownerCustomerStats(pool);
+  const rows:any[][]=[
+    [
+      ownerCustomerButton("فهرست مشتریان","ocm:list"),
+      ownerCustomerButton("جستجوی مشتری","ocm:search"),
+    ],
+    [
+      ownerCustomerButton("ثبت مشتری","ocm:add"),
+      ownerCustomerButton("مشتریان فعال","ocm:list:active"),
+    ],
+    [
+      ownerCustomerButton("مشتریان غیرفعال","ocm:list:blocked"),
+      ownerCustomerButton("وضعیت مصرف","ocm:usage"),
+    ],
+    [
+      ownerCustomerButton("اشتراک‌های مرتبط","ocm:subscriptions"),
+      ownerCustomerButton("لایسنس‌های مرتبط","ocm:licenses"),
+    ],
+    [
+      ownerCustomerColored("‹ بازگشت","o:home","primary"),
+    ],
+  ];
+
+  return editOwnerRich(
+    pool,
+    uid,
+    chatId,
+    messageId,
+    ownerCustomerRich("Cᴜsᴛᴏᴍᴇʀ Cᴇɴᴛᴇʀ",[
+      {type:"paragraph",text:"مرکز مالکیتی حساب مشتریان و ارتباط آن‌ها با سرویس سامانه"},
+      ownerCustomerTable("نمای کلی مشتریان",[
+        ["کل مشتریان",String(stats.total)],
+        ["فعال",String(stats.active)],
+        ["غیرفعال",String(stats.blocked)],
+        ["دارای گروه فعال",String(stats.withGroups)],
+        ["لایسنس‌های فعال",String(stats.activeLicenses)],
+        ["اشتراک‌های فعال",String(stats.activeSubscriptions)],
+      ]),
+      {type:"divider"},
+      {type:"heading",text:"مدیریت مشتری",size:2},
+      {type:"paragraph",text:"از این مرکز وضعیت حساب، گروه‌های مرتبط، اشتراک، لایسنس، نصب و تاریخچه مشتری کنترل می‌شود. مدیریت روزمره گروه‌ها همچنان در محدوده مشتری باقی می‌ماند."},
+    ]),
+    ownerCustomerKeyboard(rows),
+  );
+}
+
+async function renderOwnerCustomerList(
+  pool:Pool,
+ uid:number,
+ chatId:number,
+ messageId:number,
+ filter:"all"|"active"|"blocked"="all",
+ page=1,
+){
+  const limit=8;
+  const offset=(Math.max(1,page)-1)*limit;
+  const condition=filter==="active"?"WHERE status='active'":filter==="blocked"?"WHERE status='blocked'":"";
+  const total=Number((await pool.query("SELECT COUNT(*)::int n FROM bot_customers "+condition).catch(()=>({rows:[{n:0}]}))).rows[0]?.n||0);
+  const result=await pool.query(
+    "SELECT user_id,username,first_name,status,last_active_at FROM bot_customers "+condition+" ORDER BY last_active_at DESC NULLS LAST,user_id DESC LIMIT $1 OFFSET $2",
+    [limit,offset],
+  ).catch(()=>({rows:[]}));
+
+  const rows:any[][]=(result.rows||[]).map((customer:any)=>[
+    ownerCustomerButton(
+      ((customer.username?"@"+customer.username:(customer.first_name||String(customer.user_id)))+" · "+(String(customer.status)==="blocked"?"غیرفعال":"فعال")).slice(0,55),
+      "ocm:view:"+customer.user_id,
+    ),
+  ]);
+
+  if(!rows.length){
+    rows.push([ownerCustomerButton("موردی ثبت نشده است","ocm:home")]);
+  }
+
+  const navigation:any[]=[];
+  if(page>1)navigation.push(ownerCustomerButton("صفحه قبل","ocm:list:"+filter+":"+(page-1)));
+  if(offset+limit<total)navigation.push(ownerCustomerButton("صفحه بعد","ocm:list:"+filter+":"+(page+1)));
+  if(navigation.length)rows.push(navigation);
+  rows.push(ownerCustomerBack("ocm:home"));
+
+  const filterTitle=filter==="active"?"مشتریان فعال":filter==="blocked"?"مشتریان غیرفعال":"فهرست مشتریان";
+  return editOwnerRich(
+    pool,
+    uid,
+    chatId,
+    messageId,
+    ownerCustomerRich(filterTitle,[
+      ownerCustomerTable("نمایش فهرست",[
+        ["تعداد کل در فیلتر",String(total)],
+        ["صفحه",String(page)],
+        ["بازه",String(offset+1)+" تا "+String(Math.min(offset+limit,total))],
+      ]),
+      {type:"paragraph",text:"یک مشتری را انتخاب کنید تا پروفایل و ارتباطات کامل او نمایش داده شود."},
+    ]),
+    ownerCustomerKeyboard(rows),
+  );
+}
+
+async function renderOwnerCustomer(
+  pool:Pool,
+ uid:number,
+ chatId:number,
+ messageId:number,
+ customerId:number,
+){
+  const customer=await ownerCustomerFind(pool,String(customerId));
+  if(!customer)return editOwnerRich(
+    pool,uid,chatId,messageId,
+    ownerCustomerRich("مشتری",[{type:"paragraph",text:"مشتری پیدا نشد."}]),
+    ownerCustomerKeyboard(ownerCustomerBack("ocm:home")),
+  );
+
+  const groupStats=await pool.query(
+    "SELECT COUNT(*)::int total,COUNT(*) FILTER(WHERE is_active=TRUE)::int active FROM bot_customer_groups WHERE customer_id=$1",
+    [customerId],
+  ).catch(()=>({rows:[{total:0,active:0}]}));
+  const licenseStats=await pool.query(
+    "SELECT COUNT(*)::int total,COUNT(*) FILTER(WHERE status='active')::int active FROM bot_licenses WHERE customer_id=$1",
+    [customerId],
+  ).catch(()=>({rows:[{total:0,active:0}]}));
+  const subscriptionStats=await pool.query(
+    "SELECT COUNT(*)::int total,COUNT(*) FILTER(WHERE status IN ('ACTIVE','EXPIRING','LIFETIME'))::int active FROM bot_group_subscriptions WHERE customer_id=$1",
+    [customerId],
+  ).catch(()=>({rows:[{total:0,active:0}]}));
+  const installs=await ownerCustomerInstallCount(pool,customerId);
+
+  const blocked=String(customer.status||"active")==="blocked";
+
+  const statusButton=blocked
+    ? ownerCustomerColored("فعال‌سازی","ocm:activate:"+customerId,"success")
+    : ownerCustomerColored("غیرفعال‌سازی","ocm:deactivate:"+customerId,"danger");
+
+  const rows:any[][]=[
+    [
+      ownerCustomerButton("گروه‌ها","ocm:groups:"+customerId),
+      ownerCustomerButton("اشتراک‌ها","ocm:subs:"+customerId),
+    ],
+    [
+      ownerCustomerButton("لایسنس‌ها","ocm:customer_licenses:"+customerId),
+      ownerCustomerButton("نصب‌ها","ocm:installs:"+customerId),
+    ],
+    [
+      ownerCustomerButton("مصرف و فعالیت","ocm:activity:"+customerId),
+      statusButton,
+    ],
+    [
+      ownerCustomerButton("ارسال پیام","ocm:message:"+customerId),
+      ownerCustomerButton("تاریخچه","ocm:history:"+customerId),
+    ],
+    ownerCustomerBack("ocm:home"),
+  ];
+
+  return editOwnerRich(
+    pool,
+    uid,
+    chatId,
+    messageId,
+    ownerCustomerRich("اطلاعات مشتری",[
+      {type:"paragraph",text:customer.first_name||customer.username?((customer.first_name||"")+" "+(customer.username?"@"+customer.username:"")).trim():String(customerId)},
+      ownerCustomerTable("پروفایل حساب",[
+        ["شناسه Telegram",String(customer.user_id)],
+        ["نام کاربری",customer.username?"@"+customer.username:"ثبت نشده"],
+        ["نام",customer.first_name||"ثبت نشده"],
+        ["وضعیت حساب",blocked?"غیرفعال":"فعال"],
+        ["اولین نصب",faDate(customer.first_installed_at)],
+        ["آخرین فعالیت",faDate(customer.last_active_at)],
+      ]),
+      ownerCustomerTable("ارتباطات و مصرف",[
+        ["گروه‌ها",String(Number(groupStats.rows[0]?.total||0))],
+        ["گروه‌های فعال",String(groupStats.rows[0]?.active||0)],
+        ["لایسنس‌ها",String(licenseStats.rows[0]?.total||0)],
+        ["لایسنس فعال",String(licenseStats.rows[0]?.active||0)],
+        ["اشتراک‌ها",String(subscriptionStats.rows[0]?.total||0)],
+        ["اشتراک فعال",String(subscriptionStats.rows[0]?.active||0)],
+        ["نصب‌ها",String(installs)],
+      ]),
+      {type:"paragraph",text:"وضعیت حساب از وضعیت لایسنس، گروه و داده‌های مشتری جدا نگه داشته می‌شود؛ تغییر حساب به‌صورت خودکار چیزی را حذف نمی‌کند."},
+    ]),
+    ownerCustomerKeyboard(rows),
+  );
+}
+
+async function renderOwnerCustomerGroups(pool:Pool,uid:number,chatId:number,messageId:number,customerId:number){
+  const rows=await pool.query(
+    "SELECT group_id,title,is_active,last_seen_at FROM bot_customer_groups WHERE customer_id=$1 ORDER BY is_active DESC,last_seen_at DESC NULLS LAST LIMIT 30",
+    [customerId],
+  ).catch(()=>({rows:[]}));
+
+  const buttons:any[][]=(rows.rows||[]).map((row:any)=>[
+    ownerCustomerButton(
+      String(row.title||row.group_id).slice(0,48)+" · "+(row.is_active===false?"غیرفعال":"فعال"),
+      "ocm:group:"+customerId+":"+row.group_id,
+    ),
+  ]);
+  if(!buttons.length)buttons.push([ownerCustomerButton("گروهی ثبت نشده است","ocm:view:"+customerId)]);
+  buttons.push(ownerCustomerBack("ocm:view:"+customerId));
+
+  return editOwnerRich(
+    pool,uid,chatId,messageId,
+    ownerCustomerRich("گروه‌های مشتری",[
+      {type:"paragraph",text:"گروه‌هایی که این مشتری به‌صورت فعال یا سابقه‌ای به آن‌ها متصل شده است."},
+      ownerCustomerTable("خلاصه",[
+        ["مجموع گروه‌ها",String(rows.rows?.length||0)],
+        ["گروه فعال",String((rows.rows||[]).filter((x:any)=>x.is_active!==false).length)],
+      ]),
+    ]),
+    ownerCustomerKeyboard(buttons),
+  );
+}
+
+async function renderOwnerCustomerSubscriptions(pool:Pool,uid:number,chatId:number,messageId:number,customerId:number){
+  const rows=await pool.query(
+    "SELECT id,group_id,group_title,subscription_type,status,expires_at FROM bot_group_subscriptions WHERE customer_id=$1 ORDER BY id DESC LIMIT 30",
+    [customerId],
+  ).catch(()=>({rows:[]}));
+
+  const dataRows=(rows.rows||[]).map((x:any)=>[
+    "#"+x.id+" · "+String(x.group_title||x.group_id),
+    planLabel(String(x.subscription_type))+" · "+subscriptionStatusFa(String(x.status))+" · "+subscriptionDate(x.expires_at),
+  ]) as Array<[string,string]>;
+
+  return editOwnerRich(
+    pool,uid,chatId,messageId,
+    ownerCustomerRich("اشتراک‌های مشتری",[
+      ownerCustomerTable("اشتراک‌ها",dataRows.length?dataRows:[["رکورد","ثبت نشده"]]),
+      {type:"paragraph",text:"تغییرات ایجاد، تمدید و لغو اشتراک از مرکز مستقل اشتراک‌ها انجام می‌شود تا چرخه مشتری و گروه از هم جدا بماند."},
+    ]),
+    ownerCustomerKeyboard(ownerCustomerBack("ocm:view:"+customerId)),
+  );
+}
+
+async function renderOwnerCustomerLicenses(pool:Pool,uid:number,chatId:number,messageId:number,customerId:number){
+  const rows=await pool.query(
+    "SELECT id,code,license_type,status,group_limit,expires_at FROM bot_licenses WHERE customer_id=$1 ORDER BY id DESC LIMIT 30",
+    [customerId],
+  ).catch(()=>({rows:[]}));
+
+  const dataRows=(rows.rows||[]).map((x:any)=>[
+    String(x.code||("#"+x.id)),
+    String(x.license_type||"ثبت نشده")+" · "+String(x.status||"ثبت نشده")+" · گروه: "+String(x.group_limit??"—"),
+  ]) as Array<[string,string]>;
+
+  return editOwnerRich(
+    pool,uid,chatId,messageId,
+    ownerCustomerRich("لایسنس‌های مشتری",[
+      ownerCustomerTable("لایسنس‌ها",dataRows.length?dataRows:[["رکورد","ثبت نشده"]]),
+      {type:"paragraph",text:"صدور و تغییرات جزئی لایسنس در مرکز مستقل لایسنس‌ها کنترل می‌شود."},
+    ]),
+    ownerCustomerKeyboard(ownerCustomerBack("ocm:view:"+customerId)),
+  );
+}
+
+async function renderOwnerCustomerInstalls(pool:Pool,uid:number,chatId:number,messageId:number,customerId:number){
+  const rows=await pool.query(
+    `
+      SELECT g.telegram_chat_id,g.title,i.status,i.current_version,i.updated_at
+      FROM gm_group_installations i
+      JOIN gm_groups g ON g.group_id=i.group_id
+      JOIN bot_customer_groups cg ON cg.group_id=g.telegram_chat_id
+      WHERE cg.customer_id=$1 AND cg.is_active=TRUE
+      ORDER BY i.updated_at DESC NULLS LAST
+      LIMIT 30
+    `,
+    [customerId],
+  ).catch(()=>({rows:[]}));
+
+  const dataRows=(rows.rows||[]).map((x:any)=>[
+    String(x.title||x.telegram_chat_id),
+    String(x.status||"ثبت نشده")+" · v"+String(x.current_version??"0")+" · "+faDate(x.updated_at),
+  ]) as Array<[string,string]>;
+
+  return editOwnerRich(
+    pool,uid,chatId,messageId,
+    ownerCustomerRich("نصب‌های مشتری",[
+      ownerCustomerTable("استقرارها",dataRows.length?dataRows:[["رکورد","ثبت نشده"]]),
+      {type:"paragraph",text:"این مرکز فقط وضعیت استقرارهای مرتبط با مشتری را نمایش می‌دهد؛ عملیات نصب از مدیریت نصب‌ها انجام می‌شود."},
+    ]),
+    ownerCustomerKeyboard(ownerCustomerBack("ocm:view:"+customerId)),
+  );
+}
+
+async function renderOwnerCustomerActivity(pool:Pool,uid:number,chatId:number,messageId:number,customerId:number){
+  const groups=await pool.query(
+    "SELECT group_id,title FROM bot_customer_groups WHERE customer_id=$1 AND is_active=TRUE ORDER BY last_seen_at DESC NULLS LAST LIMIT 100",
+    [customerId],
+  ).catch(()=>({rows:[]}));
+  const groupIds=(groups.rows||[]).map((x:any)=>String(x.group_id));
+  let audits:any[]=[];
+  if(groupIds.length){
+    const r=await pool.query(
+      "SELECT action,target,created_at,actor_id FROM audit_logs WHERE target=ANY($1::text[]) ORDER BY created_at DESC LIMIT 30",
+      [groupIds],
+    ).catch(()=>({rows:[]}));
+    audits=r.rows||[];
+  }
+  const dataRows=audits.map((x:any)=>[
+    faDate(x.created_at),
+    String(x.action||"رویداد")+" · "+String(x.target||"—"),
+  ]) as Array<[string,string]>;
+
+  return editOwnerRich(
+    pool,uid,chatId,messageId,
+    ownerCustomerRich("مصرف و فعالیت مشتری",[
+      ownerCustomerTable("رویدادهای اخیر",dataRows.length?dataRows:[["رویداد","ثبت نشده"]]),
+      {type:"paragraph",text:"فعالیت مشتری از ارتباطات ثبت‌شده در گروه‌ها و Audit سامانه جمع می‌شود."},
+    ]),
+    ownerCustomerKeyboard(ownerCustomerBack("ocm:view:"+customerId)),
+  );
+}
+
+async function renderOwnerCustomerHistory(pool:Pool,uid:number,chatId:number,messageId:number,customerId:number){
+  const rows=await pool.query(
+    "SELECT action,target,created_at,actor_id FROM audit_logs WHERE actor_id=$1 ORDER BY created_at DESC LIMIT 30",
+    [String(customerId)],
+  ).catch(()=>({rows:[]}));
+  const dataRows=(rows.rows||[]).map((x:any)=>[
+    faDate(x.created_at),
+    String(x.action||"رویداد")+" · "+String(x.target||"—"),
+  ]) as Array<[string,string]>;
+  return editOwnerRich(
+    pool,uid,chatId,messageId,
+    ownerCustomerRich("تاریخچه مشتری",[
+      ownerCustomerTable("عملیات ثبت‌شده",dataRows.length?dataRows:[["رویداد","ثبت نشده"]]),
+    ]),
+    ownerCustomerKeyboard(ownerCustomerBack("ocm:view:"+customerId)),
+  );
+}
+
+async function renderOwnerCustomerSearch(pool:Pool,uid:number,chatId:number,messageId:number){
+  session(uid,"owner_customer_rich_search");
+  return editOwnerRich(
+    pool,uid,chatId,messageId,
+    ownerCustomerRich("جستجوی مشتری",[
+      {type:"paragraph",text:"آیدی عددی یا @username مشتری را ارسال کنید."},
+      ownerCustomerTable("ورودی",[
+        ["آیدی", "8247710529"],
+        ["نام کاربری", "@username"],
+      ]),
+    ]),
+    ownerCustomerKeyboard(ownerCustomerBack("ocm:home")),
+  );
+}
+
+async function renderOwnerCustomerAdd(pool:Pool,uid:number,chatId:number,messageId:number){
+  session(uid,"owner_customer_rich_add");
+  return editOwnerRich(
+    pool,uid,chatId,messageId,
+    ownerCustomerRich("ثبت مشتری",[
+      {type:"paragraph",text:"آیدی عددی Telegram مشتری را ارسال کنید."},
+      ownerCustomerTable("الزام",[
+        ["شناسه", "فقط عدد مثبت"],
+        ["یوزرنیم", "پس از ثبت در صورت وجود از اطلاعات سامانه تکمیل می‌شود"],
+      ]),
+    ]),
+    ownerCustomerKeyboard(ownerCustomerBack("ocm:home")),
+  );
+}
+
+async function renderOwnerCustomerUsage(pool:Pool,uid:number,chatId:number,messageId:number){
+  const stats=await ownerCustomerStats(pool);
+  const recent=await pool.query(
+    "SELECT action,COUNT(*)::int n FROM audit_logs WHERE created_at>=NOW()-INTERVAL '30 days' GROUP BY action ORDER BY n DESC LIMIT 10",
+  ).catch(()=>({rows:[]}));
+  return editOwnerRich(
+    pool,uid,chatId,messageId,
+    ownerCustomerRich("وضعیت مصرف",[
+      ownerCustomerTable("نمای کلی",[
+        ["مشتریان فعال",String(stats.active)],
+        ["گروه‌های دارای مشتری",String(stats.withGroups)],
+        ["لایسنس‌های فعال",String(stats.activeLicenses)],
+        ["اشتراک‌های فعال",String(stats.activeSubscriptions)],
+      ]),
+      ownerCustomerTable("رویدادهای پرتکرار ۳۰ روز اخیر",(recent.rows||[]).map((x:any)=>[
+        String(x.action||"رویداد"),String(x.n||0),
+      ]) as Array<[string,string]>),
+    ]),
+    ownerCustomerKeyboard(ownerCustomerBack("ocm:home")),
+  );
+}
+
+async function renderOwnerCustomerSubscriptionsGlobal(pool:Pool,uid:number,chatId:number,messageId:number){
+  const rows=await pool.query(
+    `
+      SELECT customer_id,COUNT(*)::int total,
+             COUNT(*) FILTER(WHERE status IN ('ACTIVE','EXPIRING','LIFETIME'))::int active
+      FROM bot_group_subscriptions
+      GROUP BY customer_id
+      ORDER BY active DESC,total DESC,customer_id
+      LIMIT 30
+    `,
+  ).catch(()=>({rows:[]}));
+  const dataRows=(rows.rows||[]).map((x:any)=>[
+    String(x.customer_id),
+    "فعال: "+String(x.active)+" · کل: "+String(x.total),
+  ]) as Array<[string,string]>;
+  return editOwnerRich(
+    pool,uid,chatId,messageId,
+    ownerCustomerRich("اشتراک‌های مرتبط",[
+      ownerCustomerTable("مشتریان دارای اشتراک",dataRows.length?dataRows:[["مشتری","ثبت نشده"]]),
+      {type:"paragraph",text:"جزئیات هر اشتراک در مرکز مستقل اشتراک‌ها قابل مدیریت است."},
+    ]),
+    ownerCustomerKeyboard(ownerCustomerBack("ocm:home")),
+  );
+}
+
+async function renderOwnerCustomerLicensesGlobal(pool:Pool,uid:number,chatId:number,messageId:number){
+  const rows=await pool.query(
+    `
+      SELECT customer_id,COUNT(*)::int total,
+             COUNT(*) FILTER(WHERE status='active' AND (expires_at IS NULL OR expires_at>NOW()))::int active
+      FROM bot_licenses
+      GROUP BY customer_id
+      ORDER BY active DESC,total DESC,customer_id
+      LIMIT 30
+    `,
+  ).catch(()=>({rows:[]}));
+  const dataRows=(rows.rows||[]).map((x:any)=>[
+    String(x.customer_id),
+    "فعال: "+String(x.active)+" · کل: "+String(x.total),
+  ]) as Array<[string,string]>;
+  return editOwnerRich(
+    pool,uid,chatId,messageId,
+    ownerCustomerRich("لایسنس‌های مرتبط",[
+      ownerCustomerTable("مشتریان دارای لایسنس",dataRows.length?dataRows:[["مشتری","ثبت نشده"]]),
+      {type:"paragraph",text:"جزئیات صدور و تغییرات لایسنس از مرکز مستقل لایسنس‌ها انجام می‌شود."},
+    ]),
+    ownerCustomerKeyboard(ownerCustomerBack("ocm:home")),
+  );
+}
+
+async function handleOwnerCustomerRichCallback(
+  pool:Pool,
+  cb:TgCallback,
+){
+  const uid=cb.from.id;
+  const msg=cb.message;
+  if(!msg)return false;
+  const data=String(cb.data||"");
+
+  if(data==="ocm:home"){
+    return !!(await renderOwnerCustomers(pool,uid,msg.chat.id,msg.message_id));
+  }
+
+  if(data==="ocm:list"||data.startsWith("ocm:list:")){
+    const parts=data.split(":");
+    const filter=parts[2]==="active"||parts[2]==="blocked"?parts[2]:"all";
+    const page=Math.max(1,Number(filter==="all"?parts[2]:parts[3])||1);
+    return !!(await renderOwnerCustomerList(pool,uid,msg.chat.id,msg.message_id,filter as any,page));
+  }
+
+  if(data==="ocm:search")return !!(await renderOwnerCustomerSearch(pool,uid,msg.chat.id,msg.message_id));
+  if(data==="ocm:add")return !!(await renderOwnerCustomerAdd(pool,uid,msg.chat.id,msg.message_id));
+  if(data==="ocm:usage")return !!(await renderOwnerCustomerUsage(pool,uid,msg.chat.id,msg.message_id));
+  if(data==="ocm:subscriptions")return !!(await renderOwnerCustomerSubscriptionsGlobal(pool,uid,msg.chat.id,msg.message_id));
+  if(data==="ocm:licenses")return !!(await renderOwnerCustomerLicensesGlobal(pool,uid,msg.chat.id,msg.message_id));
+
+  if(data.startsWith("ocm:view:")){
+    const customerId=Number(data.slice(9));
+    if(!Number.isSafeInteger(customerId)||customerId<=0)return true;
+    return !!(await renderOwnerCustomer(pool,uid,msg.chat.id,msg.message_id,customerId));
+  }
+
+  const simpleRoutes:Array<[string,(customerId:number)=>Promise<any>]>=[
+    ["groups",id=>renderOwnerCustomerGroups(pool,uid,msg.chat.id,msg.message_id,id)],
+    ["subs",id=>renderOwnerCustomerSubscriptions(pool,uid,msg.chat.id,msg.message_id,id)],
+    ["customer_licenses",id=>renderOwnerCustomerLicenses(pool,uid,msg.chat.id,msg.message_id,id)],
+    ["installs",id=>renderOwnerCustomerInstalls(pool,uid,msg.chat.id,msg.message_id,id)],
+    ["activity",id=>renderOwnerCustomerActivity(pool,uid,msg.chat.id,msg.message_id,id)],
+    ["history",id=>renderOwnerCustomerHistory(pool,uid,msg.chat.id,msg.message_id,id)],
+  ];
+
+  for(const [route,handler] of simpleRoutes){
+    const prefix="ocm:"+route+":";
+    if(data.startsWith(prefix)){
+      const customerId=Number(data.slice(prefix.length));
+      if(!Number.isSafeInteger(customerId)||customerId<=0)return true;
+      return !!(await handler(customerId));
+    }
+  }
+
+  if(data.startsWith("ocm:activate:")||data.startsWith("ocm:deactivate:")){
+    const activate=data.startsWith("ocm:activate:");
+    const customerId=Number(data.slice(activate?13:15));
+    if(!Number.isSafeInteger(customerId)||customerId<=0)return true;
+    const customer=await ownerCustomerFind(pool,String(customerId));
+    if(!customer)return true;
+    const nextStatus=activate?"active":"blocked";
+    await pool.query(
+      "UPDATE bot_customers SET status=$1,last_active_at=CASE WHEN $1='active' THEN NOW() ELSE last_active_at END WHERE user_id=$2",
+      [nextStatus,customerId],
+    );
+    await audit(pool,String(uid),activate?"customer_activated":"customer_deactivated",String(customerId),{status:nextStatus});
+    return !!(await renderOwnerCustomer(pool,uid,msg.chat.id,msg.message_id,customerId));
+  }
+
+  if(data.startsWith("ocm:message:")){
+    const customerId=Number(data.slice(12));
+    if(!Number.isSafeInteger(customerId)||customerId<=0)return true;
+    session(uid,"owner_customer_message",{customerId});
+    return !!(await editOwnerRich(pool,uid,msg.chat.id,msg.message_id,
+      ownerCustomerRich("ارسال پیام",[
+        {type:"paragraph",text:"متن پیام خصوصی مشتری را ارسال کنید."},
+        ownerCustomerTable("مقصد",[["شناسه مشتری",String(customerId)]]),
+      ]),
+      ownerCustomerKeyboard(ownerCustomerBack("ocm:view:"+customerId)),
+    ));
+  }
+
+  return false;
+}
+
+async function sendRichCustomerFallback(pool:Pool,uid:number,chatId:number,messageId:number,textValue:string,backData:string){
+  return editOwnerRich(
+    pool,uid,chatId,messageId,
+    ownerCustomerRich("مدیریت مشتریان",[{type:"paragraph",text:textValue}]),
+    ownerCustomerKeyboard(ownerCustomerBack(backData)),
+  );
+}
 
 async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   setCurrentPanelKind("owner");
@@ -2339,13 +3025,12 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   }
   if(data==="o:stats")return renderOwner(pool,uid,msg.chat.id,msg.message_id,"stats",cb.from);
   if(data==="o:customers"){
-    return edit(msg.chat.id,msg.message_id,
-      "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Cᴜsᴛᴏᴍᴇʀ Cᴇɴᴛᴇʀ\n\n⛂ مدیریت ثبت‌شده‌های سامانه",
-      menu([
-        [["جستجوی مشتری","o:customer_search"],["ثبت مشتری جدید","o:customer_add"]],
-        [["‹ بازگشت","o:home"]]
-      ])
-    );
+    return renderOwnerCustomers(pool,uid,msg.chat.id,msg.message_id);
+  }
+
+  if(data.startsWith("ocm:")){
+    const handled=await handleOwnerCustomerRichCallback(pool,cb);
+    if(handled)return handled;
   }
   if(data==="o:customer_search"){
     session(uid,"owner_customer_search");
