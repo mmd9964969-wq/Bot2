@@ -2303,7 +2303,9 @@ async function handleOwnerCustomerRichCallback(
   if(data==="ocm:list"||data.startsWith("ocm:list:")){
     const parts=data.split(":");
     const filter=parts[2]==="active"||parts[2]==="blocked"?parts[2]:"all";
-    const page=Math.max(1,Number(filter==="all"?parts[2]:parts[3])||1);
+    const page=filter==="all"
+      ? Math.max(1,Number(parts[2])||1)
+      : Math.max(1,Number(parts[3])||1);
     return !!(await renderOwnerCustomerList(pool,uid,msg.chat.id,msg.message_id,filter as any,page));
   }
 
