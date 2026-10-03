@@ -12,7 +12,7 @@ import { ensureOwnerSudoSchema, ownerSudoCallback, handleOwnerSudoTextInput, sen
 import { ownerLicenseCallback, handleOwnerLicenseTextInput } from "../src/lib/bot/owner-license.ts";
 import { AUTOMATION_ACTIONS } from "../src/lib/bot/automation-engine.ts";
 import { getGroupStats } from "../src/lib/bot/runtime.ts";
-import { ensureOwnerGroupSchema, listOwnerGroups, ownerGroupOverview, getOwnerGroup, getOwnerGroupLogs, setOwnerGroupEnabled, leaveOwnerGroup, resetOwnerGroup, sendMessageToOwnerGroup, syncAllOwnerGroups } from "../src/lib/bot/owner-groups.ts";
+import { ensureOwnerGroupSchema, listOwnerGroups, ownerGroupOverview, getOwnerGroup, getOwnerGroupLogs, setOwnerGroupEnabled, leaveOwnerGroup, resetOwnerGroup, sendMessageToOwnerGroup, syncAllOwnerGroups } from "../src/lib/bot/owner-groups.ts";\nimport { ensureGroupManagementCoreSchema, groupManagementOverview, listManagedGroups, getGroupOverview, resolveGroupInput, registerGroup, installGroup, inspectGroup, archiveGroup, restoreGroup, getModuleState, groupStatusLabel, botMembershipLabel } from "../src/lib/bot/group-management-core.ts";
 import { ensureGroupConfigSchema, handleGroupConfigMessage, handleGroupConfigInput, handleGroupConfigCallback } from "../src/lib/bot/group-config.ts";
 import { handleInviteLinkCallback, handleInviteLinkTextInput } from "../src/lib/bot/invite-links.ts";
 import { handleSpecialCallback, handleSpecialCommand, handleSpecialTextInput } from "../src/lib/bot/special-users.ts";
@@ -608,11 +608,8 @@ function ownerButton(text:string,callback_data:string,style:"primary"|"success"|
 }
 function ownerMainMarkup(){
   return {inline_keyboard:[
-    [ownerButton("سامانه","o:section:system"),ownerButton("مشتریان","o:section:customers")],
-    [ownerButton("گروه‌ها","o:section:groups"),ownerButton("امنیت","o:section:security")],
-    [ownerButton("گزارش‌ها","o:section:reports"),ownerButton("ابزارها","o:section:tools")],
-    [ownerButton("تنظیمات مالک","o:section:settings")],
-    [ownerButton("بروزرسانی","o:home:refresh"),ownerButton("خروج از پنل","o:exit","primary")],
+    [ownerButton("مدیریت گروه‌ها","o:groups")],
+    [ownerButton("خروج از پنل","o:exit","primary")],
   ]};
 }
 async function ownerAccessSnapshot(pool:Pool,uid:number,user:TgUser){
@@ -660,13 +657,13 @@ function buildOwnerEntryRich(s:Awaited<ReturnType<typeof ownerAccessSnapshot>>){
 }
 function buildOwnerHomeRich(s:Awaited<ReturnType<typeof ownerAccessSnapshot>>){
   return {version:1,is_rtl:true,blocks:[
-    {type:"heading",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ Owner Center",size:1},
-    {type:"paragraph",text:"مرکز اصلی مدیریت و کنترل مالک"},
+    {type:"heading",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ · Pᴏᴡɴᴇʀ Cᴇɴᴛᴇʀ",size:1},
+    {type:"paragraph",text:"مرکز اختصاصی مالک"},
     {type:"divider"},
     ownerAccessTable("اطلاعات دسترسی مالک",ownerAccessRows(s)),
     {type:"divider"},
-    {type:"heading",text:"منوی اصلی",size:2},
-    {type:"paragraph",text:"بخش موردنظر را برای ادامهٔ مدیریت انتخاب کنید."},
+    {type:"heading",text:"مدیریت",size:2},
+    {type:"paragraph",text:"تنها مسیر عملیاتی این صفحه، مرکز مدیریت گروه‌ها است."},
     {type:"footer",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ"},
   ]};
 }
@@ -2128,74 +2125,306 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
   if(data==="o:groups"){
     if(!ownerGroupAuthenticated(uid)){
       return edit(msg.chat.id,msg.message_id,panelTitle("احراز هویت مدیریت گروه‌ها",[
-        "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Oᴡɴᴇʀ Gʀᴏᴜᴘ Aᴄᴄᴇss",
+        "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Gʀᴏᴜᴘ Mᴀɴᴀɢᴇᴍᴇɴᴛ",
         "",
-        "⛂ - هویت تلگرام : "+uid,
-        "⛂ - وضعیت مالک : ✓ تأییدشده",
+        "⛂ - هویت مالک : ✓ تأییدشده",
         "",
         PANEL_SEPARATOR,
         "",
         "برای ورود به مرکز مدیریت گروه‌ها، احراز هویت این مرکز را تأیید کنید.",
-        "دسترسی پس از تأیید برای ۳۰ دقیقه فعال می‌ماند."
+        "اعتبار دسترسی این مرکز: ۳۰ دقیقه."
       ].join("\n")),menu([
         [["› احراز هویت و ورود","og:auth"]],
         [["‹ بازگشت به پنل مالک","o:home"]]
       ]));
     }
-    await ensureOwnerGroupSchema(pool);
-    const overview=await ownerGroupOverview(pool);
-    const body=[
-      "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Gʀᴏᴜᴘ Cᴇɴᴛᴇʀ",
+    await ensureGroupManagementCoreSchema(pool);
+    return edit(msg.chat.id,msg.message_id,panelTitle("مدیریت گروه‌ها",[
+      "★ انتخاب محدوده مدیریت",
       "",
-      "★ - وضعیت سراسری",
+      "⛂ - گروه‌های ثبت‌شده و در دسترس",
+      "⛂ - مدیریت یک گروه یا بررسی یک گروه خارج از سامانه",
       "",
-      "⛂ - تعداد کل گروه‌ها : "+Number(overview.total||0),
-      "⛂ - گروه‌های فعال : "+Number(overview.active||0),
-      "⛂ - گروه‌های غیرفعال : "+Number(overview.disabled||0),
-      "⛂ - گروه‌های محدود : "+Number(overview.restricted||0),
-      "⛂ - گروه‌های دارای خطا : "+Number(overview.error||0),
-      "⛂ - گروه‌های خارج‌شده : "+Number(overview.left_groups||0),
+      PANEL_SEPARATOR
+    ].join("\n")),menu([
+      [["یک گروه","gm:list:"]],
+      [["سراسری گروه","gm:global"]],
+      [["‹ بازگشت","o:home"]]
+    ]));
+  }
+
+  if(data.startsWith("gm:") && !ownerGroupAuthenticated(uid)){
+    return edit(msg.chat.id,msg.message_id,panelTitle("احراز هویت لازم است","⛂ - وضعیت : جلسه مرکز مدیریت گروه‌ها منقضی شده است."),menu([
+      [["› احراز هویت و ورود","og:auth"]],
+      [["‹ بازگشت","o:home"]]
+    ]));
+  }
+
+  if(data==="gm:global"){
+    session(uid,"owner_group_resolver",{step:1,panelMessageId:msg.message_id});
+    return edit(msg.chat.id,msg.message_id,panelTitle("سراسری گروه",[
+      "⛂ - لینک یا شناسه گروه موردنظر را ارسال کنید.",
+      "",
+      "مثال:",
+      "@groupname",
+      "https://t.me/groupname",
+      "https://t.me/+invite",
+      "-1001234567890",
       "",
       PANEL_SEPARATOR,
       "",
-      "★ - مرکز کنترل سراسری گروه‌های ربات",
+      "◂ سیستم ابتدا گروه را شناسایی می‌کند.",
+      "◂ سپس وضعیت ثبت، نصب و دسترسی ربات بررسی می‌شود."
+    ].join("\n")),menu([[["‹ بازگشت","o:groups"]]]));
+  }
+
+  if(data==="gm:list:"){
+    const overview=await groupManagementOverview(pool);
+    const result=await listManagedGroups(pool,{limit:8});
+    const rows:any[]=result.rows.map((x:any)=>[[String(x.title||"گروه بدون نام").slice(0,42),"gm:view:"+x.group_id]]);
+    if(!rows.length)rows.push([["■ گروه ثبت‌شده‌ای وجود ندارد","o:groups"]]);
+    if(result.nextCursor)rows.push([["صفحه بعد ›","gm:list:"+result.nextCursor]]);
+    rows.push([["‹ بازگشت","o:groups"]]);
+    return edit(msg.chat.id,msg.message_id,panelTitle("یک گروه",[
+      "★ گروه‌های تحت مدیریت",
       "",
-      "از منوی زیر بخش مورد نظر را انتخاب کنید."
+      "⛂ - تعداد گروه‌ها : "+overview.total,
+      "⛂ - فعال : "+overview.active,
+      "⛂ - نیازمند بررسی : "+overview.needsReview,
+      "⛂ - در دسترس نبودن ربات : "+overview.unavailable,
+      "",
+      PANEL_SEPARATOR
+    ].join("\n")),menu(rows));
+  }
+
+  if(data.startsWith("gm:list:") && data.length>8){
+    const cursor=data.slice(8);
+    const result=await listManagedGroups(pool,{cursor,limit:8});
+    const rows:any[]=result.rows.map((x:any)=>[[String(x.title||"گروه بدون نام").slice(0,42),"gm:view:"+x.group_id]]);
+    if(!rows.length)rows.push([["■ مورد دیگری وجود ندارد","o:groups"]]);
+    if(result.nextCursor)rows.push([["صفحه بعد ›","gm:list:"+result.nextCursor]]);
+    rows.push([["‹ بازگشت","o:groups"]]);
+    return edit(msg.chat.id,msg.message_id,panelTitle("یک گروه","★ گروه‌های تحت مدیریت\n\n"+PANEL_SEPARATOR),menu(rows));
+  }
+
+  if(data.startsWith("gm:view:")){
+    const groupId=data.slice(8);
+    let overview:any=null;
+    overview=await getGroupOverview(pool,groupId);
+    if(!overview)return edit(msg.chat.id,msg.message_id,panelTitle("مدیریت گروه","⛂ - گروه پیدا نشد."),menu([[["‹ بازگشت","gm:list:"]]]));
+    const security:any=await getModuleState(pool,groupId,"security").catch(()=>null);
+    const securityLabel=security?.state==="ACTIVE"?"● فعال":security?.state==="DEGRADED"?"◐ نیازمند بررسی":security?.state==="FAILED"?"✗ خطا":"○ آماده";
+    const body=[
+      "◈ "+valueOrDash(overview.title),
+      "",
+      PANEL_SEPARATOR,
+      "",
+      "★ وضعیت گروه",
+      "",
+      "⛂ - اعضا : "+valueOrDash(overview.member_count),
+      "⛂ - مدیران : "+valueOrDash(overview.admin_count),
+      "⛂ - سرویس : "+(overview.service_status==="ACTIVE"?"● فعال":overview.service_status==="DEGRADED"?"◐ نیازمند بررسی":overview.service_status==="STOPPED"?"○ متوقف":"✗ "+valueOrDash(overview.service_status)),
+      "⛂ - امنیت : "+securityLabel,
+      "⛂ - نصب : "+(overview.installation_status==="INSTALLED"?"● کامل":overview.installation_status==="PENDING"?"◐ در انتظار":"■ "+valueOrDash(overview.installation_status)),
+      "",
+      PANEL_SEPARATOR,
+      "",
+      "★ دسترسی ربات",
+      "",
+      "⛂ - حضور : "+botMembershipLabel(String(overview.bot_membership_status||"UNKNOWN")),
+      "⛂ - سلامت : "+groupStatusLabel(String(overview.health_status||"DEGRADED")),
+      "",
+      PANEL_SEPARATOR
     ].join("\n");
+    session(uid,"customer",{chatId:Number(overview.telegram_chat_id),ownerGroupContext:true,ownerGroupReturn:"gm:view:"+groupId});
     return edit(msg.chat.id,msg.message_id,body,menu([
-      [["› لیست تمام گروه‌ها","og:list:1"]],[["› جستجوی گروه","o:group_search"]],
-      [["› گروه‌های فعال","og:list:1:ACTIVE"],["› گروه‌های غیرفعال","og:list:1:DISABLED"]],
-      [["› گروه‌های پرمصرف","og:heavy"],["› گروه‌های دارای خطا","og:list:1:ERROR"]],
-      [["› عملیات گروهی","og:bulk:1"],["› آمار کلی گروه‌ها","og:stats"]],
-      [["› همگام‌سازی","og:sync"]],
-      [["‹ بازگشت به پنل مالک","o:home"]]
+      [["تنظیمات","og:settings:"+String(overview.telegram_chat_id)],["مدیریت اعضا","gm:module:"+groupId+":members"]],
+      [["امنیت","gm:module:"+groupId+":security"],["دستورات","gm:module:"+groupId+":commands"]],
+      [["آمار","gm:stats:"+groupId],["فعالیت‌ها","gm:activity:"+groupId]],
+      [["ابزارها","gm:module:"+groupId+":tools"],["وضعیت نصب","gm:install:"+groupId]],
+      [["وضعیت","gm:status:"+groupId],["بروزرسانی","gm:reconcile:"+groupId]],
+      [[overview.registration_status==="ARCHIVED"?"بازیابی گروه":"آرشیو گروه","gm:"+(overview.registration_status==="ARCHIVED"?"restore":"archive")+":"+groupId]],
+      [["‹ بازگشت","gm:list:"]]
     ]));
+  }
+
+  if(data.startsWith("gm:module:")){
+    const parts=data.split(":");const groupId=parts[2];const module=parts[3];
+    const x=await getGroupOverview(pool,groupId);if(!x)return;
+    const chatId=Number(x.telegram_chat_id);
+    const target=module==="members"?"c:members":module==="security"?"c:security":module==="commands"?"c:commands":"c:automation";
+    session(uid,"customer",{chatId,ownerGroupContext:true,ownerGroupReturn:"gm:view:"+groupId});
+    return customerCallback(pool,{...cb,data:target},ownerIds);
+  }
+
+  if(data.startsWith("gm:status:")){
+    const groupId=data.slice(10);const x=await getGroupOverview(pool,groupId);if(!x)return;
+    const modules=await getModuleState(pool,groupId).catch(()=>[]);
+    const moduleLines=(Array.isArray(modules)?modules:[]).map((m:any)=>"⛂ - "+m.module_key+" : "+m.state).join("\n");
+    return edit(msg.chat.id,msg.message_id,panelTitle("وضعیت گروه",[
+      "⛂ - ثبت : "+valueOrDash(x.registration_status),
+      "⛂ - نصب : "+valueOrDash(x.installation_status),
+      "⛂ - ربات : "+botMembershipLabel(String(x.bot_membership_status||"UNKNOWN")),
+      "⛂ - سرویس : "+valueOrDash(x.service_status),
+      "⛂ - سلامت : "+groupStatusLabel(String(x.health_status||"DEGRADED")),
+      "",
+      PANEL_SEPARATOR,
+      "",
+      "★ ماژول‌ها",
+      moduleLines||"■ بدون داده"
+    ].join("\n")),menu([
+      [["› بروزرسانی","gm:reconcile:"+groupId]],
+      [["‹ بازگشت","gm:view:"+groupId]]
+    ]));
+  }
+
+  if(data.startsWith("gm:stats:")){
+    const groupId=data.slice(9);const x=await inspectGroup(pool,groupId).catch(()=>getGroupOverview(pool,groupId));if(!x)return;
+    return edit(msg.chat.id,msg.message_id,panelTitle("آمار گروه",[
+      "⛂ - اعضای فعلی : "+valueOrDash(x.member_count),
+      "⛂ - مدیران فعلی : "+valueOrDash(x.admin_count),
+      "⛂ - آخرین پیام : "+faDate(x.last_message_at),
+      "⛂ - آخرین فعالیت ربات : "+faDate(x.last_bot_activity_at),
+      "⛂ - آخرین عملیات مدیریتی : "+faDate(x.last_admin_action_at),
+      "⛂ - آخرین رویداد امنیتی : "+faDate(x.last_security_event_at),
+      "",
+      PANEL_SEPARATOR,
+      "",
+      "◂ آمار تاریخی در Database نگهداری می‌شود."
+    ].join("\n")),menu([[["› بروزرسانی","gm:reconcile:"+groupId]],[["‹ بازگشت","gm:view:"+groupId]]]));
+  }
+
+  if(data.startsWith("gm:activity:")){
+    const groupId=data.slice(12);const x=await getGroupOverview(pool,groupId);if(!x)return;
+    return edit(msg.chat.id,msg.message_id,panelTitle("فعالیت‌ها",[
+      "⛂ - آخرین پیام : "+faDate(x.last_message_at),
+      "⛂ - فعالیت ربات : "+faDate(x.last_bot_activity_at),
+      "⛂ - عملیات مدیریتی : "+faDate(x.last_admin_action_at),
+      "⛂ - رویداد امنیتی : "+faDate(x.last_security_event_at),
+      "⛂ - آخرین همگام‌سازی : "+faDate(x.last_reconcile_at),
+      "",
+      PANEL_SEPARATOR
+    ].join("\n")),menu([[["› بروزرسانی","gm:reconcile:"+groupId]],[["‹ بازگشت","gm:view:"+groupId]]]));
+  }
+
+  if(data.startsWith("gm:install:")){
+    const groupId=data.slice(10);const x=await installGroup(pool,uid,groupId).catch(error=>({error:error instanceof Error?error.message:String(error)}));
+    if((x as any)?.error)return edit(msg.chat.id,msg.message_id,panelTitle("وضعیت نصب","⛂ - وضعیت : ✗ عملیات ثبت نشد\n⛂ - دلیل : "+(x as any).error),menu([[["‹ بازگشت","gm:view:"+groupId]]]));
+    const row:any=x;
+    return edit(msg.chat.id,msg.message_id,panelTitle("وضعیت نصب",[
+      "⛂ - وضعیت : "+valueOrDash(row?.installation_status),
+      "⛂ - نسخه : "+valueOrDash(row?.current_version),
+      "",
+      PANEL_SEPARATOR,
+      "",
+      row?.installation_status==="INSTALLED"?"● نصب کامل و همگام است.":"◐ نصب در موتور نصب موجود سامانه در انتظار اجراست."
+    ].join("\n")),menu([[["› بررسی مجدد","gm:install:"+groupId]],[["‹ بازگشت","gm:view:"+groupId]]]));
+  }
+
+  if(data.startsWith("gm:reconcile:")){
+    const groupId=data.slice(13);
+    try{const x=await inspectGroup(pool,groupId);return edit(msg.chat.id,msg.message_id,panelTitle("همگام‌سازی گروه","● وضعیت Telegram و Database بررسی و همگام شد.\n\n⛂ - ربات : "+botMembershipLabel(String(x?.bot_membership_status||"UNKNOWN"))),menu([[["› مشاهده گروه","gm:view:"+groupId]],[["‹ بازگشت","gm:list:"]]]));}
+    catch(error){return edit(msg.chat.id,msg.message_id,panelTitle("همگام‌سازی گروه","✗ همگام‌سازی کامل نشد.\n\n⛂ - دلیل : "+(error instanceof Error?error.message:String(error))),menu([[["› مشاهده آخرین وضعیت","gm:view:"+groupId]],[["‹ بازگشت","gm:list:"]]]));}
+  }
+
+  if(data.startsWith("gm:archive:")||data.startsWith("gm:restore:")){
+    const action=data.startsWith("gm:archive:")?"archive":"restore";const groupId=data.split(":")[2];
+    if(action==="archive"){
+      session(uid,"owner_group_confirm",{action:"archive",gid:groupId,step:1});
+      return edit(msg.chat.id,msg.message_id,panelTitle("بررسی آرشیو گروه",[
+        "⛂ - عملیات : آرشیو گروه",
+        "⛂ - گروه : "+groupId,
+        "",
+        "سرویس متوقف می‌شود و ماژول‌های فعال غیرفعال می‌شوند.",
+        "اطلاعات گروه، آمار و Audit حذف نمی‌شوند.",
+        "",
+        "◂ این عملیات باید دو مرحله تأیید شود."
+      ].join("\n")),menu([[["› ادامه بررسی","gm:archive_review:"+groupId]],[["‹ لغو","gm:view:"+groupId]]]));
+    }
+    try{const x=await restoreGroup(pool,uid,groupId);return edit(msg.chat.id,msg.message_id,panelTitle("بازیابی گروه","● ثبت گروه بازیابی شد.\n\n⛂ - وضعیت : "+valueOrDash(x?.registration_status)),menu([[["› مشاهده گروه","gm:view:"+groupId]],[["‹ بازگشت","gm:list:"]]]));}
+    catch(error){return edit(msg.chat.id,msg.message_id,panelTitle("بازیابی گروه","✗ بازیابی انجام نشد.\n\n"+(error instanceof Error?error.message:String(error))),menu([[["‹ بازگشت","gm:view:"+groupId]]]));}
+  }
+
+  if(data.startsWith("gm:archive_review:")){
+    const groupId=data.slice(18);const s=getSession(uid);
+    if(!s||s.flow!=="owner_group_confirm"||s.data.action!=="archive"||String(s.data.gid)!==groupId)return;
+    session(uid,"owner_group_confirm",{action:"archive",gid:groupId,step:2});
+    return edit(msg.chat.id,msg.message_id,panelTitle("تأیید نهایی آرشیو",[
+      "⛂ - عملیات : آرشیو گروه",
+      "⛂ - مرحله : تأیید دوم",
+      "",
+      "با اجرای عملیات:",
+      "● سرویس گروه متوقف می‌شود.",
+      "● ماژول‌های فعال غیرفعال می‌شوند.",
+      "● اطلاعات و Audit حفظ می‌شوند.",
+      "",
+      "آماده اجرای نهایی."
+    ].join("\n")),menu([[["› تأیید نهایی","gm:archive_execute:"+groupId]],[["‹ لغو","gm:view:"+groupId]]]));
+  }
+
+  if(data.startsWith("gm:archive_execute:")){
+    const groupId=data.slice(19);const s=getSession(uid);
+    if(!s||s.flow!=="owner_group_confirm"||s.data.action!=="archive"||Number(s.data.step)!==2||String(s.data.gid)!==groupId)return;
+    clearSession(uid);
+    try{await archiveGroup(pool,uid,groupId);return edit(msg.chat.id,msg.message_id,panelTitle("آرشیو گروه","● گروه آرشیو شد.\n\n⛂ - داده‌ها : حفظ شد\n⛂ - سرویس : متوقف"),menu([[["› مشاهده گروه","gm:view:"+groupId]],[["‹ بازگشت","gm:list:"]]]));}
+    catch(error){return edit(msg.chat.id,msg.message_id,panelTitle("آرشیو گروه","✗ آرشیو انجام نشد.\n\n"+(error instanceof Error?error.message:String(error))),menu([[["‹ بازگشت","gm:view:"+groupId]]]));}
+  }
+
+  if(data.startsWith("gm:register_install:")){
+    const groupId=data.slice(20);
+    try{
+      await registerGroup(pool,uid,groupId);
+      const x=await installGroup(pool,uid,groupId);
+      return edit(msg.chat.id,msg.message_id,panelTitle("گروه ثبت شد",[
+        "⚣ - گروه : "+valueOrDash(x?.title),
+        "⚣ - وضعیت ثبت : ● فعال",
+        "⚣ - وضعیت نصب : "+(x?.installation_status==="INSTALLED"?"● کامل":"◐ در انتظار نصب"),
+        "",
+        PANEL_SEPARATOR,
+        "",
+        x?.installation_status==="INSTALLED"?"● گروه آماده مدیریت است.":"◂ ثبت کامل شد؛ موتور نصب موجود سامانه هنوز باید فرآیند نصب را تکمیل کند."
+      ].join("\n")),menu([[["› مدیریت گروه","gm:view:"+groupId]],[["‹ بازگشت","gm:list:"]]]));
+    }catch(error){return edit(msg.chat.id,msg.message_id,panelTitle("ثبت گروه","✗ ثبت/نصب انجام نشد.\n\n"+(error instanceof Error?error.message:String(error))),menu([[["‹ بازگشت","gm:list:"]]]));}
+  }
+
+  if(data.startsWith("gm:register:")){
+    const groupId=data.slice(12);const x=await getGroupOverview(pool,groupId);
+    if(!x)return edit(msg.chat.id,msg.message_id,panelTitle("ثبت گروه","⛂ - گروه پیدا نشد."),menu([[["‹ بازگشت","gm:list:"]]]));
+    return edit(msg.chat.id,msg.message_id,panelTitle("ثبت گروه",[
+      "⚣ - گروه : "+valueOrDash(x.title),
+      "⚣ - شناسه : "+valueOrDash(x.telegram_chat_id),
+      "⚣ - وضعیت : آماده ثبت",
+      "",
+      PANEL_SEPARATOR,
+      "",
+      "★ پیش‌نیازها",
+      "● شناسایی گروه",
+      "● دسترسی ربات",
+      "● دسترسی مدیریتی",
+      "● آماده‌سازی تنظیمات"
+    ].join("\n")),menu([[["ثبت و نصب","gm:register_install:"+groupId]],[["‹ بازگشت","gm:list:"]]]));
   }
 
   if(data==="og:auth"){
     authenticateOwnerGroup(uid);
     await audit(pool,String(uid),"owner_group_authenticated","owner-group-center",{ttlMs:OWNER_GROUP_AUTH_TTL});
-    await ensureOwnerGroupSchema(pool);
-    const overview=await ownerGroupOverview(pool);
+    await ensureGroupManagementCoreSchema(pool);
+    const overview=await groupManagementOverview(pool);
     return edit(msg.chat.id,msg.message_id,panelTitle("مدیریت گروه‌ها",[
-      "◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Gʀᴏᴜᴘ Cᴇɴᴛᴇʀ",
+      "★ انتخاب محدوده مدیریت",
       "",
-      "⛂ - احراز هویت : ✓ فعال",
-      "⛂ - اعتبار جلسه : ۳۰ دقیقه",
-      "⛂ - گروه‌های ثبت‌شده : "+Number(overview.total||0),
+      "⛂ - گروه‌های ثبت‌شده و در دسترس",
+      "⛂ - مدیریت یک گروه یا بررسی یک گروه خارج از سامانه",
       "",
-      PANEL_SEPARATOR,
+      "⛂ - ثبت‌شده : "+overview.total,
+      "⛂ - فعال : "+overview.active,
+      "⛂ - نیازمند بررسی : "+overview.needsReview,
       "",
-      "مرکز کامل کنترل و مدیریت گروه‌های ربات."
+      PANEL_SEPARATOR
     ].join("\n")),menu([
-      [["› لیست تمام گروه‌ها","og:list:1"]],
-      [["› جستجوی گروه","o:group_search"]],
-      [["› گروه‌های فعال","og:list:1:ACTIVE"],["› گروه‌های غیرفعال","og:list:1:DISABLED"]],
-      [["› گروه‌های پرمصرف","og:heavy"],["› گروه‌های دارای خطا","og:list:1:ERROR"]],
-      [["› عملیات گروهی","og:bulk:1"],["› آمار کلی گروه‌ها","og:stats"]],
-      [["› همگام‌سازی","og:sync"]],
-      [["› خروج از احراز هویت","og:auth:logout"]],
-      [["‹ بازگشت به پنل مالک","o:home"]]
+      [["یک گروه","gm:list:"]],
+      [["سراسری گروه","gm:global"]],
+      [["‹ بازگشت","o:home"]]
     ]));
   }
   if(data==="og:auth:logout"){
@@ -4243,6 +4472,45 @@ export async function dispatchPanelMessage(pool:Pool,msg:TgMessage,ownerIds:stri
     // Panel throttling must never consume group messages; content-lock
     // enforcement needs to see every message, including rapid photo bursts.
     if(msg.chat.type==="private" && !allowed(msg.from.id))return false;
+    const groupFlow=getSession(msg.from.id);
+    if(groupFlow?.flow==="owner_group_resolver"){
+      clearSession(msg.from.id);
+      const targetMessageId=Number(groupFlow.data.panelMessageId||0);
+      try{
+        const result=await resolveGroupInput(pool,msg.from.id,msg.text||msg.caption||"");
+        const lines:string[]=[
+          "◈ نتیجه شناسایی گروه",
+          "",
+          PANEL_SEPARATOR,
+          "",
+          result.group ? "⚣ - نام : "+result.group.title : "⛂ - وضعیت : "+(result.status==="UNSUPPORTED"?"لینک خصوصی":"✗ شناسایی ناموفق"),
+          ...(result.group?[
+            "⚣ - شناسه : "+result.group.telegramChatId,
+            "⚣ - وضعیت ثبت : "+(result.registrationStatus==="REGISTERED"?"● ثبت‌شده":"■ ثبت‌نشده"),
+            "⚣ - وضعیت ربات : "+(result.botStatus||"UNKNOWN"),
+            "⚣ - نصب : "+(result.installationStatus||"NOT_INSTALLED")
+          ]:[]),
+          "",
+          PANEL_SEPARATOR,
+          "",
+          result.message||"بررسی کامل شد."
+        ];
+        const markup=result.group
+          ? (result.nextAction==="MANAGE"
+              ? menu([[["› مدیریت گروه","gm:view:"+result.group.groupId]],[["‹ بازگشت","o:groups"]]])
+              : result.nextAction==="REGISTER"
+                ? menu([[["ثبت گروه","gm:register:"+result.group.groupId]],[["‹ بازگشت","o:groups"]]])
+                : menu([[["‹ بازگشت","o:groups"]]]))
+          : menu([[["‹ بازگشت","o:groups"]]]);
+        if(targetMessageId) await edit(msg.chat.id,targetMessageId,lines.join("\n"),markup);
+        else await send(msg.chat.id,lines.join("\n"),markup);
+      }catch(error){
+        const errorText="✗ بررسی گروه انجام نشد.\n\n⛂ - دلیل : "+(error instanceof Error?error.message:String(error));
+        if(targetMessageId) await edit(msg.chat.id,targetMessageId,errorText,menu([[["‹ بازگشت","o:groups"]]]));
+        else await send(msg.chat.id,errorText,menu([[["‹ بازگشت","o:groups"]]]));
+      }
+      return true;
+    }
     await ensureStatsCenterSchema(pool);
     await trackMessageAndActivity(pool,msg);
     if(await handleStatsTextInput(pool,msg))return true;
