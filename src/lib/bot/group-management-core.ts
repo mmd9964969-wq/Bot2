@@ -317,15 +317,7 @@ export async function resumeGroup(db:Db,actorUserId:number,groupId:string){
   return getGroupOverview(db,groupId);
 }
 export function groupStatusLabel(value:string){ return value==="HEALTHY"?"● فعال":value==="DEGRADED"?"◐ نیازمند بررسی":value==="BLOCKED"?"✗ مسدود":value==="STOPPED"?"○ متوقف":value==="NOT_READY"?"■ آماده نصب":value==="ARCHIVED"?"■ آرشیو":"○ نامشخص"; }
-export function botMembershipLabel(value:string){ return value==="ADMINISTRATOR"?"● مدیر":value==="MEMBER"?"○ عضو":value==="RESTRICTED"?"◐ محدود":value==="LEFT"?"✗ خارج‌شده":value==="BANNED"?"✗ مسدود":"■ نامشخص"; } ON CONFLICT(telegram_chat_id) DO UPDATE SET title=EXCLUDED.title,username=EXCLUDED.username,updated_at=NOW()");
-  }
-  for(const key of MODULES){
-    await db.query("INSERT INTO gm_group_module_states(module_state_id,group_id,module_key,state,enabled) SELECT md5($1||':'||group_id::text)::uuid,group_id,$1,CASE WHEN i.status='INSTALLED' THEN 'ACTIVE' ELSE 'READY' END,CASE WHEN i.status='INSTALLED' THEN TRUE ELSE FALSE END FROM gm_group_installations i ON CONFLICT(group_id,module_key) DO NOTHING",[key]);
-  }
-  await db.query("INSERT INTO gm_group_settings(group_settings_id,group_id,settings_profile_id,security_profile_key) SELECT md5('settings:'||g.group_id::text)::uuid,g.group_id,sp.settings_profile_id,'default' FROM gm_groups g CROSS JOIN LATERAL (SELECT settings_profile_id FROM gm_settings_profiles WHERE profile_key='default' LIMIT 1) sp ON CONFLICT(group_id) DO NOTHING");
-}
-
-async function ensureGroupRecord(db:Db,chat:any){
+export function botMembershipLabel(value:string){ return value==="ADMINISTRATOR"?"● مدیر":value==="MEMBER"?"○ عضو":value==="RESTRICTED"?"◐ محدود":value==="LEFT"?"✗ خارج‌شده":value==="BANNED"?"✗ مسدود":"■ نامشخص"; }async function ensureGroupRecord(db:Db,chat:any){
   const chatId=Number(chat.id); if(!Number.isSafeInteger(chatId))throw new Error("شناسه Telegram گروه معتبر نیست.");
   const existing=await db.query<{group_id:string}>("SELECT group_id FROM gm_groups WHERE telegram_chat_id=$1 LIMIT 1",[chatId]);
   const groupId=existing.rows[0]?.group_id??uuid();
