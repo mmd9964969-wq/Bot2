@@ -1191,8 +1191,6 @@ async function processMessage(msg: TgMessage, edited = false) {
   const isConfigRequest = ["config","پیکربندی"].includes(normalizedEntry);
   const isPrivate = chat.type === "private";
   const isPanelRequest = ["panel","پنل","owner","مالک","agent","ایجنت","عامل"].includes(normalizedEntry);
-  const isLegacyOwnerEntryText = isPrivate && ["panel","پنل","owner","مالک"].includes(normalizedEntry);
-  if (isLegacyOwnerEntryText) return;
 
   // Mini App group-to-private bridge:
   // group button -> t.me deep-link -> /start gameapp_<sessionId> in private chat
@@ -1235,7 +1233,7 @@ async function processMessage(msg: TgMessage, edited = false) {
   // The owner never needs to type /start, panel, owner, or another entry command.
   // Any valid private interaction from the configured owner prepares the
   // owner-only Rich Message entry with the "پنل مالکیت" button.
-  if (isPrivate && studioPool && !isConfigRequest) {
+  if (isPrivate && studioPool) {
     if (await openOwnerPanelEntry(studioPool, msg, config.ownerIds)) return;
   }
 
