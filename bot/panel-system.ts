@@ -608,11 +608,8 @@ function ownerButton(text:string,callback_data:string,style:"primary"|"success"|
 }
 function ownerMainMarkup(){
   return {inline_keyboard:[
-    [ownerButton("سامانه","o:section:system"),ownerButton("مشتریان","o:section:customers")],
-    [ownerButton("گروه‌ها","o:section:groups"),ownerButton("امنیت","o:section:security")],
-    [ownerButton("گزارش‌ها","o:section:reports"),ownerButton("ابزارها","o:section:tools")],
-    [ownerButton("تنظیمات مالک","o:section:settings")],
-    [ownerButton("بروزرسانی","o:home:refresh"),ownerButton("خروج از پنل","o:exit","primary")],
+    [ownerButton("مدیریت گروه‌ها","o:groups")],
+    [ownerButton("خروج از پنل","o:exit","primary")],
   ]};
 }
 async function ownerAccessSnapshot(pool:Pool,uid:number,user:TgUser){
@@ -660,13 +657,13 @@ function buildOwnerEntryRich(s:Awaited<ReturnType<typeof ownerAccessSnapshot>>){
 }
 function buildOwnerHomeRich(s:Awaited<ReturnType<typeof ownerAccessSnapshot>>){
   return {version:1,is_rtl:true,blocks:[
-    {type:"heading",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ Owner Center",size:1},
-    {type:"paragraph",text:"مرکز اصلی مدیریت و کنترل مالک"},
+    {type:"heading",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ · Pᴏᴡɴᴇʀ Cᴇɴᴛᴇʀ",size:1},
+    {type:"paragraph",text:"مرکز اختصاصی مالک"},
     {type:"divider"},
     ownerAccessTable("اطلاعات دسترسی مالک",ownerAccessRows(s)),
     {type:"divider"},
-    {type:"heading",text:"منوی اصلی",size:2},
-    {type:"paragraph",text:"بخش موردنظر را برای ادامهٔ مدیریت انتخاب کنید."},
+    {type:"heading",text:"مدیریت",size:2},
+    {type:"paragraph",text:"تنها مسیر عملیاتی این صفحه، مرکز مدیریت گروه‌ها است."},
     {type:"footer",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ"},
   ]};
 }
