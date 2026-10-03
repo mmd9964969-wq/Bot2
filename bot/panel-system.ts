@@ -91,11 +91,16 @@ const LICENSE_TYPES:{key:string;label:string;days:number|null}[]=[
 
 const K={
   ownerMain:[
-    [["سامانه","o:section:system"],["مشتریان","o:section:customers"]],
-    [["گروه‌ها","o:section:groups"],["امنیت","o:section:security"]],
-    [["گزارش‌ها","o:section:reports"],["ابزارها","o:section:tools"]],
-    [["تنظیمات مالک","o:section:settings"]],
-    [["خروج از پنل مالک","o:exit"]]
+    [["مدیریت گروه‌ها","o:groups"],["مدیریت مشتریان","o:customers"]],
+    [["مدیریت مدیران","o:managers"],["مدیریت دسترسی‌ها","o:access"]],
+    [["مدیریت دستورات","o:commands"],["مدیریت نصب‌ها","o:installations"]],
+    [["مدیریت لایسنس","o:licenses"],["مدیریت سرویس‌ها","o:runtime"]],
+    [["مرکز امنیت","o:security"],["عملیات مرکزی","o:operations"]],
+    [["مرکز گزارش‌ها","o:reports"],["مرکز Audit","o:audit"]],
+    [["Agent مرکزی","o:agent"],["پشتیبان‌گیری","o:backup"]],
+    [["جستجوی سراسری","o:palette"],["وضعیت کامل سامانه","o:overview"]],
+    [["تنظیمات مالک","o:settings"],["ابزارهای سیستم","o:tools"]],
+    [["بروزرسانی داشبورد","o:home:refresh"],["خروج از پنل مالک","o:exit"]]
   ],
   customerMain:[
     [["وضعیت و نمای کلی","c:status"],["مرکز قفل و فیلتر","c:locks"]],
@@ -609,8 +614,16 @@ function ownerButton(text:string,callback_data:string,style:"primary"|"success"|
 }
 function ownerMainMarkup(){
   return {inline_keyboard:[
-    [ownerButton("مدیریت گروه‌ها","o:groups")],
-    [ownerButton("خروج از پنل","o:exit","primary")],
+    [ownerButton("مدیریت گروه‌ها","o:groups"),ownerButton("مدیریت مشتریان","o:customers")],
+    [ownerButton("مدیریت مدیران","o:managers"),ownerButton("مدیریت دسترسی‌ها","o:access")],
+    [ownerButton("مدیریت دستورات","o:commands"),ownerButton("مدیریت نصب‌ها","o:installations")],
+    [ownerButton("مدیریت لایسنس","o:licenses"),ownerButton("مدیریت سرویس‌ها","o:runtime")],
+    [ownerButton("مرکز امنیت","o:security"),ownerButton("عملیات مرکزی","o:operations")],
+    [ownerButton("مرکز گزارش‌ها","o:reports"),ownerButton("مرکز Audit","o:audit")],
+    [ownerButton("Agent مرکزی","o:agent"),ownerButton("پشتیبان‌گیری","o:backup")],
+    [ownerButton("جستجوی سراسری","o:palette"),ownerButton("وضعیت کامل سامانه","o:overview")],
+    [ownerButton("تنظیمات مالک","o:settings"),ownerButton("ابزارهای سیستم","o:tools")],
+    [ownerButton("بروزرسانی داشبورد","o:home:refresh"),ownerButton("خروج از پنل مالک","o:exit","primary")],
   ]};
 }
 async function ownerAccessSnapshot(pool:Pool,uid:number,user:TgUser){
@@ -656,16 +669,101 @@ function buildOwnerEntryRich(s:Awaited<ReturnType<typeof ownerAccessSnapshot>>){
     {type:"footer",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ"},
   ]};
 }
-function buildOwnerHomeRich(s:Awaited<ReturnType<typeof ownerAccessSnapshot>>){
+async function ownerDashboardSnapshot(pool:Pool,uid:number,user:TgUser){
+  await ensureGroupManagementCoreSchema(pool).catch(()=>{});
+  const [
+    access,
+    groups,
+    customers,
+    activeCustomers,
+    licenses,
+    installations,
+    openWarnings,
+    criticalErrors,
+    auditToday,
+    dbCheck,
+    me,
+    agent,
+  ]=await Promise.all([
+    ownerAccessSnapshot(pool,uid,user),
+    groupManagementOverview(pool).catch(()=>({total:0,active:0,needsReview:0,unavailable:0})),
+    pool.query("SELECT COUNT(*)::int n FROM bot_customers").catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(*)::int n FROM bot_customers WHERE status='active'").catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(*)::int n FROM bot_licenses WHERE status='active' AND (expires_at IS NULL OR expires_at>NOW())").catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(*)::int total,COUNT(*) FILTER(WHERE status='INSTALLED')::int installed,COUNT(*) FILTER(WHERE status IN ('FAILED','PENDING','INSTALLING','UNINSTALLING'))::int attention FROM gm_group_installations").catch(()=>({rows:[{total:0,installed:0,attention:0}]})),
+    pool.query("SELECT COUNT(DISTINCT user_id)::int n FROM warning_cases WHERE warning_count>0").catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(*)::int n FROM supervision_events WHERE severity='critical' AND created_at>=NOW()-INTERVAL '24 hours'").catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT COUNT(*)::int n FROM audit_logs WHERE created_at>=CURRENT_DATE").catch(()=>({rows:[{n:0}]})),
+    pool.query("SELECT NOW() AS now").catch(()=>null),
+    telegramApi<any>("getMe",{}).catch(()=>({ok:false,result:null})),
+    ownerAgentOverview(pool).catch(()=>({settings:{enabled:false,autopilot_enabled:false,auto_deploy:false},jobs:[]})),
+  ]);
+  const memory=process.memoryUsage();
+  const queued=agent.jobs?.filter((x:any)=>x.status==="queued").length||0;
+  const running=agent.jobs?.find((x:any)=>x.status==="running");
+  return {
+    access,
+    botStatus:me.ok?"● فعال":"✗ خطا",
+    serviceStatus:isRuntimeMaintenance()?"◐ حالت نگهداری":"● پایدار",
+    databaseStatus:dbCheck?"● متصل":"✗ خطا",
+    processorStatus:process.uptime()>0?"● فعال":"✗ متوقف",
+    queueStatus:queued>0?"◐ "+queued+" در صف":"● سالم",
+    securityStatus:criticalErrors.rows[0]?.n>0?"◐ نیازمند بررسی":"● فعال",
+    agentStatus:agent.settings?.enabled?"● فعال":"○ خاموش",
+    lastCheck:faDate(new Date()),
+    customers:Number(customers.rows[0]?.n||0),
+    activeCustomers:Number(activeCustomers.rows[0]?.n||0),
+    groups:Number(groups.total||0),
+    activeGroups:Number(groups.active||0),
+    groupsReview:Number(groups.needsReview||0),
+    groupsUnavailable:Number(groups.unavailable||0),
+    licenses:Number(licenses.rows[0]?.n||0),
+    installed:Number(installations.rows[0]?.installed||0),
+    installAttention:Number(installations.rows[0]?.attention||0),
+    openWarnings:Number(openWarnings.rows[0]?.n||0),
+    criticalErrors:Number(criticalErrors.rows[0]?.n||0),
+    auditToday:Number(auditToday.rows[0]?.n||0),
+    queuedJobs:Number(queued),
+    runningJob:running?"#"+running.id:"ندارد",
+    botUsername:me.result?.username?"@"+me.result.username:"ثبت نشده",
+    ram:(memory.rss/1048576).toFixed(1)+" MB",
+  };
+}
+
+function buildOwnerHomeRich(d:Awaited<ReturnType<typeof ownerDashboardSnapshot>>){
+  const access=d.access;
   return {version:1,is_rtl:true,blocks:[
-    {type:"heading",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ · Pᴏᴡɴᴇʀ Cᴇɴᴛᴇʀ",size:1},
-    {type:"paragraph",text:"مرکز اختصاصی مالک"},
+    {type:"heading",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ · Pʀᴏ Oᴡɴᴇʀ Cᴏɴᴛʀᴏʟ",size:1},
+    {type:"paragraph",text:"مرکز فرمان کامل مالک سامانه"},
     {type:"divider"},
-    ownerAccessTable("اطلاعات دسترسی مالک",ownerAccessRows(s)),
+    ownerAccessTable("هویت و دسترسی مالک",[
+      ["نام مالک",access.name],["نام کاربری",access.username],["شناسه مالک",access.id],["سطح دسترسی",access.managementAccess]
+    ]),
     {type:"divider"},
-    {type:"heading",text:"مدیریت",size:2},
-    {type:"paragraph",text:"تنها مسیر عملیاتی این صفحه، مرکز مدیریت گروه‌ها است."},
-    {type:"footer",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ"},
+    ownerAccessTable("وضعیت سامانه",[
+      ["ربات",d.botStatus],["سرویس",d.serviceStatus],["پایگاه‌داده",d.databaseStatus],["پردازشگر",d.processorStatus],
+      ["صف عملیات",d.queueStatus],["امنیت",d.securityStatus],["Agent",d.agentStatus],["آخرین بررسی",d.lastCheck]
+    ]),
+    {type:"divider"},
+    ownerAccessTable("خلاصه سامانه",[
+      ["مشتریان",String(d.customers)],["مشتریان فعال",String(d.activeCustomers)],["گروه‌ها",String(d.groups)],
+      ["گروه‌های فعال",String(d.activeGroups)],["گروه‌های نیازمند بررسی",String(d.groupsReview)],["نصب‌های کامل",String(d.installed)],
+      ["نصب‌های نیازمند اقدام",String(d.installAttention)],["لایسنس‌های فعال",String(d.licenses)],
+      ["هشدارهای باز",String(d.openWarnings)],["خطاهای بحرانی ۲۴ ساعت",String(d.criticalErrors)],["Audit امروز",String(d.auditToday)]
+    ]),
+    {type:"divider"},
+    {type:"heading",text:"مراکز مدیریت",size:2},
+    {type:"list",items:[
+      {blocks:[{type:"paragraph",text:"مدیریت منابع : گروه‌ها، مشتریان، مدیران، دسترسی، لایسنس و نصب"}]},
+      {blocks:[{type:"paragraph",text:"کنترل سامانه : سرویس‌ها، Runtime، امنیت، عملیات و پشتیبان‌گیری"}]},
+      {blocks:[{type:"paragraph",text:"کنترل داده : گزارش‌ها، Audit، جستجوی سراسری و ابزارهای سیستم"}]},
+      {blocks:[{type:"paragraph",text:"Agent : پردازش خودکار، صف کارها، ممیزی و چرخه اصلاح"}]}
+    ]},
+    {type:"divider"},
+    ownerAccessTable("Runtime",[
+      ["Bot",d.botUsername],["RAM فرآیند",d.ram],["کار در حال اجرا",d.runningJob],["کارهای در صف",String(d.queuedJobs)]
+    ]),
+    {type:"footer",text:"Pᴇʀsɪᴀɴ ᴮᵒᵗ · Oᴡɴᴇʀ Pʀᴏ"},
   ]};
 }
 async function sendOwnerRich(pool:Pool,uid:number,chatId:number,rich:any,markup:any){
@@ -683,7 +781,7 @@ async function editOwnerRich(pool:Pool,uid:number,chatId:number,messageId:number
   return result;
 }
 async function renderOwnerHome(pool:Pool,uid:number,chatId:number,msgId?:number,user?:TgUser){
-  const snapshot=await ownerAccessSnapshot(pool,uid,user||{id:uid});
+  const snapshot=await ownerDashboardSnapshot(pool,uid,user||{id:uid});
   const rich=buildOwnerHomeRich(snapshot);const markup=ownerMainMarkup();
   return msgId?editOwnerRich(pool,uid,chatId,msgId,rich,markup):sendOwnerRich(pool,uid,chatId,rich,markup);
 }
@@ -2049,6 +2147,185 @@ async function ownerCallback(pool:Pool,cb:TgCallback,ownerIds:string[]){
     await audit(pool,String(uid),"agent_auto_deploy_changed",String(value),{enabled:value});
     const overview=await ownerAgentOverview(pool);
     return edit(msg.chat.id,msg.message_id,ownerAgentText(overview),ownerAgentMarkup(overview));
+  }
+
+  if(data==="o:managers"){
+    const [owners,customers]=await Promise.all([
+      pool.query("SELECT COUNT(*)::int n FROM bot_panel_owners").catch(()=>({rows:[{n:0}]})),
+      pool.query("SELECT COUNT(DISTINCT customer_id)::int n FROM bot_customer_groups WHERE is_active=TRUE").catch(()=>({rows:[{n:0}]})),
+    ]);
+    return edit(msg.chat.id,msg.message_id,panelTitle("مدیریت مدیران",[
+      "★ مرکز نقش‌ها و مدیران",
+      "",
+      "⛂ - مالک‌های ثبت‌شده : "+Number(owners.rows[0]?.n||0),
+      "⛂ - حساب‌های دارای گروه : "+Number(customers.rows[0]?.n||0),
+      "⛂ - دامنه مالک : سراسری",
+      "",
+      PANEL_SEPARATOR,
+      "",
+      "★ عملیات",
+      "⛂ - مدیریت مالک‌ها و سطح دسترسی در مرکز امنیت/سودو انجام می‌شود.",
+      "⛂ - مدیریت مدیران هر گروه از داخل مدیریت همان گروه انجام می‌شود."
+    ].join("\n")),menu([
+      [["مدیریت مالک‌ها","os:center"],["مرکز امنیت","o:security"]],
+      [["مدیریت گروه‌ها","o:groups"],["مدیریت مشتریان","o:customers"]],
+      [["مدیریت دسترسی‌ها","o:access"]],
+      [["‹ بازگشت","o:home"]]
+    ]));
+  }
+
+  if(data==="o:access"){
+    const [sessions,groupAccess]=await Promise.all([
+      pool.query("SELECT COUNT(*)::int n FROM bot_panel_sessions WHERE expires_at>NOW()").catch(()=>({rows:[{n:0}]})),
+      pool.query("SELECT COUNT(*)::int n FROM gm_group_access WHERE revoked_at IS NULL").catch(()=>({rows:[{n:0}]})),
+    ]);
+    return edit(msg.chat.id,msg.message_id,panelTitle("مدیریت دسترسی‌ها",[
+      "★ Permission Center",
+      "",
+      "⛂ - نشست‌های فعال پنل : "+Number(sessions.rows[0]?.n||0),
+      "⛂ - دسترسی‌های فعال گروه : "+Number(groupAccess.rows[0]?.n||0),
+      "⛂ - سطح مالک : کامل",
+      "⛂ - کنترل Session : ● فعال",
+      "⛂ - Audit دسترسی : ● فعال",
+      "",
+      PANEL_SEPARATOR,
+      "",
+      "◂ مجوزهای عملیاتی بر اساس نقش و مرکز کنترل می‌شوند."
+    ].join("\n")),menu([
+      [["مرکز سودو","os:center"],["مرکز امنیت","o:security"]],
+      [["مدیریت مدیران","o:managers"],["مدیریت گروه‌ها","o:groups"]],
+      [["مرکز Audit","o:audit"]],
+      [["‹ بازگشت","o:home"]]
+    ]));
+  }
+
+  if(data==="o:commands"){
+    const r=await pool.query("SELECT COUNT(*)::int total,COUNT(DISTINCT group_id)::int groups FROM bot_group_commands").catch(()=>({rows:[{total:0,groups:0}]}));
+    const active=await pool.query("SELECT COUNT(*)::int n FROM bot_group_commands WHERE COALESCE(enabled,TRUE)=TRUE").catch(()=>({rows:[{n:0}]}));
+    return edit(msg.chat.id,msg.message_id,panelTitle("مدیریت دستورات",[
+      "★ Command Control Center",
+      "",
+      "⛂ - دستورات ثبت‌شده : "+Number(r.rows[0]?.total||0),
+      "⛂ - گروه‌های دارای دستور : "+Number(r.rows[0]?.groups||0),
+      "⛂ - دستورات فعال : "+Number(active.rows[0]?.n||0),
+      "⛂ - Registry مرکزی : ● فعال",
+      "",
+      PANEL_SEPARATOR,
+      "",
+      "★ دامنه مدیریت",
+      "⛂ - سیاست و دسترسی هر دستور در سطح گروه اعمال می‌شود.",
+      "⛂ - ویرایش کامل دستور از استودیو دستورات همان گروه انجام می‌شود."
+    ].join("\n")),menu([
+      [["انتخاب گروه برای ویرایش","o:groups"],["مدیریت قابلیت‌ها","o:features"]],
+      [["جستجوی سراسری","o:palette"],["گزارش دستورات","o:reports"]],
+      [["‹ بازگشت","o:home"]]
+    ]));
+  }
+
+  if(data==="o:installations"){
+    const r=await pool.query("SELECT COUNT(*)::int total,COUNT(*) FILTER(WHERE status='INSTALLED')::int installed,COUNT(*) FILTER(WHERE status IN ('FAILED','PENDING','INSTALLING','UNINSTALLING'))::int attention,COUNT(*) FILTER(WHERE status IN ('NOT_INSTALLED','UNINSTALLED'))::int pending FROM gm_group_installations").catch(()=>({rows:[{total:0,installed:0,attention:0,pending:0}]}));
+    return edit(msg.chat.id,msg.message_id,panelTitle("مدیریت نصب‌ها",[
+      "★ Installation Control Center",
+      "",
+      "⛂ - کل رکوردها : "+Number(r.rows[0]?.total||0),
+      "⛂ - نصب کامل : "+Number(r.rows[0]?.installed||0),
+      "⛂ - نیازمند اقدام : "+Number(r.rows[0]?.attention||0),
+      "⛂ - نصب‌نشده : "+Number(r.rows[0]?.pending||0),
+      "",
+      PANEL_SEPARATOR,
+      "",
+      "★ Lifecycle",
+      "⛂ - ثبت → نصب → بررسی → تعمیر → نصب مجدد → حذف → بازیابی",
+      "⛂ - هر عملیات در وضعیت و Audit ثبت می‌شود."
+    ].join("\n")),menu([
+      [["گروه‌های نیازمند بررسی","o:groups"],["مدیریت گروه‌ها","o:groups"]],
+      [["وضعیت کامل سامانه","o:overview"],["مرکز Audit","o:audit"]],
+      [["‹ بازگشت","o:home"]]
+    ]));
+  }
+
+  if(data==="o:operations"){
+    return edit(msg.chat.id,msg.message_id,panelTitle("عملیات مرکزی",[
+      "★ کنترل اجرایی سامانه",
+      "",
+      "⛂ - Runtime : "+(isRuntimeMaintenance()?"◐ حالت نگهداری":"● فعال"),
+      "⛂ - سطح عملیات : کنترل‌شده",
+      "⛂ - Audit : ● فعال",
+      "",
+      PANEL_SEPARATOR,
+      "",
+      "★ عملیات سریع",
+      "⛂ - سلامت سامانه",
+      "⛂ - بارگذاری مجدد تنظیمات",
+      "⛂ - فعال/غیرفعال‌سازی Maintenance",
+      "⛂ - راه‌اندازی مجدد هسته",
+      "⛂ - پشتیبان‌گیری",
+      "",
+      "◂ عملیات حساس قبل از اجرا طبق سیاست مرکز بررسی می‌شوند."
+    ].join("\n")),menu([
+      [["بررسی سلامت","o:runtime:health_check"],["بارگذاری تنظیمات","o:runtime:reload_config"]],
+      [["فعال‌سازی Maintenance","o:runtime:maintenance_on"],["غیرفعال‌سازی Maintenance","o:runtime:maintenance_off"]],
+      [["راه‌اندازی مجدد","o:runtime:restart_requested"],["پشتیبان‌گیری","o:backup"]],
+      [["سطح عملیات","o:operation_policy"],["مرکز Audit","o:audit"]],
+      [["‹ بازگشت","o:home"]]
+    ]));
+  }
+
+  if(data==="o:reports"){
+    const [auditToday,commands,groups]=await Promise.all([
+      pool.query("SELECT COUNT(*)::int n FROM audit_logs WHERE created_at>=CURRENT_DATE").catch(()=>({rows:[{n:0}]})),
+      pool.query("SELECT COUNT(*)::int n FROM audit_logs WHERE action='command_executed' AND created_at>=NOW()-INTERVAL '24 hours'").catch(()=>({rows:[{n:0}]})),
+      pool.query("SELECT COUNT(*)::int n FROM bot_customer_groups WHERE is_active=TRUE").catch(()=>({rows:[{n:0}]})),
+    ]);
+    return edit(msg.chat.id,msg.message_id,panelTitle("مرکز گزارش‌ها",[
+      "★ Reports & Analytics",
+      "",
+      "⛂ - رویدادهای Audit امروز : "+Number(auditToday.rows[0]?.n||0),
+      "⛂ - اجرای دستورات ۲۴ ساعت : "+Number(commands.rows[0]?.n||0),
+      "⛂ - ارتباط‌های فعال گروه : "+Number(groups.rows[0]?.n||0),
+      "⛂ - وضعیت گزارش : ● فعال",
+      "",
+      PANEL_SEPARATOR,
+      "",
+      "★ مراکز گزارش",
+      "⛂ - گزارش سامانه",
+      "⛂ - آمار مشتریان و گروه‌ها",
+      "⛂ - گزارش عملیات",
+      "⛂ - گزارش امنیت",
+      "⛂ - Audit و رویدادهای اخیر"
+    ].join("\n")),menu([
+      [["گزارش سامانه","o:stats"],["مرکز Audit","o:audit"]],
+      [["رویدادهای اخیر","o:logs"],["جستجوی سراسری","o:palette"]],
+      [["وضعیت کامل سامانه","o:overview"]],
+      [["‹ بازگشت","o:home"]]
+    ]));
+  }
+
+  if(data==="o:tools"){
+    const queued=await ownerAgentOverview(pool).catch(()=>({jobs:[]}));
+    return edit(msg.chat.id,msg.message_id,panelTitle("ابزارهای سیستم",[
+      "★ System Tools",
+      "",
+      "⛂ - Agent : ● قابل استفاده",
+      "⛂ - جستجوی سراسری : ● آماده",
+      "⛂ - ارسال همگانی : ● آماده",
+      "⛂ - Sessionهای پنل : "+Number((await pool.query("SELECT COUNT(*)::int n FROM bot_panel_sessions WHERE expires_at>NOW()").catch(()=>({rows:[{n:0}]}))).rows[0]?.n||0),
+      "⛂ - کارهای Agent : "+Number(queued.jobs?.length||0),
+      "",
+      PANEL_SEPARATOR,
+      "",
+      "◂ ابزارها بدون ترک کردن پنل مالک در دسترس هستند."
+    ].join("\n")),menu([
+      [["Agent مرکزی","o:agent"],["جستجوی سراسری","o:palette"]],
+      [["ارسال همگانی","o:broadcast"],["پشتیبان‌گیری","o:backup"]],
+      [["مرکز Runtime","o:runtime"],["مرکز Audit","o:audit"]],
+      [["‹ بازگشت","o:home"]]
+    ]));
+  }
+
+  if(data==="o:overview"){
+    await audit(pool,String(uid),"owner_system_overview_opened",String(uid));
+    return renderOwnerHome(pool,uid,msg.chat.id,msg.message_id,cb.from);
   }
 
   if(data==="o:home"){
