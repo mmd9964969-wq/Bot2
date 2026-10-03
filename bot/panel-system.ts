@@ -15,6 +15,7 @@ import { getGroupStats } from "../src/lib/bot/runtime.ts";
 import { ensureOwnerGroupSchema, listOwnerGroups, ownerGroupOverview, getOwnerGroup, getOwnerGroupLogs, setOwnerGroupEnabled, leaveOwnerGroup, resetOwnerGroup, sendMessageToOwnerGroup, syncAllOwnerGroups } from "../src/lib/bot/owner-groups.ts";
 import { ensureGroupManagementCoreSchema, groupManagementOverview, listManagedGroups, getGroupOverview, resolveGroupInput, registerGroup, installGroup, inspectGroup, archiveGroup, restoreGroup, getModuleState, groupStatusLabel, botMembershipLabel } from "../src/lib/bot/group-management-core.ts";
 import { groupProCallback, handleGroupProTextInput } from "../src/lib/bot/group-pro.ts";
+import { ownerManagementMarkup, ensureOwnerManagementSchema, handleOwnerManagementCallback, handleOwnerManagementTextInput } from "../src/lib/bot/owner-management.ts";
 import { ensureGroupConfigSchema, handleGroupConfigMessage, handleGroupConfigInput, handleGroupConfigCallback } from "../src/lib/bot/group-config.ts";
 import { handleInviteLinkCallback, handleInviteLinkTextInput } from "../src/lib/bot/invite-links.ts";
 import { handleSpecialCallback, handleSpecialCommand, handleSpecialTextInput } from "../src/lib/bot/special-users.ts";
@@ -544,6 +545,7 @@ export async function openOwnerPanelEntry(pool:Pool,msg:TgMessage,ownerIds:strin
   const commands=new Set(["start","restart","ری‌استارت","ری استارت","رستارت","استارت"]);
   if(!commands.has(raw))return false;
   await ensurePanelSessionSchema(pool);
+  await ensureOwnerManagementSchema(pool).catch(()=>{});
 
   if(raw==="restart"){
     const old=await pool.query("SELECT message_id FROM bot_panel_sessions WHERE chat_id=$1 AND user_id=$2 AND panel_kind IN ('owner','owner_entry')",[String(msg.chat.id),String(uid)]).catch(()=>({rows:[]}));
@@ -614,18 +616,7 @@ function ownerButton(text:string,callback_data:string,style:"primary"|"success"|
   return {text,callback_data,style};
 }
 function ownerMainMarkup(){
-  return {inline_keyboard:[
-    [ownerButton("مدیریت گروه‌ها","o:groups"),ownerButton("مدیریت مشتریان","o:customers")],
-    [ownerButton("مدیریت مدیران","o:managers"),ownerButton("مدیریت دسترسی‌ها","o:access")],
-    [ownerButton("مدیریت دستورات","o:commands"),ownerButton("مدیریت نصب‌ها","o:installations")],
-    [ownerButton("مدیریت لایسنس","o:licenses"),ownerButton("مدیریت سرویس‌ها","o:runtime")],
-    [ownerButton("مرکز امنیت","o:security"),ownerButton("عملیات مرکزی","o:operations")],
-    [ownerButton("مرکز گزارش‌ها","o:reports"),ownerButton("مرکز Audit","o:audit")],
-    [ownerButton("Agent مرکزی","o:agent"),ownerButton("پشتیبان‌گیری","o:backup")],
-    [ownerButton("جستجوی سراسری","o:palette"),ownerButton("وضعیت کامل سامانه","o:overview")],
-    [ownerButton("تنظیمات مالک","o:settings"),ownerButton("ابزارهای سیستم","o:tools")],
-    [ownerButton("بروزرسانی داشبورد","o:home:refresh"),ownerButton("خروج از پنل مالک","o:exit","primary")],
-  ]};
+  return ownerManagementMarkup();
 }
 async function ownerAccessSnapshot(pool:Pool,uid:number,user:TgUser){
   const [lastLogin,activeSessions]=await Promise.all([
@@ -5463,6 +5454,7 @@ export async function dispatchPanelMessage(pool:Pool,msg:TgMessage,ownerIds:stri
     if(await handleSpecialTextInput(pool,msg))return true;
     // Date Center takes precedence when the user is inside an active date input flow.
     if(await handleDateTextInput(pool,msg))return true;
+    if(await handleOwnerManagementTextInput(pool,msg))return true;
     if(await handleSpecialBulkCommand(pool,msg,ownerIds))return true;
     if(await handleSpecialCommand(pool,msg,ownerIds))return true;
     if(await handleInput(pool,msg))return true;
@@ -5546,6 +5538,10 @@ export async function dispatchPanelCallback(pool:Pool,cb:TgCallback,ownerIds:str
     }
     if(data.startsWith("g:")) return groupProCallback(pool,cb,ownerIds,ownerGroupAuthenticated(cb.from.id));
     if(data.startsWith("lic:")) return ownerCallback(pool,cb,ownerIds);
+    if(data==="om:groups"){
+      return groupProCallback(pool,{...cb,data:"g:home"},ownerIds,ownerGroupAuthenticated(cb.from.id));
+    }
+    if(data.startsWith("om:")) return handleOwnerManagementCallback(pool,cb,ownerIds);
     // Route panel callbacks before secondary feature handlers so every main
     // customer/owner navigation callback reaches its dedicated controller.
     if(data.startsWith("o:") || data.startsWith("og:")) return ownerCallback(pool,cb,ownerIds);
