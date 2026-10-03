@@ -141,7 +141,7 @@ async function countTable(pool:Pool,table:string,where="TRUE",params:any[]=[]){
     [table]
   ).catch(()=>({rows:[{e:false}]}));
   if(!exists.rows[0]?.e)return 0;
-  const r=await pool.query("SELECT COUNT(*)::int AS n FROM \"" + table + "\" WHERE "+where,params).catch(()=>({rows:[{n:0}]}));
+  const r=await pool.query("SELECT COUNT(*)::int AS n FROM "" + table + "" WHERE "+where,params).catch(()=>({rows:[{n:0}]}));
   return n(r.rows[0]?.n);
 }
 
@@ -162,19 +162,19 @@ async function moduleCounts(pool:Pool,chatId:number){
     locks,lockDomains,lockExceptions,warnings,warningEvents,automations,content,
     schedules,configs,audit
   ]=await Promise.all([
-    countTable(pool,"content_lock_settings",\"group_id=$1\",[chatId]).catch(()=>0),
-    countTable(pool,"content_lock_domains",\"group_id=$1\",[chatId]).catch(()=>0),
-    countTable(pool,"content_lock_exceptions",\"group_id=$1\",[chatId]).catch(()=>0),
-    countTable(pool,"warning_cases",\"group_id=$1 AND COALESCE(warning_count,0)>0\",[chatId]).catch(()=>0),
-    countTable(pool,"warning_events",\"group_id=$1\",[chatId]).catch(()=>0),
-    countTable(pool,"bot_group_automations",\"group_id=$1\",[chatId]).catch(()=>0),
-    countTable(pool,"bot_group_messages",\"group_id=$1\",[chatId]).catch(()=>0),
-    countTable(pool,"scheduled_messages",\"group_id=$1\",[chatId]).catch(()=>0),
+    countTable(pool,"content_lock_settings","group_id=$1",[chatId]).catch(()=>0),
+    countTable(pool,"content_lock_domains","group_id=$1",[chatId]).catch(()=>0),
+    countTable(pool,"content_lock_exceptions","group_id=$1",[chatId]).catch(()=>0),
+    countTable(pool,"warning_cases","group_id=$1 AND COALESCE(warning_count,0)>0",[chatId]).catch(()=>0),
+    countTable(pool,"warning_events","group_id=$1",[chatId]).catch(()=>0),
+    countTable(pool,"bot_group_automations","group_id=$1",[chatId]).catch(()=>0),
+    countTable(pool,"bot_group_messages","group_id=$1",[chatId]).catch(()=>0),
+    countTable(pool,"scheduled_messages","group_id=$1",[chatId]).catch(()=>0),
     Math.max(
-      await countTable(pool,"bot_group_configs",\"group_id=$1\",[chatId]).catch(()=>0),
-      await countTable(pool,"bot_group_config",\"group_id=$1\",[chatId]).catch(()=>0)
+      await countTable(pool,"bot_group_configs","group_id=$1",[chatId]).catch(()=>0),
+      await countTable(pool,"bot_group_config","group_id=$1",[chatId]).catch(()=>0)
     ),
-    countTable(pool,"audit_logs",\"target=$1 OR after_data->>'groupId'=$2 OR after_data->>'group_id'=$2\",[String(chatId),String(chatId)]).catch(()=>0),
+    countTable(pool,"audit_logs","target=$1 OR after_data->>'groupId'=$2 OR after_data->>'group_id'=$2",[String(chatId),String(chatId)]).catch(()=>0),
   ]);
   return {locks,lockDomains,lockExceptions,warnings,warningEvents,automations,content,schedules,configs,audit};
 }
