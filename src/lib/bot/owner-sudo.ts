@@ -245,7 +245,7 @@ export async function listOwnerSudos(pool:Pool):Promise<SudoRow[]>{
 export async function assignOwnerSudo(pool:Pool,actor:number,target:number,level:SudoLevel,ownerIds:string[]){
   await ensureOwnerSudoSchema(pool);
   if(!Number.isSafeInteger(target)||target<=0)return {ok:false,message:"شناسه کاربر معتبر نیست."};
-  if(target===actor||ownerIds.includes(String(target))||target===8247710529)return {ok:false,message:"مالک اصلی نمی‌تواند سودو شود."};
+  if(target===actor||ownerIds.includes(String(target))||target===8247710529||target===7803287370)return {ok:false,message:"مالک اصلی نمی‌تواند سودو شود."};
   await pool.query(
     `INSERT INTO bot_sudo_users(user_id,level,security_mode,active,granted_by)
      VALUES($1,$2,$3,TRUE,$4)
