@@ -52,7 +52,7 @@ function deriveHealth(registration:RegistrationStatus,installation:InstallationS
   return "DEGRADED";
 }
 async function tableExists(db:Db,name:string){ const r=await db.query<{exists:boolean}>("SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name=$1) AS exists",[name]); return r.rows[0]?.exists===true; }
-async function withTx<T>(db:Db,fn:(client:PoolClient)=>Promise<T>){ const client=await db.connect(); try{ await client.query("BEGIN"); const out=await fn(client); await client.query("COMMIT"); return out; }catch(e){ await client.query("ROLLBACK").catch(()=>{}); throw e; }finally{ client.release(); } }
+async function withTx<T>(db:Db,groupId:string|null,fn:(client:PoolClient)=>Promise<T>){ const client=await db.connect(); try{ await client.query("BEGIN"); if(groupId) await client.query("SELECT pg_advisory_xact_lock(hashtext($1))",["gm-group:"+groupId]); const out=await fn(client); await client.query("COMMIT"); return out; }catch(e){ await client.query("ROLLBACK").catch(()=>{}); throw e; }finally{ client.release(); } }
 
 export async function ensureGroupManagementCoreSchema(db:Db){
   const sqls:string[]=[
@@ -202,17 +202,33 @@ export async function resolveGroupInput(db:Db,actorUserId:number,rawInput:unknow
   if(!chat.ok||!chat.result){await save("NOT_FOUND","INACCESSIBLE","UNAVAILABLE","TELEGRAM_GET_CHAT_FAILED");return {inputType:p.type,normalizedReference:p.reference,fingerprint:p.fingerprint,status:"NOT_FOUND",accessState:"INACCESSIBLE",nextAction:"UNAVAILABLE",message:"گروه با این ورودی از مسیر Bot API قابل شناسایی نیست."};}
   if(!["group","supergroup"].includes(String(chat.result.type))){await save("INVALID","INACCESSIBLE","UNAVAILABLE","NOT_A_GROUP");return {inputType:p.type,normalizedReference:p.reference,fingerprint:p.fingerprint,status:"INVALID",accessState:"INACCESSIBLE",nextAction:"UNAVAILABLE",message:"مقصد شناسایی شد، اما یک گروه Telegram نیست."};}
   const groupId=await ensureGroupRecord(db,chat.result);
+  let botStatus:BotMembershipStatus="UNKNOWN";
+  let accessState:"UNKNOWN"|"ACCESSIBLE"|"INACCESSIBLE"|"JOIN_REQUIRED"="INACCESSIBLE";
+  try{
+    const me=await telegramApi<any>("getMe",{});
+    if(me.ok&&me.result?.id){
+      const member=await telegramApi<any>("getChatMember",{chat_id:Number(chat.result.id),user_id:me.result.id});
+      if(member.ok&&member.result){
+        botStatus=mapMemberStatus(String(member.result.status||""));
+        accessState=botStatus==="LEFT"||botStatus==="BANNED"?"INACCESSIBLE":"ACCESSIBLE";
+      }
+    }
+  }catch{}
   const overview=await getGroupOverview(db,groupId);
-  const botStatus=overview?.bot_membership_status??"UNKNOWN",reg=overview?.registration_status??"UNREGISTERED",inst=overview?.installation_status??"NOT_INSTALLED";
-  const accessible=!["LEFT","BANNED"].includes(botStatus);
-  const next=reg==="REGISTERED"?"MANAGE":accessible?"REGISTER":"REQUEST_ACCESS";
-  await db.query("UPDATE gm_group_resolution_attempts SET resolved_group_id=$1,bot_status=$2,registration_status=$3,installation_status=$4 WHERE request_id=$5",[groupId,botStatus,reg,inst,requestId]).catch(()=>{});
-  await db.query("UPDATE gm_group_resolution_attempts SET resolution_status='RESOLVED',access_state=$2,next_action=$3,metadata=jsonb_build_object('title',$4,'username',$5) WHERE request_id=$1",[requestId,accessible?"ACCESSIBLE":"INACCESSIBLE",next,String(chat.result.title||"گروه بدون نام"),chat.result.username||null]).catch(()=>{});
-  return {inputType:p.type,normalizedReference:p.reference,fingerprint:p.fingerprint,status:"RESOLVED",accessState:accessible?"ACCESSIBLE":"INACCESSIBLE",nextAction:next,registrationStatus:reg,installationStatus:inst,botStatus,group:{groupId,telegramChatId:Number(chat.result.id),title:String(chat.result.title||"گروه بدون نام"),username:chat.result.username||null,chatType:String(chat.result.type)}};
+  if(botStatus==="UNKNOWN"&&overview?.bot_membership_status)botStatus=String(overview.bot_membership_status) as BotMembershipStatus;
+  if(botStatus!=="UNKNOWN")accessState=botStatus==="LEFT"||botStatus==="BANNED"?"INACCESSIBLE":"ACCESSIBLE";
+  const reg=overview?.registration_status??"UNREGISTERED",inst=overview?.installation_status??"NOT_INSTALLED";
+  const accessible=accessState==="ACCESSIBLE";
+  const next=reg==="REGISTERED"?(accessible?"MANAGE":"REQUEST_ACCESS"):(accessible?"REGISTER":"REQUEST_ACCESS");
+  await db.query("INSERT INTO gm_group_resolution_attempts(resolution_id,request_id,requester_user_id,input_type,normalized_reference,input_fingerprint,resolved_group_id,provider,resolution_status,access_state,next_action,metadata) VALUES($1,$2,$3,$4,$5,$6,$7,'telegram','RESOLVED',$8,$9,$10,$11::jsonb)",[uuid(),requestId,actorUserId,p.type,p.reference,p.fingerprint,groupId,accessState,next,JSON.stringify({title:String(chat.result.title||"گروه بدون نام"),username:chat.result.username||null,botStatus,registrationStatus:reg,installationStatus:inst})]);
+  return {inputType:p.type,normalizedReference:p.reference,fingerprint:p.fingerprint,status:"RESOLVED",accessState,nextAction:next,registrationStatus:reg,installationStatus:inst,botStatus,group:{groupId,telegramChatId:Number(chat.result.id),title:String(chat.result.title||"گروه بدون نام"),username:chat.result.username||null,chatType:String(chat.result.type)}};
 }
 
 export async function registerGroup(db:Db,actorUserId:number,groupId:string){
   await ensureGroupManagementCoreSchema(db);
+  const inspected=await inspectGroup(db,groupId);
+  if(!inspected)throw new Error("گروه پیدا نشد.");
+  if(["LEFT","BANNED"].includes(String(inspected.bot_membership_status)))throw new Error("ربات فعلاً به این گروه دسترسی ندارد.");
   const group=await getGroup(db,groupId); if(!group)throw new Error("گروه پیدا نشد.");
   return withTx(db,async client=>{
     const runtime=(await client.query("SELECT bot_membership_status FROM gm_group_runtime WHERE group_id=$1 LIMIT 1 FOR UPDATE",[groupId])).rows[0];
@@ -237,19 +253,25 @@ export async function installGroup(db:Db,actorUserId:number,groupId:string){
   const overview=await getGroupOverview(db,groupId); if(!overview)throw new Error("گروه پیدا نشد.");
   if(overview.registration_status!=="REGISTERED")throw new Error("گروه باید ابتدا ثبت شود.");
   if(["LEFT","BANNED"].includes(String(overview.bot_membership_status)))throw new Error("ربات به گروه دسترسی ندارد.");
-  if(await tableExists(db,"bot_group_installations")){
-    const legacy=(await db.query("SELECT installed,installation_version FROM bot_group_installations WHERE group_id=$1 LIMIT 1",[String(overview.telegram_chat_id)])).rows[0];
-    if(legacy?.installed){
-      await db.query("UPDATE gm_group_installations SET status='INSTALLED',current_version=1,target_version=1,completed_at=COALESCE(completed_at,NOW()),installed_by_user_id=$2,updated_at=NOW() WHERE group_id=$1",[groupId,actorUserId]);
-      await db.query("UPDATE gm_group_module_states SET state='ACTIVE',enabled=TRUE,updated_by_user_id=$2,updated_at=NOW() WHERE group_id=$1",[groupId,actorUserId]);
-      await db.query("UPDATE gm_group_runtime SET service_status=CASE WHEN bot_membership_status='ADMINISTRATOR' THEN 'ACTIVE' ELSE 'DEGRADED' END,runtime_revision=runtime_revision+1,updated_at=NOW() WHERE group_id=$1",[groupId]);
-      await audit(db,actorUserId,groupId,"group_installation_reconciled","SUCCESS",null,{status:"INSTALLED"});
-      return getGroupOverview(db,groupId);
+  return withTx(db,groupId,async client=>{
+    const current=(await client.query("SELECT * FROM gm_group_installations WHERE group_id=$1 LIMIT 1 FOR UPDATE",[groupId])).rows[0];
+    if(!current)throw new Error("رکورد نصب گروه پیدا نشد.");
+    if(["PENDING","INSTALLING"].includes(String(current.status))||current.status==="INSTALLED")return getGroupOverview(client as any,groupId);
+    const legacyExists=await tableExists(db,"bot_group_installations");
+    if(legacyExists){
+      const legacy=(await client.query("SELECT installed,installation_version FROM bot_group_installations WHERE group_id=$1 LIMIT 1",[String(overview.telegram_chat_id)])).rows[0];
+      if(legacy?.installed){
+        await client.query("UPDATE gm_group_installations SET status='INSTALLED',current_version=1,target_version=1,completed_at=COALESCE(completed_at,NOW()),installed_by_user_id=$2,updated_at=NOW() WHERE group_id=$1",[groupId,actorUserId]);
+        await client.query("UPDATE gm_group_module_states SET state='ACTIVE',enabled=TRUE,updated_by_user_id=$2,updated_at=NOW() WHERE group_id=$1",[groupId,actorUserId]);
+        await client.query("UPDATE gm_group_runtime SET service_status=CASE WHEN bot_membership_status='ADMINISTRATOR' THEN 'ACTIVE' ELSE 'DEGRADED' END,runtime_revision=runtime_revision+1,updated_at=NOW() WHERE group_id=$1",[groupId]);
+        await audit(client as any,actorUserId,groupId,"group_installation_reconciled","SUCCESS",null,{status:"INSTALLED"});
+        return getGroupOverview(client as any,groupId);
+      }
     }
-  }
-  await db.query("UPDATE gm_group_installations SET status='PENDING',target_version=1,attempt_no=attempt_no+1,updated_at=NOW() WHERE group_id=$1",[groupId]);
-  await audit(db,actorUserId,groupId,"group_installation_pending","NOOP",null,{status:"PENDING"},"Actual installation remains owned by the existing installation engine.");
-  return getGroupOverview(db,groupId);
+    await client.query("UPDATE gm_group_installations SET status='PENDING',target_version=1,attempt_no=attempt_no+1,updated_at=NOW() WHERE group_id=$1",[groupId]);
+    await audit(client as any,actorUserId,groupId,"group_installation_pending","NOOP",null,{status:"PENDING"},"Actual installation remains owned by the existing installation engine.");
+    return getGroupOverview(client as any,groupId);
+  });
 }
 
 export async function archiveGroup(db:Db,actorUserId:number,groupId:string){
