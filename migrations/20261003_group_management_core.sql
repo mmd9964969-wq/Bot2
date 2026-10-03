@@ -31,3 +31,19 @@
 \nINSERT INTO gm_group_settings(group_settings_id,group_id,settings_profile_id,security_profile_key) SELECT md5('settings:'||g.group_id::text)::uuid,g.group_id,sp.settings_profile_id,'default' FROM gm_groups g CROSS JOIN LATERAL(SELECT settings_profile_id FROM gm_settings_profiles WHERE profile_key='default' LIMIT 1) sp ON CONFLICT(group_id) DO NOTHING;
 \nINSERT INTO gm_group_runtime(runtime_id,group_id,bot_membership_status,service_status,member_count,admin_count,last_reconcile_at) SELECT md5('runtime:'||g.telegram_chat_id::text)::uuid,g.group_id,CASE WHEN r.telegram_status IN ('administrator','admin') THEN 'ADMINISTRATOR' WHEN r.telegram_status='member' THEN 'MEMBER' WHEN r.telegram_status='restricted' THEN 'RESTRICTED' WHEN r.telegram_status='left' THEN 'LEFT' WHEN r.telegram_status IN ('kicked','banned') THEN 'BANNED' ELSE 'UNKNOWN' END,CASE WHEN r.telegram_status IN ('left','kicked','banned') OR r.is_enabled=FALSE THEN 'STOPPED' WHEN r.bot_status IN ('ERROR','RESTRICTED') THEN 'DEGRADED' ELSE 'ACTIVE' END,r.member_count,r.admin_count,r.last_sync_at FROM gm_groups g JOIN owner_group_registry r ON r.group_id=g.telegram_chat_id ON CONFLICT(group_id) DO NOTHING;
 \nINSERT INTO gm_group_module_states(module_state_id,group_id,module_key,state,enabled) SELECT md5(m.module_key||':'||g.group_id::text)::uuid,g.group_id,m.module_key,CASE WHEN i.status='INSTALLED' THEN 'ACTIVE' ELSE 'READY' END,CASE WHEN i.status='INSTALLED' THEN TRUE ELSE FALSE END FROM gm_groups g JOIN gm_group_installations i ON i.group_id=g.group_id CROSS JOIN(VALUES('security'),('commands'),('statistics'),('members'),('activity'),('tools'))m(module_key) ON CONFLICT(group_id,module_key) DO NOTHING;
+
+CREATE INDEX IF NOT EXISTS gm_registrations_status_idx ON gm_group_registrations(status,updated_at DESC);
+CREATE INDEX IF NOT EXISTS gm_installations_status_idx ON gm_group_installations(status,updated_at DESC);
+CREATE INDEX IF NOT EXISTS gm_runtime_bot_idx ON gm_group_runtime(bot_membership_status);
+CREATE INDEX IF NOT EXISTS gm_runtime_service_idx ON gm_group_runtime(service_status);
+CREATE INDEX IF NOT EXISTS gm_permission_history_idx ON gm_group_permission_snapshots(group_id,captured_at DESC);
+CREATE INDEX IF NOT EXISTS gm_group_settings_profile_idx ON gm_group_settings(settings_profile_id);
+CREATE INDEX IF NOT EXISTS gm_module_group_idx ON gm_group_module_states(group_id,module_key);
+CREATE INDEX IF NOT EXISTS gm_module_active_idx ON gm_group_module_states(group_id,module_key) WHERE enabled=TRUE;
+CREATE INDEX IF NOT EXISTS gm_resolution_group_idx ON gm_group_resolution_attempts(resolved_group_id,created_at DESC);
+CREATE INDEX IF NOT EXISTS gm_resolution_status_idx ON gm_group_resolution_attempts(resolution_status,created_at DESC);
+CREATE INDEX IF NOT EXISTS gm_resolution_fingerprint_idx ON gm_group_resolution_attempts(input_fingerprint);
+CREATE INDEX IF NOT EXISTS gm_audit_action_time_idx ON gm_group_audit_log(action,created_at DESC);
+CREATE INDEX IF NOT EXISTS gm_events_group_version_idx ON gm_domain_events(group_id,aggregate_version);
+CREATE INDEX IF NOT EXISTS gm_idempotency_group_idx ON gm_idempotency_keys(group_id,created_at DESC);
+CREATE INDEX IF NOT EXISTS gm_idempotency_expiry_idx ON gm_idempotency_keys(expires_at) WHERE status IN ('PROCESSING','COMPLETED');
