@@ -523,6 +523,9 @@ function normalizeRole(value:unknown):PanelRole {
   return (PANEL_ROLE_ORDER as string[]).includes(role) ? role as PanelRole : "MEMBER";
 }
 async function resolvePanelRole(ctx:BotContext):Promise<PanelRole>{
+  // Telegram-configured owners always outrank any stale/incorrect DB role.
+  // This prevents a newly added owner from being downgraded to MEMBER by a users row.
+  if(ctx.userRank==="owner")return "OWNER";
   const fallback=panelRoleForRank(ctx.userRank);
   if(!studioPool)return fallback;
   try{
