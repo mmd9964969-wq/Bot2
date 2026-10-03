@@ -56,6 +56,7 @@ const BUILTIN_OWNER_IDS = ["8247710529"];
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const inputFlows = new Map<number, { messageId: number; expires: number; mode: "group" | "message" }>();
+const messageTargets = new Map<number, number>();
 
 function clean(value: unknown) {
   const text = String(value ?? "").trim();
@@ -246,6 +247,38 @@ async function subscriptionInfo(db: Pool, groupId: number) {
   return result.rows?.[0] ?? null;
 }
 
+async function installationInfo(db: Pool, telegramChatId: number) {
+  await ensureGroupManagementCoreSchema(db);
+  const result = await db.query(
+    `
+      SELECT i.status,i.current_version,i.target_version,i.failure_code,i.failure_message,i.updated_at
+      FROM gm_group_installations i
+      JOIN gm_groups g ON g.group_id=i.group_id
+      WHERE g.telegram_chat_id=$1
+      LIMIT 1
+    `,
+    [telegramChatId],
+  ).catch(() => ({ rows: [] }));
+
+  return result.rows?.[0] ?? null;
+}
+
+async function runtimeInfo(db: Pool, telegramChatId: number) {
+  await ensureGroupManagementCoreSchema(db);
+  const result = await db.query(
+    `
+      SELECT service_status,last_error_code,last_error_at,last_message_at,last_reconcile_at
+      FROM gm_group_runtime rt
+      JOIN gm_groups g ON g.group_id=rt.group_id
+      WHERE g.telegram_chat_id=$1
+      LIMIT 1
+    `,
+    [telegramChatId],
+  ).catch(() => ({ rows: [] }));
+
+  return result.rows?.[0] ?? null;
+}
+
 async function sendRich(
   db: Pool,
   userId: number,
@@ -301,6 +334,17 @@ async function sendRich(
   return result;
 }
 
+
+async function botAddButton(db: Pool, chatId: number) {
+  const me = await telegramApi<any>("getMe", {}).catch(() => ({ ok: false, result: null }));
+  const username = String(me.result?.username ?? "").replace(/^@/, "");
+  if (!username) return button("بررسی اتصال", "g:sync:" + chatId);
+  return {
+    text: "افزودن دوباره ربات",
+    url: "https://t.me/" + encodeURIComponent(username) + "?startgroup=true",
+  };
+}
+
 async function renderGroupHome(
   db: Pool,
   userId: number,
@@ -310,6 +354,8 @@ async function renderGroupHome(
 ) {
   const { chatId: groupId, group } = await getGroup(db, reference);
   const subscription = await subscriptionInfo(db, groupId);
+  const installation = await installationInfo(db, groupId);
+  const runtime = await runtimeInfo(db, groupId);
   const flags = await locked(db, groupId);
 
   const document = rich("مدیریت گروه‌ها", [
@@ -319,8 +365,8 @@ async function renderGroupHome(
       ["ربات", membershipLabel(group.bot_status)],
       ["سرویس", stateLabel(group.is_enabled === false ? "DISABLED" : group.bot_status)],
       ["دسترسی ربات", membershipLabel(group.telegram_status)],
-      ["نصب", stateLabel(group.installation_status ?? "UNINSTALLED")],
-      ["سلامت", stateLabel(group.bot_status === "ERROR" ? "ERROR" : "ACTIVE")],
+      ["نصب", stateLabel(installation?.status ?? "UNINSTALLED")],
+      ["سلامت", stateLabel(runtime?.service_status ?? (group.bot_status === "ERROR" ? "ERROR" : "ACTIVE"))],
       ["آخرین همگام‌سازی", faDate(group.last_sync_at)],
       ["آخرین فعالیت", faDate(group.last_activity_at)],
     ]),
@@ -340,9 +386,11 @@ async function renderGroupHome(
     { type: "paragraph", text: flags.operationsLocked ? "قفل عملیاتی: فعال" : "قفل عملیاتی: غیرفعال" },
   ]);
 
-  const statusButton = group.is_enabled === false || group.bot_status === "DISABLED"
-    ? colored("فعال‌سازی", "g:enable:" + groupId, "success")
-    : colored("غیرفعال‌سازی", "g:disable:" + groupId, "danger");
+  const statusButton = group.bot_status === "LEFT" || group.telegram_status === "left"
+    ? await botAddButton(db, groupId)
+    : group.is_enabled === false || group.bot_status === "DISABLED"
+      ? colored("فعال‌سازی", "g:enable:" + groupId, "success")
+      : colored("غیرفعال‌سازی", "g:disable:" + groupId, "danger");
 
   const markup = keyboard([
     [button("نمای کلی", "g:overview:" + groupId), button("کنترل ربات", "g:control:" + groupId)],
@@ -376,9 +424,9 @@ async function renderOverview(
     ]),
     table("وضعیت", [
       ["ثبت", stateLabel(group.telegram_status)],
-      ["نصب", stateLabel(group.installation_status)],
+      ["نصب", stateLabel((await installationInfo(db, groupId))?.status ?? "UNINSTALLED")],
       ["ربات", membershipLabel(group.bot_status)],
-      ["سلامت", stateLabel(group.bot_status === "ERROR" ? "ERROR" : "ACTIVE")],
+      ["سلامت", stateLabel((await runtimeInfo(db, groupId))?.service_status ?? (group.bot_status === "ERROR" ? "ERROR" : "ACTIVE"))],
       ["آخرین همگام‌سازی", faDate(group.last_sync_at)],
     ]),
   ]);
@@ -455,15 +503,17 @@ async function renderDeploy(
   reference: string,
 ) {
   const { chatId: groupId, group } = await getGroup(db, reference);
+  const installation = await installationInfo(db, groupId);
 
   const document = rich("اتصال و استقرار", [
     { type: "paragraph", text: clean(group.title) },
     table("استقرار", [
-      ["وضعیت نصب", stateLabel(group.installation_status)],
-      ["نسخه فعلی", clean(group.current_version)],
-      ["نسخه هدف", clean(group.target_version)],
-      ["کد خطا", clean(group.last_error_code)],
-      ["آخرین خطا", faDate(group.last_error_at)],
+      ["وضعیت نصب", stateLabel(installation?.status ?? "UNINSTALLED")],
+      ["نسخه فعلی", clean(installation?.current_version)],
+      ["نسخه هدف", clean(installation?.target_version)],
+      ["کد خطا", clean(installation?.failure_code)],
+      ["پیام خطا", clean(installation?.failure_message)],
+      ["آخرین بروزرسانی", faDate(installation?.updated_at)],
     ]),
     { type: "paragraph", text: "نصب و بازنصب فقط چرخهٔ سرویس همان گروه را تغییر می‌دهد و داده‌های مشتری را به‌صورت خودکار حذف نمی‌کند." },
   ]);
@@ -526,19 +576,22 @@ async function renderHealth(
   reference: string,
 ) {
   const { chatId: groupId, group } = await getGroup(db, reference);
+  const installation = await installationInfo(db, groupId);
+  const runtime = await runtimeInfo(db, groupId);
 
   const document = rich("سلامت گروه", [
     { type: "paragraph", text: clean(group.title) },
     table("وضعیت", [
       ["عضویت ربات", membershipLabel(group.telegram_status)],
       ["وضعیت ربات", stateLabel(group.bot_status)],
-      ["وضعیت نصب", stateLabel(group.installation_status)],
+      ["وضعیت سرویس", stateLabel(runtime?.service_status ?? "UNKNOWN")],
+      ["وضعیت نصب", stateLabel(installation?.status ?? "UNINSTALLED")],
       ["تعداد اعضا", String(group.member_count ?? 0)],
       ["تعداد مدیران", String(group.admin_count ?? 0)],
       ["آخرین همگام‌سازی", faDate(group.last_sync_at)],
       ["آخرین فعالیت", faDate(group.last_activity_at)],
-      ["آخرین خطا", faDate(group.last_error_at)],
-      ["پیام خطا", clean(group.last_error_message)],
+      ["آخرین خطا", clean(group.last_error_message)],
+      ["کد خطا", clean(group.last_error_code)],
     ]),
   ]);
 
@@ -672,6 +725,7 @@ async function renderMessagePrompt(
     expires: Date.now() + 10 * 60 * 1000,
     mode: "message",
   });
+  messageTargets.set(userId, groupId);
 
   const document = rich("ارسال پیام به گروه", [
     { type: "paragraph", text: clean(group.title) },
@@ -931,6 +985,18 @@ async function handleAction(
     const scope = parts[3] as "config" | "messages" | "warnings" | "management" | undefined;
     if (!Number.isSafeInteger(groupId) || !scope) return false;
 
+    const controls = await locked(db, groupId);
+    if (controls.operationsLocked) {
+      return sendRich(
+        db,
+        userId,
+        chatId,
+        rich("قفل عملیاتی", [{ type: "paragraph", text: "ریست گروه تا زمان بازکردن قفل عملیاتی مجاز نیست." }]),
+        keyboard(back("g:reset:" + groupId)),
+        messageId,
+      );
+    }
+
     try {
       await resetOwnerGroup(db, userId, groupId, scope);
       return renderOperationResult(
@@ -979,6 +1045,18 @@ async function handleAction(
     const groupId = Number(data.slice(13));
     if (!Number.isSafeInteger(groupId)) return false;
 
+    const controls = await locked(db, groupId);
+    if (controls.operationsLocked) {
+      return sendRich(
+        db,
+        userId,
+        chatId,
+        rich("قفل عملیاتی", [{ type: "paragraph", text: "ریست کامل تا زمان بازکردن قفل عملیاتی مجاز نیست." }]),
+        keyboard(back("g:reset:" + groupId)),
+        messageId,
+      );
+    }
+
     try {
       await resetOwnerGroup(db, userId, groupId, "full");
       return renderOperationResult(
@@ -1004,7 +1082,22 @@ async function handleAction(
   }
 
   if (data.startsWith("g:message:")) {
-    return renderMessagePrompt(db, userId, chatId, messageId, data.slice(10));
+    const groupId = Number(data.slice(10));
+    if (!Number.isSafeInteger(groupId)) return false;
+    const controls = await locked(db, groupId);
+    if (controls.operationsLocked) {
+      return sendRich(
+        db,
+        userId,
+        chatId,
+        rich("قفل عملیاتی", [
+          { type: "paragraph", text: "ارسال پیام نیز تا زمان بازکردن قفل عملیاتی متوقف است." },
+        ]),
+        keyboard(back("g:control:" + groupId)),
+        messageId,
+      );
+    }
+    return renderMessagePrompt(db, userId, chatId, messageId, String(groupId));
   }
 
   // Compatibility with the previous group-pro callbacks:
@@ -1105,6 +1198,7 @@ async function handleTextInput(db: Pool, message: TgMessage) {
   if (!active) return false;
   if (active.expires < Date.now()) {
     inputFlows.delete(userId);
+    messageTargets.delete(userId);
     return false;
   }
   if (!text) return false;
@@ -1146,13 +1240,9 @@ async function handleTextInput(db: Pool, message: TgMessage) {
   }
 
   if (active.mode === "message") {
-    const parts = await db.query(
-      "SELECT group_id FROM panel_message_bindings WHERE message_id=$1 ORDER BY created_at DESC LIMIT 1",
-      [active.messageId],
-    ).catch(() => ({ rows: [] }));
-
-    const boundChatId = Number(parts.rows?.[0]?.group_id);
+    const boundChatId = Number(messageTargets.get(userId));
     inputFlows.delete(userId);
+    messageTargets.delete(userId);
 
     if (!Number.isSafeInteger(boundChatId)) {
       return !!(await sendRich(
