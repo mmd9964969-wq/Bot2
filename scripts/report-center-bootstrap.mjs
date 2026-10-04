@@ -38,40 +38,35 @@ const TOPICS = [
 ];
 
 
-const TOPIC_ICONS = {
-  startup: "5217880283860194582",
-  system_status: "5447410659077661506",
-  deployment: "5375338737028841420",
-  groups: "5942877472163892475",
-  installation: "5271604874419647061",
-  members: "5879770735999717115",
-  admins: "5886505193180239900",
-  moderation: "5805532930662996322",
-  commands: "5877597667231534929",
-  security: "5296369303661067030",
-  locks: "5296369303661067030",
-  health: "5960714428394507968",
-  errors: "5447644880824181073",
-  database: "5877485980901971030",
-  queue: "5217697679030637222",
-  scheduler: "5413879192267805083",
-  analytics: "5231200819986047254",
-  bots: "5931415565955503486",
-  customers: "5967389567781703494",
-  licenses: "5985433648810171091",
-  finance: "5409048419211682843",
-  ownership: "5438496463044752972",
-  web_panel: "5447410659077661506",
-  api_services: "5271604874419647061",
-  support: "5884510167986343350",
-  customer_reports: "5877597667231534929",
-  notifications: "5458603043203327669",
-  configuration: "5341715473882955310",
-  performance: "5449683594425410231",
-  backup_recovery: "5967456680940671207",
-  audit: "5877301185639091664",
-  critical: "5456140674028019486",
-};
+const TOPIC_ICON_CACHE = new Map();
+
+async function getAllowedTopicIconIds() {
+  if (TOPIC_ICON_CACHE.has(chatId)) return TOPIC_ICON_CACHE.get(chatId);
+
+  const result = await api("getForumTopicIconStickers");
+  if (!result.ok || !Array.isArray(result.result)) {
+    throw new Error(`getForumTopicIconStickers failed: ${result.description || "unknown error"}`);
+  }
+
+  const ids = result.result
+    .map((sticker) => String(sticker?.custom_emoji_id || ""))
+    .filter(Boolean);
+
+  if (!ids.length) {
+    throw new Error("Telegram returned no allowed custom emoji IDs for forum topic icons");
+  }
+
+  TOPIC_ICON_CACHE.set(chatId, ids);
+  console.log(`[report-center] loaded ${ids.length} Telegram-native topic custom emoji icons`);
+  return ids;
+}
+
+async function getTopicIconId(topicIndex) {
+  const ids = await getAllowedTopicIconIds();
+  return ids[topicIndex % ids.length];
+}
+
+
 
 const TOPIC_INTROS = {
   startup: {
@@ -592,7 +587,10 @@ async function bootstrap() {
     const results = [];
     let createdCount = 0;
 
-    for (const [key, title] of TOPICS) {
+    const allowedTopicIconIds = await getAllowedTopicIconIds();
+    if (!allowedTopicIconIds.length) throw new Error("No Telegram-native topic custom emoji icons available");
+
+    for (const [topicIndex, [key, title]] of TOPICS.entries()) {
       const existing = await lock.query(
         `SELECT message_thread_id FROM report_center_topics WHERE chat_id=$1 AND topic_key=$2 LIMIT 1`,
         [chatId, key],
@@ -600,8 +598,7 @@ async function bootstrap() {
 
       let threadId = Number(existing.rows[0]?.message_thread_id || 0);
       if (!threadId) {
-        const iconCustomEmojiId = TOPIC_ICONS[key];
-        if (!iconCustomEmojiId) throw new Error(`Missing custom emoji ID for topic [${key}]`);
+        const iconCustomEmojiId = allowedTopicIconIds[topicIndex % allowedTopicIconIds.length];
         const created = await createTopicWithRetry(title, iconCustomEmojiId);
         threadId = Number(created.result.message_thread_id);
         createdCount += 1;
@@ -611,8 +608,7 @@ async function bootstrap() {
         results.push(`= ${title} [${threadId}]`);
       }
 
-      const iconCustomEmojiId = TOPIC_ICONS[key];
-      if (!iconCustomEmojiId) throw new Error(`Missing custom emoji ID for topic [${key}]`);
+      const iconCustomEmojiId = allowedTopicIconIds[topicIndex % allowedTopicIconIds.length];
 
       // Existing topics keep their thread IDs; synchronize only the native Telegram topic icon.
       await editTopicIconWithRetry(threadId, iconCustomEmojiId);
