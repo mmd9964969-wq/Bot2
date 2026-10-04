@@ -542,10 +542,19 @@ export async function openOwnerPanelEntry(pool:Pool,msg:TgMessage,ownerIds:strin
   const uid=msg.from.id;
   if(!await isOwner(pool,uid,ownerIds))return false;
   const raw=String(msg.text||"").trim().replace(/^[/!]/,"").trim().toLowerCase();
-  const commands=new Set(["start","restart","ری‌استارت","ری استارت","رستارت","استارت"]);
+  const commands=new Set(["start","restart","ری‌استارت","ری استارت","رستارت","استارت","پنل مالکیت"]);
   if(!commands.has(raw))return false;
   await ensurePanelSessionSchema(pool);
   await ensureOwnerManagementSchema(pool).catch(()=>{});
+
+  if(raw==="پنل مالکیت"){
+    await audit(pool,String(uid),"owner_panel_opened_directly",String(uid),{entry:raw,stage:"1"});
+    return runWithPanelScope(uid,pool,async()=>{
+      setCurrentPanelKind("owner");
+      const result=await renderOwner(pool,uid,msg.chat.id,undefined,msg.from);
+      return !!result?.ok;
+    });
+  }
 
   if(raw==="restart"){
     const old=await pool.query("SELECT message_id FROM bot_panel_sessions WHERE chat_id=$1 AND user_id=$2 AND panel_kind IN ('owner','owner_entry')",[String(msg.chat.id),String(uid)]).catch(()=>({rows:[]}));
