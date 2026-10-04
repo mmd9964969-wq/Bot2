@@ -59,7 +59,33 @@ const api = async (method, body = {}) => {
   return response.json();
 };
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const pool = new Pool({ connectionString: databaseUrl, max: 2 });
+
+async function createTopicWithRetry(title) {
+  for (let attempt = 1; attempt <= 8; attempt += 1) {
+    const created = await api("createForumTopic", {
+      chat_id: chatId,
+      name: title,
+    });
+
+    if (created.ok && created.result?.message_thread_id) {
+      return created;
+    }
+
+    const retryAfter = Number(created.parameters?.retry_after || 0);
+    if (String(created.error_code || "") === "429" && retryAfter > 0) {
+      const delay = Math.max(retryAfter, 1) * 1000 + 1500;
+      console.warn(`[report-center] Telegram rate limit for "${title}"; retrying in ${Math.ceil(delay / 1000)}s`);
+      await sleep(delay);
+      continue;
+    }
+
+    throw new Error(`createForumTopic failed for ${title}: ${created.description || "unknown error"}`);
+  }
+
+  throw new Error(`createForumTopic retries exhausted for ${title}`);
+}
 
 async function bootstrap() {
   await pool.query(`
@@ -89,88 +115,105 @@ async function bootstrap() {
       ON report_center_topics(chat_id);
   `);
 
-  const chat = await api("getChat", { chat_id: chatId });
-  if (!chat.ok || !chat.result) {
-    throw new Error(chat.description || "Telegram getChat failed");
-  }
-  if (![ "group", "supergroup" ].includes(String(chat.result.type))) {
-    throw new Error("Report Center target is not a Telegram group");
-  }
-  if (chat.result.is_forum !== true) {
-    throw new Error("Report Center target is not a Forum/Topics group");
-  }
-
-  const me = await api("getMe");
-  if (!me.ok || !me.result?.id) {
-    throw new Error(me.description || "Telegram getMe failed");
-  }
-
-  const botMember = await api("getChatMember", {
-    chat_id: chatId,
-    user_id: me.result.id,
-  });
-  if (!botMember.ok || !botMember.result) {
-    throw new Error(botMember.description || "Telegram getChatMember failed");
-  }
-
-  const status = String(botMember.result.status || "");
-  if (![ "administrator", "creator" ].includes(status)) {
-    throw new Error("Bot is not an administrator in Report Center");
-  }
-  if (botMember.result.can_manage_topics !== true && status !== "creator") {
-    throw new Error("Bot does not have Manage Topics permission");
-  }
-
-  await pool.query(
-    `INSERT INTO report_centers(chat_id,title,enabled,last_health_check)
-     VALUES($1,$2,TRUE,NOW())
-     ON CONFLICT(chat_id) DO UPDATE SET
-       title=EXCLUDED.title,
-       enabled=TRUE,
-       last_health_check=NOW()`,
-    [chatId, String(chat.result.title || "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Report Center")],
-  );
-
-  const results = [];
-
-  for (const [key, title] of TOPICS) {
-    const existing = await pool.query(
-      `SELECT message_thread_id
-         FROM report_center_topics
-        WHERE chat_id=$1 AND topic_key=$2
-        LIMIT 1`,
-      [chatId, key],
+  const lock = await pool.connect();
+  try {
+    const lockResult = await lock.query(
+      "SELECT pg_try_advisory_lock(hashtext($1)) AS locked",
+      [`report-center-bootstrap:${chatId}`],
     );
-
-    let threadId = Number(existing.rows[0]?.message_thread_id || 0);
-    if (!threadId) {
-      const created = await api("createForumTopic", {
-        chat_id: chatId,
-        name: title,
-      });
-      if (!created.ok || !created.result?.message_thread_id) {
-        throw new Error(`createForumTopic failed for ${title}: ${created.description || "unknown error"}`);
-      }
-      threadId = Number(created.result.message_thread_id);
-      results.push(`+ ${title} [${threadId}]`);
-    } else {
-      results.push(`= ${title} [${threadId}]`);
+    if (!lockResult.rows[0]?.locked) {
+      console.log("[report-center] another bootstrap instance is active; this instance will exit");
+      return;
     }
 
-    await pool.query(
-      `INSERT INTO report_center_topics(chat_id,topic_key,title,message_thread_id,enabled,updated_at)
-       VALUES($1,$2,$3,$4,TRUE,NOW())
-       ON CONFLICT(chat_id,topic_key) DO UPDATE SET
-         title=EXCLUDED.title,
-         message_thread_id=EXCLUDED.message_thread_id,
-         enabled=TRUE,
-         updated_at=NOW()`,
-      [chatId, key, title, threadId],
-    );
-  }
+    const chat = await api("getChat", { chat_id: chatId });
+    if (!chat.ok || !chat.result) {
+      throw new Error(chat.description || "Telegram getChat failed");
+    }
+    if (!["group", "supergroup"].includes(String(chat.result.type))) {
+      throw new Error("Report Center target is not a Telegram group");
+    }
+    if (chat.result.is_forum !== true) {
+      throw new Error("Report Center target is not a Forum/Topics group");
+    }
 
-  console.log(`[report-center] ready: chat=${chatId} topics=${TOPICS.length}`);
-  for (const row of results) console.log("[report-center]", row);
+    const me = await api("getMe");
+    if (!me.ok || !me.result?.id) {
+      throw new Error(me.description || "Telegram getMe failed");
+    }
+
+    const botMember = await api("getChatMember", {
+      chat_id: chatId,
+      user_id: me.result.id,
+    });
+    if (!botMember.ok || !botMember.result) {
+      throw new Error(botMember.description || "Telegram getChatMember failed");
+    }
+
+    const status = String(botMember.result.status || "");
+    if (!["administrator", "creator"].includes(status)) {
+      throw new Error("Bot is not an administrator in Report Center");
+    }
+    if (botMember.result.can_manage_topics !== true && status !== "creator") {
+      throw new Error("Bot does not have Manage Topics permission");
+    }
+
+    await lock.query(
+      `INSERT INTO report_centers(chat_id,title,enabled,last_health_check)
+       VALUES($1,$2,TRUE,NOW())
+       ON CONFLICT(chat_id) DO UPDATE SET
+         title=EXCLUDED.title,
+         enabled=TRUE,
+         last_health_check=NOW()`,
+      [chatId, String(chat.result.title || "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Report Center")],
+    );
+
+    const results = [];
+    let createdCount = 0;
+
+    for (const [key, title] of TOPICS) {
+      const existing = await lock.query(
+        `SELECT message_thread_id
+           FROM report_center_topics
+          WHERE chat_id=$1 AND topic_key=$2
+          LIMIT 1`,
+        [chatId, key],
+      );
+
+      let threadId = Number(existing.rows[0]?.message_thread_id || 0);
+      if (!threadId) {
+        const created = await createTopicWithRetry(title);
+        threadId = Number(created.result.message_thread_id);
+        createdCount += 1;
+        results.push(`+ ${title} [${threadId}]`);
+        // Topic creation has a stricter Telegram rate limit than ordinary messages.
+        // Keep create requests deliberately spaced to avoid another 429 burst.
+        await sleep(5000);
+      } else {
+        results.push(`= ${title} [${threadId}]`);
+      }
+
+      await lock.query(
+        `INSERT INTO report_center_topics(chat_id,topic_key,title,message_thread_id,enabled,updated_at)
+         VALUES($1,$2,$3,$4,TRUE,NOW())
+         ON CONFLICT(chat_id,topic_key) DO UPDATE SET
+           title=EXCLUDED.title,
+           message_thread_id=EXCLUDED.message_thread_id,
+           enabled=TRUE,
+           updated_at=NOW()`,
+        [chatId, key, title, threadId],
+      );
+    }
+
+    console.log(`[report-center] ready: chat=${chatId} topics=${TOPICS.length} created=${createdCount}`);
+    for (const row of results) console.log("[report-center]", row);
+  } finally {
+    await lock.query(
+      "SELECT pg_advisory_unlock(hashtext($1))",
+      [`report-center-bootstrap:${chatId}`],
+    ).catch(() => {});
+    lock.release();
+  }
 }
 
 try {
