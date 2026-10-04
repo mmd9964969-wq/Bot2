@@ -22,6 +22,10 @@ async function main() {
   const migrationCode = await waitForProcess(migration, "database migration");
   if (migrationCode !== 0) process.exit(migrationCode);
 
+  const reportCenter = run("node", ["scripts/report-center-bootstrap.mjs"]);
+  const reportCenterCode = await waitForProcess(reportCenter, "report center bootstrap");
+  if (reportCenterCode !== 0) process.exit(reportCenterCode);
+
   const port = process.env.PORT || "8080";
   const web = run("node", [".output/server/index.mjs"], { PORT: port, HOST: "0.0.0.0" });
   const bot = run("node", ["--experimental-strip-types", "bot/main.ts"]);
