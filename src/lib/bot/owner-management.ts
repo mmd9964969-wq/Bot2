@@ -198,7 +198,7 @@ export async function handleOwnerManagementCallback(pool:Pool,cb:TgCallback,owne
       pool,uid,chatId,messageId,
       rich("Rᴇǫᴜᴇѕᴛѕ · درخواست‌ها",[
         table("نتیجه",(rows.rows||[]).map(function(x:any){
-          return ["#"+x.id+" · "+x.subject",String(x.status)+" · "+String(x.priority)];
+          return ["#"+x.id+" · "+x.subject,String(x.status)+" · "+String(x.priority)];
         }) as any)
       ]),
       kb([BACK("om:requests")])
