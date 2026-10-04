@@ -37,6 +37,228 @@ const TOPICS = [
   ["critical", "وضعیت بحرانی"],
 ];
 
+const TOPIC_INTROS = {
+  startup: {
+    label: "راه‌اندازی ربات",
+    purpose: "مرکز ثبت رخدادهای شروع، توقف و آماده‌به‌کار شدن Bot Core.",
+    events: "Startup، Shutdown، Restart، Health Ready و تغییر وضعیت اولیه سرویس.",
+    notes: "این Topic مرجع تشخیص زمان بالا آمدن ربات و وضعیت اولیه سرویس است.",
+  },
+  system_status: {
+    label: "وضعیت سیستم",
+    purpose: "نمایش وضعیت کلی سرویس‌ها و اجزای اصلی Persian Bot.",
+    events: "وضعیت Bot Core، Web Panel، Telegram API، Database و سرویس‌های وابسته.",
+    notes: "برای بررسی سریع سلامت عمومی سیستم استفاده می‌شود.",
+  },
+  deployment: {
+    label: "استقرار و بروزرسانی",
+    purpose: "ثبت تمام رویدادهای Deploy و بروزرسانی نسخه‌های تولیدی.",
+    events: "Build، Deploy، Restart، Release، Rollback و تغییر نسخه.",
+    notes: "هر تغییر مهم در محیط Production باید قابل ردیابی باشد.",
+  },
+  groups: {
+    label: "گروه‌ها",
+    purpose: "مرکز رخدادهای مرتبط با گروه‌های تحت مدیریت ربات.",
+    events: "ثبت گروه، بروزرسانی مشخصات، فعال/غیرفعال شدن و تغییر وضعیت سرویس گروه.",
+    notes: "منبع اصلی تاریخچه تغییرات مدیریتی گروه‌هاست.",
+  },
+  installation: {
+    label: "نصب و اتصال",
+    purpose: "ثبت نصب، اتصال و قطع اتصال ربات از گروه‌ها.",
+    events: "Installation، Verification، Connection، Uninstallation و خطاهای نصب.",
+    notes: "برای بررسی چرخه کامل نصب و اتصال استفاده می‌شود.",
+  },
+  members: {
+    label: "اعضا",
+    purpose: "ثبت رخدادهای مهم مربوط به اعضای گروه‌ها.",
+    events: "ورود، خروج، تغییر وضعیت عضویت و تغییرات مهم پروفایل عضویت.",
+    notes: "گزارش‌های روتین چت در این بخش قرار نمی‌گیرند.",
+  },
+  admins: {
+    label: "مدیران",
+    purpose: "ثبت تغییرات و رخدادهای مرتبط با مدیران گروه.",
+    events: "ارتقا، تنزل، تغییر دسترسی و بررسی وضعیت مدیران.",
+    notes: "برای Audit دسترسی‌های مدیریتی استفاده می‌شود.",
+  },
+  moderation: {
+    label: "اقدامات مدیریتی",
+    purpose: "مرکز ثبت اقدامات Moderation انجام‌شده توسط مدیران یا سیستم.",
+    events: "Warn، Mute، Ban، Kick، Unmute و سایر اقدامات مدیریتی.",
+    notes: "برای هر اقدام، عامل اجراکننده و نتیجه عملیات ثبت می‌شود.",
+  },
+  commands: {
+    label: "دستورات",
+    purpose: "ثبت اجرای دستورات و رخدادهای مرتبط با Command System.",
+    events: "اجرای دستور، رد دسترسی، خطای دستور و تغییر تنظیمات دستورات.",
+    notes: "برای تحلیل رفتار Commandها و تشخیص خطاهای اجرایی است.",
+  },
+  security: {
+    label: "امنیت",
+    purpose: "ثبت رخدادهای امنیتی و تلاش‌های مشکوک.",
+    events: "Permission Denied، Anti-Spam، رفتار مشکوک و رخدادهای امنیتی.",
+    notes: "رویدادهای مهم امنیتی باید با Severity مشخص ثبت شوند.",
+  },
+  locks: {
+    label: "قفل‌ها",
+    purpose: "ثبت تغییر وضعیت Lock Center و قفل‌های گروه.",
+    events: "فعال‌سازی، غیرفعال‌سازی، تغییر تنظیمات و خطاهای Lock System.",
+    notes: "هر تغییر قفل باید مشخص کند چه کسی و کدام قفل را تغییر داده است.",
+  },
+  health: {
+    label: "نظارت و سلامت",
+    purpose: "ثبت Health Check و پایش مداوم سرویس‌ها.",
+    events: "Health Check، Latency، Dependency Check و Recovery.",
+    notes: "برای تشخیص سریع افت سلامت سرویس استفاده می‌شود.",
+  },
+  errors: {
+    label: "خطاها",
+    purpose: "مرکز خطاهای قابل توجه سیستم و سرویس‌ها.",
+    events: "Runtime Error، API Error، Query Error و خطاهای پردازشی.",
+    notes: "خطاهای بحرانی باید علاوه بر این Topic در Critical نیز ارجاع شوند.",
+  },
+  database: {
+    label: "پایگاه داده",
+    purpose: "ثبت رخدادهای مهم PostgreSQL و لایه داده.",
+    events: "Connection، Migration، Query Failure، Transaction و Schema Change.",
+    notes: "اطلاعات حساس اتصال یا Credential هرگز در گزارش ثبت نشود.",
+  },
+  queue: {
+    label: "صف و پردازش",
+    purpose: "ثبت وضعیت Queue و عملیات پردازشی.",
+    events: "Enqueue، Dequeue، Retry، Failure، Delay و Overflow.",
+    notes: "برای تشخیص صف‌های معطل و پردازش‌های ناموفق استفاده می‌شود.",
+  },
+  scheduler: {
+    label: "وظایف زمان‌بندی‌شده",
+    purpose: "ثبت اجرای Jobها و Taskهای زمان‌بندی‌شده.",
+    events: "شروع، موفقیت، تأخیر، Retry و شکست Scheduler Jobها.",
+    notes: "وظایف خودکار مانند گزارش روزانه باید در این بخش دیده شوند.",
+  },
+  analytics: {
+    label: "آمار و تحلیل",
+    purpose: "مرکز رخدادهای تحلیلی و تولید آمار.",
+    events: "محاسبه آمار، Ranking، Metrics، Aggregation و گزارش‌های دوره‌ای.",
+    notes: "داده خام حساس نباید در گزارش عمومی این Topic قرار بگیرد.",
+  },
+  bots: {
+    label: "ربات‌ها",
+    purpose: "مدیریت و پایش ربات‌های متصل به سامانه.",
+    events: "ثبت ربات، اتصال، فعال/غیرفعال شدن و تغییر وضعیت ربات.",
+    notes: "هر Bot باید با شناسه داخلی یا شناسه امن قابل ردیابی باشد.",
+  },
+  customers: {
+    label: "مشتریان",
+    purpose: "ثبت رخدادهای مربوط به Customer Management.",
+    events: "ثبت مشتری، تغییر وضعیت، تمدید، تعلیق و رخدادهای مرتبط.",
+    notes: "اطلاعات شخصی و محرمانه مشتری نباید در گزارش درج شود.",
+  },
+  licenses: {
+    label: "لایسنس‌ها",
+    purpose: "مرکز رخدادهای ایجاد و مدیریت Licenseها.",
+    events: "Create، Activate، Extend، Suspend، Revoke و مصرف License.",
+    notes: "کلید یا Secret واقعی لایسنس هرگز در گزارش نمایش داده نشود.",
+  },
+  finance: {
+    label: "مالی",
+    purpose: "ثبت رخدادهای مالی و تغییرات قابل حسابرسی.",
+    events: "Invoice، Payment، Refund، Charge و تغییرات مالی.",
+    notes: "اطلاعات پرداخت حساس باید Mask یا حذف شود.",
+  },
+  ownership: {
+    label: "مالکیت",
+    purpose: "مرکز رخدادهای مالکیت و تغییرات سطح دسترسی مالک.",
+    events: "افزودن/حذف Owner، تغییر Sudo و تغییرات سطح مالکیت.",
+    notes: "این Topic فقط برای رخدادهای حساس مدیریتی سامانه است.",
+  },
+  web_panel: {
+    label: "Web Panel",
+    purpose: "ثبت رخدادهای پنل وب مالکیت و مدیریت.",
+    events: "Login، Logout، Permission، تغییر تنظیمات و عملیات پنل.",
+    notes: "اطلاعات احراز هویت و Token هرگز ثبت نمی‌شود.",
+  },
+  api_services: {
+    label: "API و سرویس‌ها",
+    purpose: "ثبت وضعیت و رخدادهای سرویس‌های API و وابستگی‌ها.",
+    events: "Request Failure، Timeout، Rate Limit، Service Down و Recovery.",
+    notes: "برای شناسایی سرویس معیوب یا Dependency ناپایدار استفاده می‌شود.",
+  },
+  support: {
+    label: "پشتیبانی",
+    purpose: "مرکز رخدادها و تیکت‌های مرتبط با پشتیبانی.",
+    events: "ایجاد، تغییر وضعیت و بسته شدن درخواست‌های پشتیبانی.",
+    notes: "اطلاعات حساس کاربر باید قبل از گزارش‌کردن حذف شود.",
+  },
+  customer_reports: {
+    label: "گزارش مشتریان",
+    purpose: "ثبت گزارش‌ها و رویدادهای قابل مشاهده برای مشتریان.",
+    events: "Customer Report، وضعیت سرویس مشتری و رخدادهای قابل ارائه.",
+    notes: "این بخش باید فقط داده مناسب سطح دسترسی مشتری را شامل شود.",
+  },
+  notifications: {
+    label: "اعلان‌ها",
+    purpose: "ثبت اعلان‌های سیستمی و مدیریتی ارسال‌شده.",
+    events: "ارسال، موفقیت، شکست، Retry و اولویت اعلان‌ها.",
+    notes: "برای ردیابی چرخه کامل Notification استفاده می‌شود.",
+  },
+  configuration: {
+    label: "تنظیمات و پیکربندی",
+    purpose: "ثبت تغییرات مهم Configuration سامانه.",
+    events: "تغییر تنظیمات، Feature Flag، Environment Mapping و Policy.",
+    notes: "مقادیر Secret و Token هرگز در این Topic ثبت نشوند.",
+  },
+  performance: {
+    label: "عملکرد",
+    purpose: "ثبت Metrics مربوط به کارایی و مصرف منابع.",
+    events: "Latency، Memory، CPU، Slow Operation و Performance Degradation.",
+    notes: "افزایش غیرعادی مصرف منابع باید با Severity مناسب ثبت شود.",
+  },
+  backup_recovery: {
+    label: "پشتیبان‌گیری و بازیابی",
+    purpose: "ثبت عملیات Backup و Recovery.",
+    events: "Backup Start، Backup Success، Restore، Failure و Verification.",
+    notes: "برای اطمینان از قابل بازیابی بودن داده‌ها استفاده می‌شود.",
+  },
+  audit: {
+    label: "Audit",
+    purpose: "ثبت رخدادهای حساس قابل حسابرسی در سطح سامانه.",
+    events: "تغییر دسترسی، تغییر مالکیت، عملیات مدیریتی مهم و تنظیمات حساس.",
+    notes: "این Topic باید تاریخچه دقیق عامل، عملیات و نتیجه را حفظ کند.",
+  },
+  critical: {
+    label: "وضعیت بحرانی",
+    purpose: "مرکز هشدارهای CRITICAL که نیازمند توجه فوری هستند.",
+    events: "Service Down، Data Failure، Security Critical، Recovery Failure و رخدادهای اضطراری.",
+    notes: "این Topic اولویت بالای رسیدگی دارد و باید کم‌حجم و عملیاتی باقی بماند.",
+  },
+};
+
+function buildTopicIntro(key, title) {
+  const info = TOPIC_INTROS[key] ?? {
+    label: title,
+    purpose: "ثبت رخدادهای مرتبط با این بخش از سامانه.",
+    events: "رویدادهای عملیاتی و مدیریتی مرتبط.",
+    notes: "گزارش‌ها باید خلاصه، دقیق و قابل پیگیری باشند.",
+  };
+
+  return [
+    `◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Rᴇᴘᴏʀᴛ Cᴇɴᴛᴇʀ`,
+    `★ - ${info.label}`,
+    "",
+    "─────━━───── ◈ ─────━━─────",
+    "",
+    `⛂ - کاربرد : ${info.purpose}`,
+    `⛂ - گزارش‌ها : ${info.events}`,
+    `⛂ - وضعیت : ● فعال`,
+    "",
+    `◂ راهنما : ${info.notes}`,
+    "",
+    "─────━━───── ◈ ─────━━─────",
+    "",
+    "● این پیام راهنمای ثابت Topic است.",
+    "● گزارش‌های واقعی سیستم بعد از این پیام ثبت می‌شوند.",
+  ].join("\n");
+}
+
 const chatId = String(process.env.REPORT_CENTER_CHAT_ID ?? "").trim();
 const token = String(process.env.BOT_TOKEN ?? "").trim();
 const databaseUrl = String(process.env.DATABASE_URL ?? "").trim();
@@ -102,6 +324,50 @@ async function deleteTopicWithRetry(threadId) {
   throw new Error(`deleteForumTopic retries exhausted for ${threadId}`);
 }
 
+
+async function sendMessageWithRetry(threadId, text) {
+  for (let attempt = 1; attempt <= 8; attempt += 1) {
+    const result = await api("sendMessage", {
+      chat_id: chatId,
+      message_thread_id: threadId,
+      text,
+      disable_web_page_preview: true,
+    });
+    if (result.ok && result.result?.message_id) return result;
+
+    const retryAfter = Number(result.parameters?.retry_after || 0);
+    if (String(result.error_code || "") === "429" && retryAfter > 0) {
+      const delay = Math.max(retryAfter, 1) * 1000 + 1500;
+      console.warn(`[report-center] sendMessage rate limit for [${threadId}]; retrying in ${Math.ceil(delay / 1000)}s`);
+      await sleep(delay);
+      continue;
+    }
+    throw new Error(`sendMessage failed for topic [${threadId}]: ${result.description || "unknown error"}`);
+  }
+  throw new Error(`sendMessage retries exhausted for topic [${threadId}]`);
+}
+
+async function pinMessageWithRetry(threadId, messageId) {
+  for (let attempt = 1; attempt <= 8; attempt += 1) {
+    const result = await api("pinChatMessage", {
+      chat_id: chatId,
+      message_id: messageId,
+      disable_notification: true,
+    });
+    if (result.ok) return true;
+
+    const retryAfter = Number(result.parameters?.retry_after || 0);
+    if (String(result.error_code || "") === "429" && retryAfter > 0) {
+      const delay = Math.max(retryAfter, 1) * 1000 + 1500;
+      console.warn(`[report-center] pin rate limit for [${threadId}]; retrying in ${Math.ceil(delay / 1000)}s`);
+      await sleep(delay);
+      continue;
+    }
+    throw new Error(`pinChatMessage failed for topic [${threadId}]: ${result.description || "unknown error"}`);
+  }
+  throw new Error(`pinChatMessage retries exhausted for topic [${threadId}]`);
+}
+
 async function bootstrap() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS report_centers (
@@ -121,10 +387,14 @@ async function bootstrap() {
       enabled BOOLEAN NOT NULL DEFAULT TRUE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      intro_message_id BIGINT,
+      intro_pinned_at TIMESTAMPTZ,
       UNIQUE(chat_id, topic_key),
       UNIQUE(chat_id, message_thread_id)
     );
     CREATE INDEX IF NOT EXISTS idx_report_center_topics_chat ON report_center_topics(chat_id);
+    ALTER TABLE report_center_topics ADD COLUMN IF NOT EXISTS intro_message_id BIGINT;
+    ALTER TABLE report_center_topics ADD COLUMN IF NOT EXISTS intro_pinned_at TIMESTAMPTZ;
   `);
 
   const lock = await pool.connect();
@@ -196,6 +466,28 @@ async function bootstrap() {
          ON CONFLICT(chat_id,topic_key) DO UPDATE SET title=EXCLUDED.title,message_thread_id=EXCLUDED.message_thread_id,enabled=TRUE,updated_at=NOW()`,
         [chatId, key, title, threadId],
       );
+
+      const introRow = await lock.query(
+        `SELECT intro_message_id FROM report_center_topics WHERE chat_id=$1 AND topic_key=$2 LIMIT 1`,
+        [chatId, key],
+      );
+      let introMessageId = Number(introRow.rows[0]?.intro_message_id || 0);
+
+      if (!introMessageId) {
+        const intro = await sendMessageWithRetry(threadId, buildTopicIntro(key, title));
+        introMessageId = Number(intro.result.message_id);
+        await pinMessageWithRetry(threadId, introMessageId);
+        await lock.query(
+          `UPDATE report_center_topics
+           SET intro_message_id=$1, intro_pinned_at=NOW(), updated_at=NOW()
+           WHERE chat_id=$2 AND topic_key=$3`,
+          [introMessageId, chatId, key],
+        );
+        console.log(`[report-center] intro pinned: ${key} [${threadId}] message=[${introMessageId}]`);
+        await sleep(1500);
+      } else {
+        results.push(`intro=${introMessageId}`);
+      }
     }
 
     console.log(`[report-center] ready: chat=${chatId} topics=${TOPICS.length} created=${createdCount}`);
