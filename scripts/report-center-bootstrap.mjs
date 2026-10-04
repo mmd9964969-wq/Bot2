@@ -232,6 +232,10 @@ const TOPIC_INTROS = {
   },
 };
 
+function richBold(text) {
+  return { type: "bold", text };
+}
+
 function buildTopicIntro(key, title) {
   const info = TOPIC_INTROS[key] ?? {
     label: title,
@@ -240,23 +244,82 @@ function buildTopicIntro(key, title) {
     notes: "گزارش‌ها باید خلاصه، دقیق و قابل پیگیری باشند.",
   };
 
-  return [
-    `◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Rᴇᴘᴏʀᴛ Cᴇɴᴛᴇʀ`,
-    `★ - ${info.label}`,
-    "",
-    "─────━━───── ◈ ─────━━─────",
-    "",
-    `⛂ - کاربرد : ${info.purpose}`,
-    `⛂ - گزارش‌ها : ${info.events}`,
-    `⛂ - وضعیت : ● فعال`,
-    "",
-    `◂ راهنما : ${info.notes}`,
-    "",
-    "─────━━───── ◈ ─────━━─────",
-    "",
-    "● این پیام راهنمای ثابت Topic است.",
-    "● گزارش‌های واقعی سیستم بعد از این پیام ثبت می‌شوند.",
-  ].join("\n");
+  return {
+    is_rtl: true,
+    blocks: [
+      {
+        type: "heading",
+        size: 2,
+        text: [
+          richBold("◈ Pᴇʀsɪᴀɴ ᴮᵒᵗ · Rᴇᴘᴏʀᴛ Cᴇɴᴛᴇʀ"),
+        ],
+      },
+      {
+        type: "heading",
+        size: 3,
+        text: [richBold(`★ - ${info.label}`)],
+      },
+      { type: "divider" },
+      {
+        type: "table",
+        is_bordered: true,
+        is_striped: true,
+        is_compact: true,
+        caption: richBold("مشخصات Topic"),
+        cells: [
+          [
+            { text: richBold("بخش"), is_header: true, align: "center", valign: "middle" },
+            { text: richBold("توضیح"), is_header: true, align: "center", valign: "middle" },
+          ],
+          [
+            { text: "کاربرد", align: "right", valign: "middle" },
+            { text: info.purpose, align: "right", valign: "middle" },
+          ],
+          [
+            { text: "گزارش‌ها", align: "right", valign: "middle" },
+            { text: info.events, align: "right", valign: "middle" },
+          ],
+          [
+            { text: "وضعیت", align: "right", valign: "middle" },
+            { text: "● فعال", align: "right", valign: "middle" },
+          ],
+        ],
+      },
+      {
+        type: "details",
+        summary: richBold("◂ راهنمای استفاده"),
+        is_open: true,
+        blocks: [
+          {
+            type: "paragraph",
+            text: info.notes,
+          },
+          {
+            type: "list",
+            items: [
+              {
+                label: "۱",
+                blocks: [{ type: "paragraph", text: "این پیام، راهنمای ثابت Topic است." }],
+              },
+              {
+                label: "۲",
+                blocks: [{ type: "paragraph", text: "گزارش‌های واقعی سیستم بعد از این پیام ثبت می‌شوند." }],
+              },
+              {
+                label: "۳",
+                blocks: [{ type: "paragraph", text: "این پیام توسط ربات ایجاد و Pin می‌شود." }],
+              },
+            ],
+          },
+        ],
+      },
+      { type: "divider" },
+      {
+        type: "footer",
+        text: "Pᴇʀsɪᴀɴ ᴮᵒᵗ · Rᴇᴘᴏʀᴛ Cᴇɴᴛᴇʀ",
+      },
+    ],
+  };
 }
 
 const chatId = String(process.env.REPORT_CENTER_CHAT_ID ?? "").trim();
@@ -325,27 +388,54 @@ async function deleteTopicWithRetry(threadId) {
 }
 
 
-async function sendMessageWithRetry(threadId, text) {
+async function sendRichMessageWithRetry(threadId, richMessage) {
   for (let attempt = 1; attempt <= 8; attempt += 1) {
-    const result = await api("sendMessage", {
+    const result = await api("sendRichMessage", {
       chat_id: chatId,
       message_thread_id: threadId,
-      text,
-      parse_mode: "HTML",
-      disable_web_page_preview: true,
+      rich_message: richMessage,
+      disable_notification: true,
     });
-    if (result.ok && result.result?.message_id) return result;
+    if (result.ok && result.result?.message_id && result.result?.rich_message) return result;
 
     const retryAfter = Number(result.parameters?.retry_after || 0);
     if (String(result.error_code || "") === "429" && retryAfter > 0) {
       const delay = Math.max(retryAfter, 1) * 1000 + 1500;
-      console.warn(`[report-center] sendMessage rate limit for [${threadId}]; retrying in ${Math.ceil(delay / 1000)}s`);
+      console.warn(`[report-center] sendRichMessage rate limit for [${threadId}]; retrying in ${Math.ceil(delay / 1000)}s`);
       await sleep(delay);
       continue;
     }
-    throw new Error(`sendMessage failed for topic [${threadId}]: ${result.description || "unknown error"}`);
+
+    throw new Error(`sendRichMessage failed for topic [${threadId}]: ${result.description || "unknown error"}`);
   }
-  throw new Error(`sendMessage retries exhausted for topic [${threadId}]`);
+
+  throw new Error(`sendRichMessage retries exhausted for topic [${threadId}]`);
+}
+
+
+async function deleteMessageWithRetry(threadId, messageId) {
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    const result = await api("deleteMessage", {
+      chat_id: chatId,
+      message_id: messageId,
+    });
+    if (result.ok) return true;
+
+    const retryAfter = Number(result.parameters?.retry_after || 0);
+    if (String(result.error_code || "") === "429" && retryAfter > 0) {
+      await sleep(Math.max(retryAfter, 1) * 1000 + 1500);
+      continue;
+    }
+
+    if (Number(result.error_code) === 400) {
+      console.warn(`[report-center] old intro [${messageId}] on topic [${threadId}] is already absent`);
+      return false;
+    }
+
+    throw new Error(`deleteMessage failed for [${messageId}]: ${result.description || "unknown error"}`);
+  }
+
+  throw new Error(`deleteMessage retries exhausted for [${messageId}]`);
 }
 
 async function pinMessageWithRetry(threadId, messageId) {
@@ -390,12 +480,14 @@ async function bootstrap() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       intro_message_id BIGINT,
       intro_pinned_at TIMESTAMPTZ,
+      intro_format TEXT NOT NULL DEFAULT 'legacy',
       UNIQUE(chat_id, topic_key),
       UNIQUE(chat_id, message_thread_id)
     );
     CREATE INDEX IF NOT EXISTS idx_report_center_topics_chat ON report_center_topics(chat_id);
     ALTER TABLE report_center_topics ADD COLUMN IF NOT EXISTS intro_message_id BIGINT;
     ALTER TABLE report_center_topics ADD COLUMN IF NOT EXISTS intro_pinned_at TIMESTAMPTZ;
+    ALTER TABLE report_center_topics ADD COLUMN IF NOT EXISTS intro_format TEXT NOT NULL DEFAULT 'legacy';
   `);
 
   const lock = await pool.connect();
@@ -470,25 +562,42 @@ async function bootstrap() {
       );
 
       const introRow = await lock.query(
-        `SELECT intro_message_id FROM report_center_topics WHERE chat_id=$1 AND topic_key=$2 LIMIT 1`,
+        `SELECT intro_message_id, intro_format
+         FROM report_center_topics
+         WHERE chat_id=$1 AND topic_key=$2
+         LIMIT 1`,
         [chatId, key],
       );
       let introMessageId = Number(introRow.rows[0]?.intro_message_id || 0);
+      const introFormat = String(introRow.rows[0]?.intro_format || "legacy");
 
-      if (!introMessageId) {
-        const intro = await sendMessageWithRetry(threadId, buildTopicIntro(key, title));
+      if (introFormat !== "rich_v1") {
+        if (introMessageId) {
+          await deleteMessageWithRetry(threadId, introMessageId);
+          await sleep(1000);
+        }
+
+        const intro = await sendRichMessageWithRetry(threadId, buildTopicIntro(key, title));
         introMessageId = Number(intro.result.message_id);
+        if (!intro.result.rich_message) {
+          throw new Error(`Telegram did not return a RichMessage payload for topic [${threadId}]`);
+        }
+
         await pinMessageWithRetry(threadId, introMessageId);
         await lock.query(
           `UPDATE report_center_topics
-           SET intro_message_id=$1, intro_pinned_at=NOW(), updated_at=NOW()
+           SET intro_message_id=$1,
+               intro_pinned_at=NOW(),
+               intro_format='rich_v1',
+               updated_at=NOW()
            WHERE chat_id=$2 AND topic_key=$3`,
           [introMessageId, chatId, key],
         );
-        console.log(`[report-center] intro pinned: ${key} [${threadId}] message=[${introMessageId}]`);
-        await sleep(1500);
+
+        console.log(`[report-center] rich intro pinned: ${key} [${threadId}] message=[${introMessageId}]`);
+        await sleep(2000);
       } else {
-        results.push(`intro=${introMessageId}`);
+        results.push(`intro=${introMessageId}:rich_v1`);
       }
     }
 
