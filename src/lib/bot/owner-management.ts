@@ -206,10 +206,60 @@ export async function handleOwnerManagementCallback(pool:Pool,cb:TgCallback,owne
     return !!result;
   }
   if(data==="om:support")return !!(await support(pool,uid,chatId,messageId));
-  if(data==="om:support:add"){startFlow(uid,"support_add");return !!(await edit(pool,uid,chatId,messageId,rich("Sᴜᴘᴘᴏʀᴛ Aᴅᴅ · ثبت تیکت",[{type:"paragraph",text:"قالب: مشتری | موضوع | پیام | اولویت"}]),kb([BACK("om:support")]));}
-  if(data.startsWith("om:support:list:")){const st=data.slice(17);const rows=await pool.query("SELECT id,customer_id,category,subject,priority,status FROM owner_support_tickets WHERE status=$1 ORDER BY created_at DESC LIMIT 40",[st]).catch(function(){return {rows:[]}});return !!(await edit(pool,uid,chatId,messageId,rich("Sᴜᴘᴘᴏʀᴛ · تیکت‌ها",[table("نتیجه",(rows.rows||[]).map(function(x:any){return ["#"+x.id+" · "+x.subject,String(x.status)+" · "+String(x.priority)]}) as any)]),kb([BACK("om:support")])));}
-  if(data==="om:finance:add"){startFlow(uid,"finance_add");return !!(await edit(pool,uid,chatId,messageId,rich("Fɪɴᴀɴᴄᴇ Aᴅᴅ · ثبت تراکنش",[{type:"paragraph",text:"قالب: درآمد | مبلغ | توضیح | آیدی مشتری"}]),kb([BACK("om:finance")])));}
-  if(data==="om:finance:recent"){const rows=await pool.query("SELECT type,amount,currency,description,created_at FROM owner_financial_ledger ORDER BY created_at DESC LIMIT 30").catch(function(){return {rows:[]}});return !!(await edit(pool,uid,chatId,messageId,rich("Fɪɴᴀɴᴄᴇ · تراکنش‌ها",[table("دفتر",(rows.rows||[]).map(function(x:any){return [dateFa(x.created_at),String(x.amount)+" "+String(x.currency)+" · "+String(x.description||"")]}) as any)]),kb([BACK("om:finance")])));}
+  if(data==="om:support:add"){
+    startFlow(uid,"support_add");
+    const result=await edit(
+      pool,uid,chatId,messageId,
+      rich("Sᴜᴘᴘᴏʀᴛ Aᴅᴅ · ثبت تیکت",[
+        {type:"paragraph",text:"قالب: مشتری | موضوع | پیام | اولویت"}
+      ]),
+      kb([BACK("om:support")])
+    );
+    return !!result;
+  }
+  if(data.startsWith("om:support:list:")){
+    const st=data.slice(17);
+    const rows=await pool.query(
+      "SELECT id,customer_id,category,subject,priority,status FROM owner_support_tickets WHERE status=$1 ORDER BY created_at DESC LIMIT 40",
+      [st]
+    ).catch(function(){return {rows:[]};});
+    const result=await edit(
+      pool,uid,chatId,messageId,
+      rich("Sᴜᴘᴘᴏʀᴛ · تیکت‌ها",[
+        table("نتیجه",(rows.rows||[]).map(function(x:any){
+          return ["#"+x.id+" · "+x.subject,String(x.status)+" · "+String(x.priority)];
+        }) as any)
+      ]),
+      kb([BACK("om:support")])
+    );
+    return !!result;
+  }
+  if(data==="om:finance:add"){
+    startFlow(uid,"finance_add");
+    const result=await edit(
+      pool,uid,chatId,messageId,
+      rich("Fɪɴᴀɴᴄᴇ Aᴅᴅ · ثبت تراکنش",[
+        {type:"paragraph",text:"قالب: درآمد | مبلغ | توضیح | آیدی مشتری"}
+      ]),
+      kb([BACK("om:finance")])
+    );
+    return !!result;
+  }
+  if(data==="om:finance:recent"){
+    const rows=await pool.query(
+      "SELECT type,amount,currency,description,created_at FROM owner_financial_ledger ORDER BY created_at DESC LIMIT 30"
+    ).catch(function(){return {rows:[]};});
+    const result=await edit(
+      pool,uid,chatId,messageId,
+      rich("Fɪɴᴀɴᴄᴇ · تراکنش‌ها",[
+        table("دفتر",(rows.rows||[]).map(function(x:any){
+          return [dateFa(x.created_at),String(x.amount)+" "+String(x.currency)+" · "+String(x.description||"")];
+        }) as any)
+      ]),
+      kb([BACK("om:finance")])
+    );
+    return !!result;
+  }
   if(data==="om:system:health"||data==="om:system:reload"||data==="om:system:maintenance"||data==="om:system:resources"){
     if(data==="om:system:health"){const r=await executeRuntimeAction("health_check").catch(function(){return {success:false,maintenance:false}});return !!(await edit(pool,uid,chatId,messageId,rich("Sʏѕᴛᴇᴍ Hᴇᴀʟᴛʜ · سلامت سیستم",[table("نتیجه",[["Runtime",r.success?(r.maintenance?"نگهداری":"فعال"):"خطادار"],["زمان",dateFa(new Date())]])]),kb([BACK("om:system")])));}
     if(data==="om:system:reload"){const r=await executeRuntimeAction("reload_config").catch(function(){return {success:false}});return !!(await edit(pool,uid,chatId,messageId,rich("Rᴇʟᴏᴀᴅ · بازخوانی",[ {type:"paragraph",text:r.success?"پیکربندی Runtime بازخوانی شد.":"Runtime آماده بازخوانی نبود."}]),kb([BACK("om:system")])));}
