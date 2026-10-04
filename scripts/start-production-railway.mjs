@@ -22,13 +22,22 @@ async function main() {
   const migrationCode = await waitForProcess(migration, "database migration");
   if (migrationCode !== 0) process.exit(migrationCode);
 
-  const reportCenter = run("node", ["scripts/report-center-bootstrap.mjs"]);
-  const reportCenterCode = await waitForProcess(reportCenter, "report center bootstrap");
-  if (reportCenterCode !== 0) process.exit(reportCenterCode);
-
   const port = process.env.PORT || "8080";
   const web = run("node", [".output/server/index.mjs"], { PORT: port, HOST: "0.0.0.0" });
   const bot = run("node", ["--experimental-strip-types", "bot/main.ts"]);
+
+  // Report Center provisioning must never delay the production healthcheck.
+  // It runs in the same container, reuses the configured BOT_TOKEN/DATABASE_URL,
+  // and is idempotent. Telegram rate limits are handled inside the bootstrap.
+  const reportCenter = run("node", ["scripts/report-center-bootstrap.mjs"]);
+  reportCenter.once("error", (error) => {
+    console.error("[report-center] background bootstrap process failed:", error);
+  });
+  reportCenter.once("exit", (code, signal) => {
+    if (signal) console.warn("[report-center] bootstrap stopped by", signal);
+    else if (code !== 0) console.error("[report-center] bootstrap exited with code", code);
+    else console.log("[report-center] background bootstrap completed");
+  });
 
   let stopping = false;
   const stop = (code = 0) => {
@@ -36,6 +45,7 @@ async function main() {
     stopping = true;
     web.kill("SIGTERM");
     bot.kill("SIGTERM");
+    reportCenter.kill("SIGTERM");
     setTimeout(() => process.exit(code), 1000).unref();
   };
 
