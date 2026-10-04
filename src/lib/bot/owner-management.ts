@@ -188,7 +188,23 @@ export async function handleOwnerManagementCallback(pool:Pool,cb:TgCallback,owne
   if(data==="om:requests")return !!(await requests(pool,uid,chatId,messageId));
   if(data==="om:requests:add"){startFlow(uid,"request_add");return !!(await edit(pool,uid,chatId,messageId,rich("Rᴇǫᴜᴇѕᴛ Aᴅᴅ · ثبت درخواست",[{type:"paragraph",text:"قالب: نوع | عنوان | توضیح | اولویت"}]),kb([BACK("om:requests")])));
   }
-  if(data.startsWith("om:requests:list:")){const st=data.slice(17);const rows=await pool.query("SELECT id,type,subject,priority,status,created_at FROM owner_requests WHERE status=$1 ORDER BY created_at DESC LIMIT 40",[st]).catch(function(){return {rows:[]}});return !!(await edit(pool,uid,chatId,messageId,rich("Rᴇǫᴜᴇѕᴛѕ · درخواست‌ها",[table("نتیجه",(rows.rows||[]).map(function(x:any){return ["#"+x.id+" · "+x.subject",String(x.status)+" · "+String(x.priority)]}) as any)]),kb([BACK("om:requests")])));}
+  if(data.startsWith("om:requests:list:")){
+    const st=data.slice(17);
+    const rows=await pool.query(
+      "SELECT id,type,subject,priority,status,created_at FROM owner_requests WHERE status=$1 ORDER BY created_at DESC LIMIT 40",
+      [st]
+    ).catch(function(){return {rows:[]};});
+    const result=await edit(
+      pool,uid,chatId,messageId,
+      rich("Rᴇǫᴜᴇѕᴛѕ · درخواست‌ها",[
+        table("نتیجه",(rows.rows||[]).map(function(x:any){
+          return ["#"+x.id+" · "+x.subject",String(x.status)+" · "+String(x.priority)];
+        }) as any)
+      ]),
+      kb([BACK("om:requests")])
+    );
+    return !!result;
+  }
   if(data==="om:support")return !!(await support(pool,uid,chatId,messageId));
   if(data==="om:support:add"){startFlow(uid,"support_add");return !!(await edit(pool,uid,chatId,messageId,rich("Sᴜᴘᴘᴏʀᴛ Aᴅᴅ · ثبت تیکت",[{type:"paragraph",text:"قالب: مشتری | موضوع | پیام | اولویت"}]),kb([BACK("om:support")]));}
   if(data.startsWith("om:support:list:")){const st=data.slice(17);const rows=await pool.query("SELECT id,customer_id,category,subject,priority,status FROM owner_support_tickets WHERE status=$1 ORDER BY created_at DESC LIMIT 40",[st]).catch(function(){return {rows:[]}});return !!(await edit(pool,uid,chatId,messageId,rich("Sᴜᴘᴘᴏʀᴛ · تیکت‌ها",[table("نتیجه",(rows.rows||[]).map(function(x:any){return ["#"+x.id+" · "+x.subject,String(x.status)+" · "+String(x.priority)]}) as any)]),kb([BACK("om:support")])));}
