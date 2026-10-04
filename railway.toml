@@ -4,5 +4,5 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "npm start"
+startCommand = "node scripts/start-production-railway.mjs"
 restartPolicyType = "ALWAYS"
