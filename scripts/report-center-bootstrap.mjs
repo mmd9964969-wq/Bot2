@@ -37,6 +37,42 @@ const TOPICS = [
   ["critical", "وضعیت بحرانی"],
 ];
 
+
+const TOPIC_ICONS = {
+  startup: "5217880283860194582",
+  system_status: "5447410659077661506",
+  deployment: "5375338737028841420",
+  groups: "5942877472163892475",
+  installation: "5271604874419647061",
+  members: "5879770735999717115",
+  admins: "5886505193180239900",
+  moderation: "5805532930662996322",
+  commands: "5877597667231534929",
+  security: "5296369303661067030",
+  locks: "5296369303661067030",
+  health: "5960714428394507968",
+  errors: "5447644880824181073",
+  database: "5877485980901971030",
+  queue: "5217697679030637222",
+  scheduler: "5413879192267805083",
+  analytics: "5231200819986047254",
+  bots: "5931415565955503486",
+  customers: "5967389567781703494",
+  licenses: "5985433648810171091",
+  finance: "5409048419211682843",
+  ownership: "5438496463044752972",
+  web_panel: "5447410659077661506",
+  api_services: "5271604874419647061",
+  support: "5884510167986343350",
+  customer_reports: "5877597667231534929",
+  notifications: "5458603043203327669",
+  configuration: "5341715473882955310",
+  performance: "5449683594425410231",
+  backup_recovery: "5967456680940671207",
+  audit: "5877301185639091664",
+  critical: "5456140674028019486",
+};
+
 const TOPIC_INTROS = {
   startup: {
     label: "راه‌اندازی ربات",
@@ -349,9 +385,9 @@ const api = async (method, body = {}) => {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const pool = new Pool({ connectionString: databaseUrl, max: 2 });
 
-async function createTopicWithRetry(title) {
+async function createTopicWithRetry(title, iconCustomEmojiId) {
   for (let attempt = 1; attempt <= 8; attempt += 1) {
-    const created = await api("createForumTopic", { chat_id: chatId, name: title });
+    const created = await api("createForumTopic", { chat_id: chatId, name: title, icon_custom_emoji_id: iconCustomEmojiId });
     if (created.ok && created.result?.message_thread_id) return created;
 
     const retryAfter = Number(created.parameters?.retry_after || 0);
@@ -364,6 +400,25 @@ async function createTopicWithRetry(title) {
     throw new Error(`createForumTopic failed for ${title}: ${created.description || "unknown error"}`);
   }
   throw new Error(`createForumTopic retries exhausted for ${title}`);
+}
+
+async function editTopicIconWithRetry(threadId, iconCustomEmojiId) {
+  for (let attempt = 1; attempt <= 8; attempt += 1) {
+    const result = await api("editForumTopic", {
+      chat_id: chatId,
+      message_thread_id: threadId,
+      icon_custom_emoji_id: String(iconCustomEmojiId),
+    });
+    if (result.ok) return true;
+    const retryAfter = Number(result.parameters?.retry_after || 0);
+    if (String(result.error_code || "") === "429" && retryAfter > 0) {
+      await sleep(Math.max(retryAfter, 1) * 1000 + 1500);
+      continue;
+    }
+    if (Number(result.error_code) === 400 && /not modified/i.test(String(result.description || ""))) return true;
+    throw new Error(`editForumTopic failed for [${threadId}]: ${result.description || "unknown error"}`);
+  }
+  throw new Error(`editForumTopic retries exhausted for topic [${threadId}]`);
 }
 
 async function deleteTopicWithRetry(threadId) {
@@ -545,7 +600,9 @@ async function bootstrap() {
 
       let threadId = Number(existing.rows[0]?.message_thread_id || 0);
       if (!threadId) {
-        const created = await createTopicWithRetry(title);
+        const iconCustomEmojiId = TOPIC_ICONS[key];
+        if (!iconCustomEmojiId) throw new Error(`Missing custom emoji ID for topic [${key}]`);
+        const created = await createTopicWithRetry(title, iconCustomEmojiId);
         threadId = Number(created.result.message_thread_id);
         createdCount += 1;
         results.push(`+ ${title} [${threadId}]`);
@@ -553,6 +610,12 @@ async function bootstrap() {
       } else {
         results.push(`= ${title} [${threadId}]`);
       }
+
+      const iconCustomEmojiId = TOPIC_ICONS[key];
+      if (!iconCustomEmojiId) throw new Error(`Missing custom emoji ID for topic [${key}]`);
+
+      // Existing topics keep their thread IDs; synchronize only the native Telegram topic icon.
+      await editTopicIconWithRetry(threadId, iconCustomEmojiId);
 
       await lock.query(
         `INSERT INTO report_center_topics(chat_id,topic_key,title,message_thread_id,enabled,updated_at)
