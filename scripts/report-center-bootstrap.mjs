@@ -331,6 +331,7 @@ async function sendMessageWithRetry(threadId, text) {
       chat_id: chatId,
       message_thread_id: threadId,
       text,
+      parse_mode: "HTML",
       disable_web_page_preview: true,
     });
     if (result.ok && result.result?.message_id) return result;
@@ -422,6 +423,7 @@ async function bootstrap() {
     const status = String(botMember.result.status || "");
     if (![ "administrator", "creator" ].includes(status)) throw new Error("Bot is not an administrator in Report Center");
     if (botMember.result.can_manage_topics !== true && status !== "creator") throw new Error("Bot does not have Manage Topics permission");
+    if (botMember.result.can_pin_messages !== true && status !== "creator") throw new Error("Bot does not have Pin Messages permission");
 
     if (cleanupIds.length) {
       console.log(`[report-center] cleanup requested: ${cleanupIds.join(",")}`);
