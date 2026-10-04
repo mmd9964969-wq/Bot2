@@ -1235,7 +1235,7 @@ async function processMessage(msg: TgMessage, edited = false) {
   }
   // Stage 0 owner entry uses explicit Telegram commands only.
   // /start and /restart render the owner-only Rich Message entry.
-  const ownerEntryCommand = ["start","restart","ری‌استارت","ری استارت","رستارت","استارت"].includes(normalizedEntry);
+  const ownerEntryCommand = ["start","restart","ری‌استارت","ری استارت","رستارت","استارت","پنل مالکیت"].includes(normalizedEntry);
   if (isPrivate && studioPool && ownerEntryCommand) {
     if (await openOwnerPanelEntry(studioPool, msg, config.ownerIds)) return;
   }
